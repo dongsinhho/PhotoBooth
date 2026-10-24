@@ -1,4 +1,4 @@
-﻿# PhotoBooth
+# PhotoBooth
 
 **PhotoBooth** is a planned cross-platform photobooth platform combining reliable on-site capture with an online ecosystem for themes, photo frames, and community creators.
 
@@ -92,6 +92,7 @@ This is a **target proposal**, not a description of implemented code.
     ├── adr/
     └── knowledge-base/
         ├── README.md
+        ├── PRODUCT_PLAN.md
         ├── PRODUCT_BRIEF.md
         ├── MVP_SCOPE.md
         ├── SYSTEM_ARCHITECTURE.md
@@ -109,4 +110,3 @@ This is a **target proposal**, not a description of implemented code.
 Before planning or changing code, read [AGENTS.md](AGENTS.md), then [docs/knowledge-base/README.md](docs/knowledge-base/README.md), then the relevant topic documents and ADRs.
 
 The knowledge base distinguishes accepted requirements from proposals and open questions. Update it as decisions and implementation evolve.
-
