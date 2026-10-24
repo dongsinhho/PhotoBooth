@@ -1,8 +1,8 @@
 # Product Plan: From Idea to Commercial Launch
 
-**Status:** Proposed execution plan  
-**Last updated:** 2026-10-24  
-**Planning horizon:** Approximately 12Ã¢â‚¬â€œ16 weeks to a small private pilot, followed by staged public launch. This is a planning estimate, not a delivery commitment. Hardware availability, SDK compatibility, and pilot feedback may change it.
+**Status:** Proposed execution plan
+**Last updated:** 2026-10-24
+**Planning horizon:** Approximately 12ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ16 weeks to a small private pilot, followed by staged public launch. This is a planning estimate, not a delivery commitment. Hardware availability, SDK compatibility, and pilot feedback may change it.
 
 ## Executive strategy
 
@@ -28,11 +28,11 @@ Start with independent photobooth operators or a small operator with one to five
 
 Do not target every use case at once. Distinguish permanent self-service retail booths, event rental booths, and studio/event workflows; their printer, staffing, payment, and network requirements may differ substantially.
 
-## Phase 0 Ã¢â‚¬â€ Product discovery and validation
-**Planning window:** Week 1Ã¢â‚¬â€œ2
+## Phase 0 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Product discovery and validation
+**Planning window:** Week 1ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ2
 
 ### Work
-1. Interview 10Ã¢â‚¬â€œ15 booth owners/operators; observe at least a few real setup and photo sessions if possible.
+1. Interview 10ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ15 booth owners/operators; observe at least a few real setup and photo sessions if possible.
 2. Record the actual camera models, firmware, connection mode, PC specifications, OS, printers, paper sizes, kiosk input, and Internet reliability.
 3. Ask how operators currently obtain, design, install, change, and pay for frames/themes.
 4. Measure the pain of photo delivery: local retrieval, LAN transfer, cloud sharing, storage cost, and retention.
@@ -51,13 +51,13 @@ Do not target every use case at once. Distinguish permanent self-service retail 
 ### Gate to proceed
 - At least three operators agree to be design partners or pilot candidates.
 - One camera/printer/PC configuration can be secured for repeatable testing.
-- The interviews identify a pain point stronger than Ã¢â‚¬Å“we want another frame app.Ã¢â‚¬Â
+- The interviews identify a pain point stronger than ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“we want another frame app.ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â
 - A plausible first value proposition and pilot scope can be explained in one paragraph.
 
 If these conditions fail, refine the target segment or product positioning before committing to a large build.
 
-## Phase 1 Ã¢â‚¬â€ Technical feasibility spikes
-**Planning window:** Week 2Ã¢â‚¬â€œ3; can overlap late discovery
+## Phase 1 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Technical feasibility spikes
+**Planning window:** Week 2ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ3; can overlap late discovery
 
 This phase prevents an expensive architecture built around unsupported hardware assumptions.
 
@@ -91,7 +91,7 @@ Compare the official vendor SDK with an open-source provider only for the exact 
 
 Do not finalize the UI framework or camera abstraction solely from a paper comparison.
 
-## Phase 2 Ã¢â‚¬â€ Lock MVP scope and contracts
+## Phase 2 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Lock MVP scope and contracts
 **Planning window:** Week 3
 
 ### MVP must include
@@ -128,8 +128,8 @@ Do not finalize the UI framework or camera abstraction solely from a paper compa
 - Repository skeleton/module boundaries and test strategy.
 - Acceptance criteria for the first end-to-end session.
 
-## Phase 3 Ã¢â‚¬â€ Build the local alpha
-**Planning window:** Week 4Ã¢â‚¬â€œ7
+## Phase 3 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Build the local alpha
+**Planning window:** Week 4ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ7
 
 Build a complete vertical slice instead of many disconnected modules.
 
@@ -153,8 +153,8 @@ Keep the player independent of the cloud API. Go is the preferred backend langua
 - Unit/integration tests cover session state, rendering geometry, configuration validation, and recoverable failures.
 - A clean machine can install and run the alpha using documented steps.
 
-## Phase 4 Ã¢â‚¬â€ Private pilot and reliability hardening
-**Planning window:** Week 8Ã¢â‚¬â€œ9
+## Phase 4 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Private pilot and reliability hardening
+**Planning window:** Week 8ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ9
 
 Deploy to two or three design-partner booths if possible, beginning with the exact environment that passed alpha testing.
 
@@ -190,8 +190,8 @@ These are proposed targets for the pilot, not proven current performance.
 ### Exit gate
 Resolve all critical defects; record non-critical known issues and supported limitations. Do not expand hardware/OS claims beyond what was tested.
 
-## Phase 5 Ã¢â‚¬â€ Add optional delivery and payment
-**Planning window:** Week 9Ã¢â‚¬â€œ11, after basic capture is stable
+## Phase 5 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Add optional delivery and payment
+**Planning window:** Week 9ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ11, after basic capture is stable
 
 Implement and test these features as independently selectable modules.
 
@@ -218,15 +218,15 @@ Showing a static QR or receiving a client-side success message is not sufficient
 - Paid sessions cannot be granted on unverified payment.
 - Optional media delivery failure cannot lose the only copy of the output.
 
-## Phase 6 Ã¢â‚¬â€ Content catalog and creator beta
-**Planning window:** Week 10Ã¢â‚¬â€œ13
+## Phase 6 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Content catalog and creator beta
+**Planning window:** Week 10ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ13
 
 Start with a curated catalogue, not a full marketplace.
 
 ### First content beta
 - Finalize and version the declarative theme/frame package schema.
 - Build validation for file paths, hashes, package sizes, supported dimensions, license metadata, compatibility, and safe activation/rollback.
-- Include a small professionally curated pack. Suggested goal: 20Ã¢â‚¬â€œ30 usable frames with consistent preview quality and a range of common concepts.
+- Include a small professionally curated pack. Suggested goal: 20ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ30 usable frames with consistent preview quality and a range of common concepts.
 - Add a read-only catalog, search/categories, preview, download, and local install.
 - Seed content with a small group of designers and obtain written permissions/licenses.
 - Track downloads and activation counts without collecting guest photos.
@@ -241,8 +241,8 @@ Start with a curated catalogue, not a full marketplace.
 ### Gate
 An operator can discover a compatible frame, inspect its preview/license, download it, install it, activate it safely, and continue using it offline.
 
-## Phase 7 Ã¢â‚¬â€ Release engineering and public beta
-**Planning window:** Week 12Ã¢â‚¬â€œ15, dependent on prior gates
+## Phase 7 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Release engineering and public beta
+**Planning window:** Week 12ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ15, dependent on prior gates
 
 ### Delivery checklist
 - Reproducible builds and versioned release artifacts.
@@ -262,7 +262,7 @@ Treat Windows and Linux as separate release targets with separate compatibility 
 ### Exit gate
 A new store can install, configure, and run without a developer at the booth; rollback/support procedures have been rehearsed.
 
-## Phase 8 Ã¢â‚¬â€ Marketing and commercial validation
+## Phase 8 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Marketing and commercial validation
 **Starts during discovery; intensifies before public beta**
 
 ### Before build completion
@@ -276,7 +276,7 @@ A new store can install, configure, and run without a developer at the booth; ro
 - Prepare short videos demonstrating the complete flow: select frame, take photos, output, receive photos.
 - Publish troubleshooting/setup guides that lower migration risk.
 - Recruit five or more frame designers for the first content cohort.
-- Prepare approximately 20Ã¢â‚¬â€œ30 high-quality launch frames, including free samples. This is a suggested launch target, not a requirement.
+- Prepare approximately 20ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ30 high-quality launch frames, including free samples. This is a suggested launch target, not a requirement.
 - Give pilot partners a clear offer: early access, direct support, migration assistance, and a channel to request frames/features.
 - Make clear what works offline, what requires Internet, and what costs extra.
 
@@ -338,24 +338,24 @@ Every marketplace package needs explicit license/attribution and a takedown proc
 | Legal/IP issue with guest photos or design assets | Privacy/retention review, contributor license, moderation and takedown process |
 | AI produces architecture/code drift | Repository instructions, tests, ADRs, and one reviewed vertical slice at a time |
 
-## First 10 working days Ã¢â‚¬â€ actionable checklist
+## First 10 working days ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â actionable checklist
 
-### Days 1Ã¢â‚¬â€œ2
+### Days 1ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ2
 - Prepare a short operator interview script.
 - List local booth businesses and relevant communities to contact.
 - Ask target operators for camera, PC, OS, printer and paper-size details.
 
-### Days 3Ã¢â‚¬â€œ5
+### Days 3ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ5
 - Conduct the first five interviews.
 - Build a competitor matrix from direct product/docs/pricing checks.
 - Write the problem statement and initial user journey from observed facts.
 
-### Days 6Ã¢â‚¬â€œ7
+### Days 6ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ7
 - Select the most promising reference hardware from interview evidence.
 - Borrow/buy/access the exact camera and printer.
 - Create a compatibility test checklist.
 
-### Days 8Ã¢â‚¬â€œ10
+### Days 8ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ10
 - Run the first camera capture/transfer spike on Windows.
 - Run a bounded Linux feasibility test on a named distribution if it is part of the target cost case.
 - Make a one-page decision: target OS for first pilot, UI candidate, camera provider candidate, and the biggest blockers.
@@ -370,7 +370,7 @@ At the end of each week, record:
 - New risks/blockers and decisions needed.
 - Next week's one or two highest-value outcomes.
 
-AI can accelerate implementation, research, and test scaffolding, but acceptance gates must be based on observed runs, source evidence, and feedback from real operatorsÃ¢â‚¬â€not generated code volume.
+AI can accelerate implementation, research, and test scaffolding, but acceptance gates must be based on observed runs, source evidence, and feedback from real operatorsÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Ânot generated code volume.
 
 ## Licensing and commercial policy
 
@@ -387,10 +387,19 @@ Before publishing source code or accepting external code contributions, resolve 
 
 Support revenue must not become a hidden dependency: standard self-installation, local capture, configuration, and the supported frame workflow should remain useful without purchasing support. Cloud storage/support, if later offered, needs separately disclosed terms and pricing.
 
-## Free commercial-use positioning
+## Free commercial use and controlled-core licensing
 
-PhotoBooth is software-only; the project does not sell cameras, computers, printers, or bundled booth hardware. The official app is intended to be free to use for commercial photo sessions and self-installation. Optional revenue comes from support and authorized custom engineering, not from mandatory software usage fees.
+PhotoBooth is software-only; the project does not sell camera, computer, printer, or booth hardware.
 
-Supported settings and theme/frame packages are the ordinary customization route. The intended controlled-core model reserves code modification and modified-build redistribution for explicit authorization or separate licensing, subject to legal review. See [LICENSE_STRATEGY.md](LICENSE_STRATEGY.md) and ADR 0004.
+The intended customer promise:
+- The official application is free for commercial photobooth operation and does not require a per-booth/per-session software fee.
+- Operators may self-install and self-operate without purchasing support.
+- Users can customize only through application-level settings and supported content formats, such as frames/themes and the settings the app deliberately exposes.
+- The standard user grant does not include editing core source code or distributing modified core builds.
+- Core modifications, derivative builds, rebranding or redistribution of modified core require prior written permission or a separate license, subject to final legal review.
+- Optional revenue comes from setup, troubleshooting, training, camera/printer integration, migration, and authorized custom core work.
+- Do not deliberately cripple normal settings/content customization to force a support purchase.
 
-Validate this position with target operators. The business hypothesis is that lowering software cost and allowing reuse of existing equipment matter more than a fully bundled service; interviews and pilot adoption must prove or disprove it.
+The selected intended model is free-to-use commercial software with a controlled core, not OSI open source. Do not make a public source-code release or publish a formal license file until rights and terms are reviewed. See [LICENSE_STRATEGY.md](LICENSE_STRATEGY.md) and ADR 0004. A public repository does not itself grant source modification or redistribution rights.
+
+User customization must happen through defined configuration and content surfaces. Clearly distinguish configuration/theme/frame creation from changing the copyrighted core. Define the permissions for distributing or selling third-party frame/theme packages separately.

@@ -5,64 +5,65 @@ These instructions apply to the entire repository.
 ## Before changes
 
 1. Read README.md and docs/knowledge-base/README.md.
-2. Read relevant product, architecture, security, domain, and package documents.
-3. Inspect current files and implementation. Do not assume planned modules already exist.
-4. Distinguish implemented behavior from proposals; documentation is not proof that code exists.
-5. If documents conflict, follow an accepted ADR and latest user-approved requirement. Surface unresolved conflicts rather than guessing.
+2. Read the relevant product, architecture, security, domain, licensing, and package documents.
+3. Inspect the current implementation and dependencies. Do not assume planned modules already exist.
+4. Distinguish accepted requirements, proposals, and implemented behavior.
+5. If documents conflict, follow an accepted ADR and the latest user-approved requirement. Surface unresolved conflicts instead of guessing.
 
 ## Product invariants
 
-- Once configured and provisioned with required assets, the capture path must not require live Internet access.
-- Keep camera control, session workflow, rendering, printing/export, UI presentation, and cloud sync clearly separated.
-- Downloaded themes/assets must not execute arbitrary code.
-- Theme changes must not silently alter capture, output, or privacy behavior.
-- Do not upload guest photos by default. Cloud delivery requires explicit configuration and a retention policy.
+- The official app is intended to be free for commercial photobooth operation; do not add mandatory per-booth/per-session fees without explicit product approval.
+- The product does not sell hardware or bundled booth kits.
+- Operators may self-install and operate the app without buying support.
+- User customization is at the supported application layer: settings, configuration, frame/theme content, and documented content formats.
+- Do not treat application-level customization as permission to modify core source code.
+- Core source modification, modified builds, and redistribution of modified core require explicit rights under a separate written authorization/license, subject to final legal terms.
+- Do not describe the controlled-core product as OSI open source.
+- Media delivery is configurable: local-only, controlled LAN access, or optional platform cloud. Do not upload photos by default.
+- LAN delivery must authorize only the requested session/output, not expose the whole photo directory.
+- Payment is optional and store-configurable: free/disabled, payment during the guest flow, or verified prepayment.
+- If payment is required, only trusted server/provider confirmation can authorize a paid session.
+- Payment and media delivery are separate modules from camera providers and capture orchestration.
+- Keep camera and printer integrations behind adapters; support claims must match tested model/OS/driver combinations.
+- Windows and Linux are target platforms, but compatibility is validated per actual hardware/software combination.
+- Go is the preferred backend language; start with a modular monolith unless evidence supports splitting services.
+- Capture/render/local output remain usable offline after configuration and asset installation except where a configured payment policy explicitly requires online verification.
+- Downloaded themes/frames must not execute arbitrary code.
+- Do not upload guest photos by default.
 - Unsupported hardware and package versions must fail clearly.
-- Do not add network calls to the critical capture path without an explicitly approved requirement.
 
 ## Engineering practices
 
-- Prefer the simplest architecture that meets current needs. No microservices, brokers, Redis, or other infrastructure without demonstrated need.
-- Isolate device/vendor SDKs behind narrow adapters. Document model, OS, and licensing limitations.
-- Validate external inputs and downloaded packages. Bound resource sizes, retries, and media-processing time.
-- Make error paths observable and recoverable; avoid losing a session due to transient device, disk, or network failures.
-- Add or update tests. Document tests requiring physical hardware.
+- Prefer the simplest architecture that meets current needs. Do not introduce microservices, brokers, Redis, or other infrastructure without demonstrated need.
+- Isolate vendor SDKs and OS APIs behind narrow adapters.
+- Validate external input and packages; bound resource sizes, retries, and media-processing time.
+- Make failures observable and recoverable; avoid losing sessions due to transient camera, printer, disk, or network problems.
+- Add/update tests for changed behavior. Document tests requiring physical hardware.
 - Avoid unrelated refactors and unrequested dependency upgrades.
 - Never commit credentials, signing keys, guest photos, or sensitive production configuration.
-- Never claim a build, test, hardware check, or deployment passed unless it actually ran and the result was observed.
+- Never claim a build, test, hardware check, or deployment passed unless actually run and observed.
+
+## Licensing and contribution rules
+
+- Read docs/knowledge-base/LICENSE_STRATEGY.md and ADR 0004 before adding a LICENSE file, publishing source, accepting outside core-code contributions, or designing redistributable plugins.
+- Do not infer copying, modification, or redistribution rights from a public repository.
+- Do not add or promise a source-code license without explicit user approval and legal review.
+- Make supported configuration/content formats flexible enough for normal booth customization without core edits.
+- Define frame/theme creator rights separately from rights to the core application.
+- Paid support is optional; do not deliberately cripple normal supported features to pressure users into buying it.
 
 ## Documentation maintenance
 
-- Update knowledge-base documents when product behavior, architecture, schemas, privacy, security, or operations change.
-- Add an ADR under docs/adr/ for consequential, hard-to-reverse decisions.
-- Keep examples aligned with implementation and label conceptual examples.
-- Preserve the statuses Proposed, Accepted, Implemented, and Deprecated.
-- Record unresolved questions instead of inventing decisions.
+- Update relevant knowledge-base docs when product behavior, architecture, schema, privacy, security, licensing, or operations change.
+- Add an ADR for consequential decisions.
+- Keep examples aligned with implementation and mark conceptual examples.
+- Preserve Proposed, Accepted, Implemented, and Deprecated status distinctions.
+- Record important open questions instead of inventing decisions.
 
 ## Change workflow
 
 1. Summarize intended behavior and constraints.
 2. Inspect affected files and test approach.
 3. Implement the smallest coherent change.
-4. Run relevant tests/formatters/builds available.
-5. Report changed files, actual checks/results, and remaining risks.
-
-
-## Additional product invariants
-
-- Media delivery is a store-level policy: local-only, controlled LAN download, or optional platform cloud. Do not upload by default.
-- LAN download must expose only the authorized output/session, not the whole photo directory; use short-lived access tokens and expiry.
-- Payment is optional and store-configurable: disabled/free, payment during the guest flow, or verified prepayment.
-- When payment is required, only trusted server/provider confirmation can authorize a paid session. The player must not trust a screenshot, QR display, redirect, or client-side success claim.
-- Payment and media delivery are independent of camera provider code and should use separate interfaces and state.
-- Windows and Linux are product targets, but support must be claimed per tested OS/camera/driver/printer combination.
-- Go is the preferred backend language. Keep the backend a modular monolith unless concrete evidence justifies splitting it.
-
-## Distribution and licensing invariants
-
-- The product does not sell hardware. The intended basic player offer is free commercial use, with optional paid support and authorized custom engineering.
-- Keep supported store customization in documented settings and versioned theme/frame packages wherever possible.
-- Never imply that a public repository grants permission to modify or redistribute the core.
-- Read docs/knowledge-base/LICENSE_STRATEGY.md before adding a LICENSE file, publishing source code, accepting external code contributions, or designing plugin redistribution.
-- Do not call the core OSI open source unless the actual selected license meets the Open Source Definition.
-- Do not implement artificial feature restrictions merely to pressure users into purchasing support; paid support is optional under the intended product model.
+4. Run available tests, formatting, static checks, and builds.
+5. Report changed files, checks actually run, observed results, and remaining risks.

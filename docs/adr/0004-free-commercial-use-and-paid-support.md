@@ -1,47 +1,45 @@
-﻿# ADR 0004: Free Commercial Use and Paid Support
+# ADR 0004: Free Commercial Use, App-Level Customization, and Paid Support
 
-- **Status:** Product direction accepted; exact software license is not finalized
-- **Date:** 2026-10-24
+- **Status:** Product model accepted; exact legal terms are not finalized
+- **Date:** 2026-10-25
 - **Decision owner:** Product owner
 
 ## Context
 
-The product is intended to lower the initial cost for photobooth operators by letting them use hardware they already own. The creator will not sell camera/computer/printer bundles. The app itself is intended to be free for commercial booth use, while technical support and authorized custom core changes can be paid services.
-
-The product should be flexible, but flexibility should primarily come through configuration, theme/frame packages, and documented extension contracts.
+The product aims to reduce the upfront cost for photobooth operators by letting them use equipment they already own. The project will not sell cameras, computers, printers, or bundled booth kits. The official application should be free for commercial booth use, while customization should be available at the application/content layer rather than through editing core code.
 
 ## Decision
 
-1. Basic official player use for commercial photobooth operation will have no software usage fee under the eventual license terms.
-2. The standard product should support self-installation and self-service without purchasing support.
-3. Optional paid services may include installation, troubleshooting, training, camera/printer integration, migration, consulting, and authorized core modifications.
-4. Store customization through documented settings and content packages is a supported product capability and should not require core source modifications.
-5. Under the intended controlled-core model, modifying the core or distributing derivative/modified builds requires prior authorization or a separate license, subject to final legal review.
-6. The product must not be advertised as OSI open source if the chosen license forbids modifications or derivative works without permission.
-7. The exact licensing model (freeware/closed source, source-available custom license, or genuine open source) must be chosen and reviewed before software source code is released or outside code contributions are accepted.
+1. The official player is intended to be free to use for commercial photobooth sessions.
+2. Operators may self-install and use it without buying support.
+3. Users may change supported settings and create/install supported frame/theme content at the application layer.
+4. Ordinary end-user distribution does not grant access to or permission to modify the core source code.
+5. Editing core source, creating modified core builds, rebranding or redistributing modified core requires prior written permission or a separate license from the rights holder, subject to legal review.
+6. Optional paid services may include setup, troubleshooting, training, device integration, migration, and authorized custom core changes.
+7. The project must not be described as OSI open-source software under this controlled-core model because the intended terms restrict core modification/derived-build redistribution.
+8. Final license terms must be reviewed before source code is made available, external code contributions are accepted, or commercial distribution begins.
 
 ## Consequences
 
 ### Positive
-- Operators can self-install and earn revenue using their existing hardware.
-- Revenue can come from optional expertise rather than hardware sales or mandatory app fees.
-- Supported configuration and frame formats provide controlled customization without fragmenting the core.
-- Core changes remain governed by an explicit authorization/licensing process if a controlled-core license is selected.
+- Booth owners can earn money using the official software without a per-session/per-booth usage fee.
+- They can adjust exposed settings and visual content without programming.
+- Core changes remain governed by an explicit authorization/separate-license process.
+- Revenue can come from expertise without selling hardware or requiring a support contract.
 
 ### Trade-offs
-- A custom/controlled core license is not OSI open source, even if the software is free and the repository is public.
-- Restricting core modifications reduces community contribution and independent forks.
-- Terms must clearly distinguish configuration/content changes from source-code modifications.
-- Legal review is needed to define redistribution, derivative works, warranties, third-party contributions, and jurisdiction-specific terms.
+- This is controlled/free-to-use software, not OSI open source.
+- End users cannot independently modify and redistribute the core under the intended model.
+- Supported configuration and frame/theme formats must be flexible enough for common store needs.
+- Exact rights and restrictions require qualified legal review.
 
 ## Alternatives considered
 
 ### Genuine open-source core
-Would provide modification and redistribution freedoms under an OSI-approved license, but conflicts with a requirement that core changes need prior permission. It remains an alternative if community code contributions become the top priority.
+Would allow users to modify and redistribute derivative works under the chosen open-source license, conflicting with the current requirement that core modifications/redistribution require permission.
 
-### Mandatory paid software license
-Rejected as the intended default because the product's positioning is to reduce initial software cost.
+### Mandatory paid app license
+Rejected as the intended default because the product should be free for commercial booth usage.
 
 ### Hardware-bundled product
-Rejected because the creator does not plan to sell cameras, computers, printers, or full booth kits.
-
+Rejected because the project does not plan to sell hardware kits.
