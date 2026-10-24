@@ -1,137 +1,119 @@
-﻿# Product Requirements Document (PRD)
+# Product Requirements Document (PRD)
 
-**Version:** 0.1 — discovery draft  
-**Status:** Proposed; customer discovery and hardware validation pending  
+**Version:** 0.2 — self-service/greenfield direction
+**Status:** Proposed requirements; hardware validation pending
 **Last updated:** 2026-10-25
 
 ## 1. Product summary
 
-PhotoBooth is planned cross-platform photobooth software for operators who want to reuse cameras, computers, and printers they already own. The official app is intended to be free for commercial photobooth operation. Users configure supported behavior and add themes/frames at the application layer; changing the core code is outside the standard user grant.
+PhotoBooth is planned cross-platform software for people setting up a new photobooth, particularly DIY builders who want to reuse equipment they own or source second-hand. The official app is intended to be free for commercial booth operation. Users customize supported settings and add frames/themes at the application layer; editing core code is outside the standard user grant.
 
 The project does not sell hardware. Optional paid services may include setup, troubleshooting, training, camera/printer integration, migration, and authorized custom development.
 
-## 2. Problem statement (hypothesis)
+## 2. Problem hypothesis
 
-Some photobooth solutions are sold as bundled hardware/software/services at a substantial upfront cost. Other operators may already own a suitable camera, PC, and printer but need a workable way to operate them as a booth. We hypothesize they value a no-app-fee, self-installable alternative, provided hardware setup and reliability are manageable.
+People building their first booth may prefer assembling a solution from available or used hardware rather than purchasing a complete bundled system. They need software that is possible to install and configure themselves, with honest hardware compatibility and reliable photo output.
 
-This problem statement is not yet validated. Do not use it as a proven market fact until operator interviews and a real hardware prototype support it.
+This is a hypothesis, not a proven market fact. The project will use technical proof, voluntary setup feedback, successful installations, and repeat usage to validate it. Formal interviews and conversion from incumbent software are not required gates.
 
-## 3. Target users to investigate
+## 3. Target users
 
-### Primary discovery segment
-Independent booth operators and small operators with roughly 1–5 booths, especially those who:
-- already own or can source used cameras, PCs, and printers;
-- can do basic installation/configuration or are willing to learn;
-- operate a booth commercially and care about downtime;
-- currently pay for software/support or use bundled vendor solutions.
+### Primary: new booth builders
+People creating their first booth or adding a new booth, especially self-builders using a camera, PC, and printer they already own or source second-hand.
 
-### Secondary segments
-- Event-rental operators that bring equipment to different venues.
-- DIY/hobby builders who may become commercial operators.
-- Frame/theme designers who could make content for the ecosystem.
+### Secondary: existing operators
+May use PhotoBooth on a new booth, spare/test rig, or eventual voluntary migration. Replacing a stable running system is not the core go-to-market strategy.
 
-Do not combine these segments into one persona until their hardware, workflow and support needs are compared.
+### Community participants
+Technically curious users who report tested hardware configurations and create frames/themes using supported formats. Core modification remains outside the standard user grant under the intended controlled-core model.
 
 ## 4. Product promise
 
 - Free use of the official player for commercial photobooth sessions is the intended model.
 - No mandatory per-booth or per-session software fee is intended.
-- Operators may self-install and use the app without purchasing support.
-- Normal customization uses supported application settings and frame/theme formats, not core source edits.
-- Windows and Linux are target platforms; compatibility claims must match tested combinations.
-- Capture, rendering, and configured local output work offline after setup and asset installation, except where an explicitly selected payment flow requires online verification.
+- Operators can self-install and use the app without paid support.
+- Normal customization uses supported application settings and frame/theme content, not core source edits.
+- Windows and Linux are target platforms; compatibility claims match tested combinations.
+- Capture/render/configured local output work offline after setup, except where an explicitly chosen payment flow requires online verification.
 - Media delivery can be local-only, controlled LAN download, or optional platform cloud.
 - Payment can be disabled/free, required during the guest flow, or required before a session.
 
-## 5. User jobs and candidate requirements
+## 5. User jobs
 
-### Setup/operator
-- Configure camera, output path, touch/kiosk behavior, and printer.
-- Set capture count, countdown, delay, frame, image layout, and supported printing options.
-- Understand whether a feature requires LAN or Internet.
+### Self-builder/operator
+- Check before installation whether their exact camera/OS/output combination is tested.
+- Configure camera, output, kiosk behavior, and printer.
+- Change supported countdown, shot count, delays, frame/theme, and print/export settings.
+- Understand which features need LAN or Internet.
 - Diagnose unsupported hardware without guesswork.
+- Export/restore configuration and collect a privacy-safe support log.
 
 ### Guest
 - Start a session with clear instructions.
 - Complete capture without UI freeze.
-- Receive the photo using the store's configured method.
-- Not see or access another guest's images.
+- Receive the finished image using the store's selected method.
+- Never access another guest's images.
 
-### Self-service maintainer
-- Install updates and rollback safely.
-- Export/restore configuration.
-- Find logs and support guidance without exposing guest photos.
-
-### Frame/theme creator
+### Content creator
 - Create content using a documented format.
-- Know compatible player versions, required dimensions, rights, and license terms.
+- Know player compatibility and content usage/license requirements.
 - Preview the result before distributing it.
 
 ## 6. MVP candidate scope
 
-### Must demonstrate
-- One real camera model and one defined OS/device setup.
-- Session start, countdown, configured captures, original-image transfer, and deterministic static-frame rendering.
-- Preview and at least one reliable output path (file export or printer).
-- Local configuration and persistence.
-- Recoverable errors for camera disconnect, timeout, render failure, and output failure.
-- Operation without Internet for the configured unpaid/local workflow.
-- Configuration of the timing/shot-count values deliberately exposed by the first release.
-- A small bundled sample-frame pack and documented content/configuration format.
+- One real camera model and defined OS configuration.
+- Session start, countdown, configured captures, original transfer, and deterministic static-frame render.
+- Preview and one reliable output path.
+- Local settings/session storage.
+- Recoverable errors for camera disconnect, timeout, render, and output failures.
+- Offline workflow for unpaid/local use.
+- Configuration for the timing/shot-count settings intentionally exposed in the first version.
+- Bundled sample frame and documented customization/compatibility path.
+- Quickstart and troubleshooting sufficient for a self-install attempt.
 
-### Defer
-- Public paid marketplace and creator payouts.
-- Cloud photo delivery as a required feature.
-- General support for every camera, printer, and Linux distribution.
-- Arbitrary third-party code/plugins.
-- Multi-service cloud architecture.
-- Complex analytics, video/GIF output, and advanced creator editor unless research changes priority.
+Defer marketplace commerce/payouts, mandatory cloud delivery, arbitrary plugin code, universal camera/printer support, complex analytics, and features without evidence of need.
 
-### Scope decision pending
-Whether the first public alpha should run on Windows only or include a Linux preview must be decided after the Phase 1 hardware/UI spike. Windows and Linux remain product targets, but untested platforms must not be marketed as production-supported.
+Windows and Linux remain targets; decide which is production-alpha first after technical feasibility. Untested operating systems must not be marketed as supported.
 
-## 7. Licensing and business requirements
+## 7. License and business requirements
 
-- Official app use for commercial booth sessions is intended to be free.
-- Users may adjust supported application-level settings and create/install supported frame/theme content.
-- Standard user rights do not include core source modification or redistribution of a modified core build.
-- Core modification/redistribution requires prior written permission or a separate license under final legal terms.
-- Support is optional; do not artificially disable normal configuration to force purchases.
-- Final user-facing license and content terms require qualified legal review before commercial release.
+- Official app commercial use is intended to be free.
+- Users may self-install and configure supported application-level settings/content.
+- Core modification and redistribution of modified core builds require separate authorization/license under final terms.
+- Support is optional.
+- Final user-facing license and content terms need legal review before commercial release.
 
-See [LICENSE_STRATEGY.md](LICENSE_STRATEGY.md) and ADR 0004.
+See LICENSE_STRATEGY.md and ADR 0004.
 
 ## 8. Non-functional requirements
 
-- **Reliability:** errors must be recoverable or have clear operator actions.
-- **Offline:** no cloud dependency in the unpaid local capture/render/output path.
-- **Compatibility:** publish a tested camera/OS/driver/printer matrix.
-- **Security:** themes and frame packages are declarative data; validate all downloaded files.
-- **Privacy:** no default upload of guest photos; define retention and delete behavior for every delivery mode.
-- **Usability:** self-install path and operator guide should not require paid support.
-- **Maintainability:** keep session/domain logic separated from OS APIs and vendor SDKs.
-- **Performance:** determine limits through actual camera, render, and printer tests rather than assumptions.
+- Reliability: recoverable errors and clear operator action.
+- Offline: no cloud dependency in unpaid local capture/render/output.
+- Compatibility: publish a matrix of tested camera, OS, SDK/driver, and output.
+- Security: theme/frame packages are declarative data, not arbitrary code.
+- Privacy: no default guest-photo upload.
+- Self-service: clear install, troubleshoot, restore, and update instructions.
+- Maintainability: session/domain logic separate from OS/vendor APIs.
+- Performance: establish limits through actual hardware tests.
 
-## 9. Success metrics to instrument during pilot
+## 9. Adoption and reliability metrics
 
-- Started vs. completed sessions, segmented by OS and camera/provider.
-- Unrecoverable application failure rate; hardware failures categorized separately.
+Track:
+- Successful first installs and first capture-to-output demos.
+- Started/completed sessions and unrecoverable application failure, segmented by hardware/OS.
 - Camera/render/output failure and recovery time.
-- New-booth setup time.
-- Percentage of operators able to configure a setting or activate a frame without help.
-- Optional LAN/cloud delivery success and access-isolation failures.
-- Support time per booth.
-- Design-partner retention and willingness to recommend/use repeatedly.
+- Time to set up a new booth.
+- How often users configure settings/install a new frame without help.
+- Issues solved by docs versus requiring direct support.
+- Repeat usage, organic referrals, voluntary compatibility reports, and content contributions.
+- Support hours per installation and the nature of support requests.
 
-Set numeric targets after a baseline exists. Suggested pilot target of 200 sessions and approximately 99% completion without an unrecoverable application failure is a hypothesis, not an existing performance claim.
+Downloads/stars/views alone do not prove adoption. Set numeric goals after the first real baseline. A suggested pilot target of 200 sessions and approximately 99% completion without an unrecoverable application failure is a proposed goal, not an existing claim.
 
-## 10. Open questions / decision log
+## 10. Open questions
 
-- What exact hardware is most common in the first target segment?
-- Is the top pain upfront hardware cost, software license cost, support dependency, or lack of control?
-- Which printer/output path is required for the first pilot?
-- Does the first pilot need LAN access or payment, or should it prove capture first?
-- What does “configuration” need to cover before operators consider the app useful?
-- Which OS should be the first supported production target based on hardware evidence?
-- Which exact commercial license wording is legally acceptable?
-
+- Which camera/OS/output combination should be the first reference setup?
+- Which settings are essential for the first self-service release?
+- What level of Linux support is realistic after hardware validation?
+- Which LAN/payment features should be implemented only after local alpha?
+- How will third-party frames/themes be licensed and distributed?

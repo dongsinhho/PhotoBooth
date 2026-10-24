@@ -14,10 +14,10 @@ Never turn a proposal into an asserted fact.
 ## Read in this order
 
 1. [PRODUCT_PLAN.md](PRODUCT_PLAN.md) - end-to-end plan from discovery through engineering, pilot, delivery, and marketing.
-2. [PRD.md](PRD.md) - draft requirements, user jobs, MVP candidates, and acceptance metrics.
-3. [DISCOVERY_INTERVIEW_GUIDE.md](DISCOVERY_INTERVIEW_GUIDE.md) - interview questions and respondent note template.
-4. [COMPETITOR_RESEARCH.md](COMPETITOR_RESEARCH.md) - dated desk research with public sources and caveats.
-5. [DISCOVERY_LOG.md](DISCOVERY_LOG.md) - hypothesis register and interview tracking.
+2. [PRD.md](PRD.md) - draft requirements, user jobs, MVP candidates, and adoption metrics.
+3. [COMPETITOR_RESEARCH.md](COMPETITOR_RESEARCH.md) - public-source research for context, with caveats.
+4. [DISCOVERY_LOG.md](DISCOVERY_LOG.md) - self-service adoption hypotheses and evidence tracker.
+5. [DISCOVERY_INTERVIEW_GUIDE.md](DISCOVERY_INTERVIEW_GUIDE.md) - optional feedback guide; interviews are not a gate.
 6. [LICENSE_STRATEGY.md](LICENSE_STRATEGY.md) - free commercial use, app-level customization, core modification rights, and optional support.
 7. [PRODUCT_BRIEF.md](PRODUCT_BRIEF.md) - target users, value proposition, and accepted requirements.
 8. [MVP_SCOPE.md](MVP_SCOPE.md) - first milestone, acceptance criteria, and exclusions.
@@ -32,15 +32,16 @@ Never turn a proposal into an asserted fact.
 17. [../adr/0001-offline-first-windows-player.md](../adr/0001-offline-first-windows-player.md) - offline-first capture constraint.
 18. [../adr/0002-configurable-delivery-and-payment.md](../adr/0002-configurable-delivery-and-payment.md) - store-configurable media/payment.
 19. [../adr/0003-cross-platform-player-and-go-backend.md](../adr/0003-cross-platform-player-and-go-backend.md) - cross-platform and backend direction.
-20. [../adr/0004-free-commercial-use-and-paid-support.md](../adr/0004-free-commercial-use-and-paid-support.md) - free commercial use, app-level customization, and controlled core.
+20. [../adr/0004-free-commercial-use-and-paid-support.md](../adr/0004-free-commercial-use-and-paid-support.md) - free commercial use and controlled core.
+21. [../adr/0005-greenfield-self-service-adoption.md](../adr/0005-greenfield-self-service-adoption.md) - greenfield audience and gradual-growth strategy.
 
-## Discovery status as of 2026-10-25
+## Current Phase 0 status as of 2026-10-25
 
-- Interview guide and note template: prepared; interviews have not yet been conducted.
-- Competitor research: public desk research only; feature/pricing claims are vendor statements, not independently tested.
-- Hypotheses: unvalidated. See DISCOVERY_LOG.md.
-- Hardware compatibility: not yet tested for the selected pilot configuration.
-- Market demand and willingness to pay for support: not yet validated.
+- PRD, competitor desk research, optional feedback guide, and self-service adoption log have been prepared.
+- Formal interviews are optional and not required for the next phase.
+- Competitor research is contextual and based on vendor-published claims; it is not independent product testing.
+- The next required evidence is a real camera-to-output technical proof of concept on a selected hardware configuration.
+- Product adoption, self-install success, hardware compatibility, and support demand have not yet been validated through actual use.
 
 ## Maintenance rules
 

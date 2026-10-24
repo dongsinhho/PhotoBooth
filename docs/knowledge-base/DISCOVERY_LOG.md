@@ -1,47 +1,46 @@
-﻿# Discovery Log and Hypothesis Register
+# Self-Service Adoption and Hypothesis Log
 
-**Status:** Initial blank tracking document  
+**Status:** Initial tracking document
 **Last updated:** 2026-10-25
+
+## Strategy
+
+The primary audience is people setting up new booths and self-builders using equipment they own or source second-hand. Formal interviews and incumbent migrations are not required project gates. Grow gradually through a useful free product, reproducible installation, truthful compatibility claims, public documentation, and optional community feedback.
 
 ## Hypothesis register
 
-Score each hypothesis using observations, not enthusiasm. Suggested confidence: Low / Medium / High. High requires multiple independent examples and at least one behavioral proof where practical.
-
-| ID | Hypothesis | Evidence to collect | Positive evidence | Counter-evidence | Confidence | Next action |
+| ID | Hypothesis | Observable evidence | Positive evidence | Counter-evidence | Confidence | Next action |
 |---|---|---|---|---|---|---|
-| H1 | Hardware bundle upfront cost is a meaningful barrier for target operators. | Actual quotes, current equipment ownership, deferred purchases. | Not yet collected | Not yet collected | Low / untested | Interview operators across segments. |
-| H2 | Free commercial-use software materially changes adoption intent. | Compare response to free app vs current alternatives and ask for concrete pilot actions. | Not yet collected | Not yet collected | Low / untested | Avoid leading interview questions. |
-| H3 | Operators can self-install if setup documentation is clear. | Prior DIY history, install attempts, requested help, test installation. | Not yet collected | Not yet collected | Low / untested | Recruit self-service and support-dependent operators separately. |
-| H4 | Existing used camera/computer/printer equipment can meet required quality and throughput. | Exact models, SDK availability, capture-to-output tests. | Not yet collected | Not yet collected | Low / untested | Select reference hardware from interviews. |
-| H5 | Operators need user-editable timing/configuration without modifying code. | Recent setting changes and how they were made. | Not yet collected | Not yet collected | Low / untested | Ask for specific examples/settings. |
-| H6 | Optional paid support can be a sustainable revenue source. | Actual support requests, willingness to pay for a named task, pilot offers accepted. | Not yet collected | Not yet collected | Low / untested | Test support scenarios and pricing later. |
-| H7 | Local/LAN photo delivery is valuable to some stores vs mandatory cloud. | Cloud costs, network behavior, current delivery method, retention concerns. | Not yet collected | Not yet collected | Low / untested | Segment by use case. |
-| H8 | Linux can lower total booth cost without unacceptable support burden. | Exact machine/OS/camera/printer test and operator ability. | Not yet collected | Not yet collected | Low / untested | Technical feasibility spike. |
-| H9 | Designers will create and distribute frame/theme content using a supported format. | Creator interviews, time-to-package test, rights and pricing preferences. | Not yet collected | Not yet collected | Low / untested | Interview 3–5 potential creators. |
+| H1 | New booth builders value free commercial-use software enough to try it before buying a bundle. | First-install reports and completed capture-to-output demos. | Not collected | Not collected | Low / untested | Publish a transparent alpha when usable. |
+| H2 | Users can self-install with clear documentation. | Install success, setup time, issues needing direct intervention. | Not collected | Not collected | Low / untested | Write quickstart alongside alpha. |
+| H3 | Selected used camera/PC/printer setups can satisfy requirements. | Exact hardware details and repeatable tests. | Not collected | Not collected | Low / untested | Create tested compatibility matrix. |
+| H4 | Supported application settings cover most desired changes. | Configuration usage, requests, and support issues. | Not collected | Not collected | Low / untested | Define config schema and sample file. |
+| H5 | Optional paid support is viable without forcing it on users. | Real requests for specific tasks, time spent, repeat demand. | Not collected | Not collected | Low / untested | Track support requests when users appear. |
+| H6 | Some builders prefer local/LAN delivery over mandatory cloud. | Mode selection and voluntary reports. | Not collected | Not collected | Low / untested | Keep local-first as initial baseline. |
+| H7 | Linux can reduce total cost for some setups without excessive support burden. | Successful camera/printer/kiosk tests on a named distro. | Not collected | Not collected | Low / untested | Run a bounded technical spike. |
+| H8 | Creators can make compatible frames/themes without changing core code. | Package creation time, validation errors, installs. | Not collected | Not collected | Low / untested | Provide sample package and schema. |
 
-## Interview tracker
+## Evidence to track
 
-No customer interviews have been recorded yet. Add one row per completed conversation.
+- Successful installation attempts and completed first sessions.
+- Voluntary compatibility reports (model/OS/provider/output).
+- Repeat usage by new builders.
+- Issues resolved by documentation versus direct support.
+- Organic referrals and contributions to docs/sample content.
+- Types and effort of optional support requests.
+- Frame/theme creation and successful install rate.
 
-| Interview ID | Date | Segment | Hardware identified | Main pain (respondent's wording) | Pilot candidate? | Follow-up |
-|---|---|---|---|---|---|---|
-| - | - | - | - | - | - | - |
+Do not treat stars, likes, downloads, or page views as proof of adoption. Never upload guest photos as telemetry.
 
-## Research status
+## Optional feedback conversations
 
-- Competitor desk research: see [COMPETITOR_RESEARCH.md](COMPETITOR_RESEARCH.md); sourced from public pages checked 2026-10-25.
-- Operator interviews: not yet conducted.
-- Hardware compatibility: not yet tested as part of this discovery phase.
-- Pricing/support willingness-to-pay: not validated.
-- Market-size estimate: intentionally not included until a defensible method/data source is identified.
+Formal interviews are optional. If a user offers feedback, use DISCOVERY_INTERVIEW_GUIDE.md. No interviews are claimed to have happened.
 
 ## Decision journal
 
-Record important changes:
 - Date:
-- Evidence:
-- Decision changed:
-- Prior assumption:
-- New position:
-- Follow-up document/ADR:
-
+- Observed evidence/source:
+- Assumption affected:
+- Decision:
+- Counter-evidence:
+- Follow-up:

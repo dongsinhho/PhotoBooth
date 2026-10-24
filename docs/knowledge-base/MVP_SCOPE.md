@@ -1,4 +1,4 @@
-﻿# MVP Scope
+# MVP Scope
 
 **Status:** Proposed; hardware and pilot workflows must be validated
 
@@ -36,11 +36,10 @@ Prove reliable capture-to-output on real hardware while laying architecture foun
 - Multi-store analytics and high-volume distributed architecture.
 - GIF/video output unless a validated pilot requires it.
 
-## Pilot questions
+## Optional validation questions
 - Which camera models/connectivity and printing hardware dominate target stores?
 - Does a booth typically run Windows today, and which Linux stack would be acceptable?
 - Is LAN photo download expected to be available to every guest or only by session-specific access?
 - Which bank/QR payment method and payment confirmation signal are available?
 - Does the store want payment before capture, after capture, or either?
 - How long must local photos be retained, and who can delete them?
-

@@ -5,10 +5,10 @@ These instructions apply to the entire repository.
 ## Before changes
 
 1. Read README.md and docs/knowledge-base/README.md.
-2. Read the relevant product, architecture, security, domain, licensing, and package documents.
-3. Inspect the current implementation and dependencies. Do not assume planned modules already exist.
+2. Read relevant product, architecture, security, domain, licensing, and package documents.
+3. Inspect current implementation and dependencies. Do not assume planned modules already exist.
 4. Distinguish accepted requirements, proposals, and implemented behavior.
-5. If documents conflict, follow an accepted ADR and the latest user-approved requirement. Surface unresolved conflicts instead of guessing.
+5. If documents conflict, follow an accepted ADR and the latest user-approved requirement. Surface unresolved conflicts rather than guessing.
 
 ## Product invariants
 
@@ -19,12 +19,15 @@ These instructions apply to the entire repository.
 - Do not treat application-level customization as permission to modify core source code.
 - Core source modification, modified builds, and redistribution of modified core require explicit rights under a separate written authorization/license, subject to final legal terms.
 - Do not describe the controlled-core product as OSI open source.
+- Primary target users are people building a new booth or DIY users reusing equipment; do not optimize the product plan around converting incumbent stores.
+- Formal user interviews are optional, not a project gate. Low-friction voluntary feedback is useful, but technical feasibility and real hardware testing are still required.
+- Grow gradually through useful software, self-service documentation, tested compatibility, and community participation; do not turn competitor feature parity into the primary roadmap.
 - Media delivery is configurable: local-only, controlled LAN access, or optional platform cloud. Do not upload photos by default.
 - LAN delivery must authorize only the requested session/output, not expose the whole photo directory.
 - Payment is optional and store-configurable: free/disabled, payment during the guest flow, or verified prepayment.
 - If payment is required, only trusted server/provider confirmation can authorize a paid session.
 - Payment and media delivery are separate modules from camera providers and capture orchestration.
-- Keep camera and printer integrations behind adapters; support claims must match tested model/OS/driver combinations.
+- Keep camera/printer integrations behind adapters; support claims must match tested model/OS/driver combinations.
 - Windows and Linux are target platforms, but compatibility is validated per actual hardware/software combination.
 - Go is the preferred backend language; start with a modular monolith unless evidence supports splitting services.
 - Capture/render/local output remain usable offline after configuration and asset installation except where a configured payment policy explicitly requires online verification.

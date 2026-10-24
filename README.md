@@ -10,12 +10,12 @@ Help booth operators reuse cameras, computers and printers they already own. The
 
 ## Product surfaces
 
-1. **PhotoBooth Player** â€” desktop kiosk app for camera control, guest sessions, rendering, printing/export, optional payment and media delivery.
-2. **Application-level customization** â€” settings, configuration, frame/theme packages and documented content formats; not core-source editing.
-3. **Optional Photo Delivery** â€” local-only storage, controlled LAN downloads, or a configured cloud service.
-4. **Optional Payments** â€” free mode, payment in the guest flow, or verified prepayment.
-5. **Future Content Catalog** â€” browse, preview and install content; paid/community distribution may be added later.
-6. **Store Configuration** â€” device settings, content, media policy, payment policy and retention.
+1. **PhotoBooth Player** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â desktop kiosk app for camera control, guest sessions, rendering, printing/export, optional payment and media delivery.
+2. **Application-level customization** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â settings, configuration, frame/theme packages and documented content formats; not core-source editing.
+3. **Optional Photo Delivery** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â local-only storage, controlled LAN downloads, or a configured cloud service.
+4. **Optional Payments** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â free mode, payment in the guest flow, or verified prepayment.
+5. **Future Content Catalog** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â browse, preview and install content; paid/community distribution may be added later.
+6. **Store Configuration** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â device settings, content, media policy, payment policy and retention.
 
 ## Core principles
 
@@ -84,7 +84,7 @@ Supported settings and theme/frame formats are the normal customization path. Th
 - [Operator Interview Guide](docs/knowledge-base/DISCOVERY_INTERVIEW_GUIDE.md)
 - [Discovery Log and Hypotheses](docs/knowledge-base/DISCOVERY_LOG.md)
 
-These are preparation materials. No customer interviews or hardware compatibility tests are claimed as completed yet.
+The interview guide is optional and not a project gate. No new hardware compatibility test or user-adoption result is claimed yet.
 ## Knowledge base for AI-assisted development
 
 Read [AGENTS.md](AGENTS.md), then [docs/knowledge-base/README.md](docs/knowledge-base/README.md), and then the relevant product/architecture/license documents before changing code. Preserve the distinction between accepted requirements, proposals, and implementation that has actually been verified.
