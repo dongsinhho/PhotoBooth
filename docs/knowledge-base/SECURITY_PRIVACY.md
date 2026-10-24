@@ -3,9 +3,9 @@
 **Status:** Proposed baseline
 
 ## Security goals
-Protect booth availability, store accounts, transactions, downloaded content, local images, and optional cloud delivery. Treat packages, filenames, metadata, and API responses as untrusted.
+Protect booth availability, store accounts, transactions, downloaded content, local images, and optional cloud delivery. Treat packages, filenames, metadata, payment callbacks, and API responses as untrusted.
 
-## Downloaded package threats
+## Downloaded packages
 Threats include path traversal, decompression bombs, malicious media, oversized assets, deceptive metadata, and code execution attempts.
 
 Controls:
@@ -25,42 +25,43 @@ Controls:
 - Detect disk/output failures and show actionable recovery steps.
 - Avoid deleting files until session/output state is known.
 
-## Accounts, payments, and entitlements
-For the future marketplace:
+## Payment and entitlement
 - Enforce server-side authorization for every store/creator resource.
-- Verify payment provider callbacks; never trust client payment-success claims.
-- Make purchase/webhook processing idempotent.
-- Use signed or integrity-protected entitlements for offline use and define revocation/grace behavior.
-- Rate-limit sensitive endpoints and protect session secrets.
+- Verify provider callbacks or query trusted provider APIs; never trust a client payment-success claim.
+- Make purchase and webhook processing idempotent.
+- Define late payment, duplicate notification, timeout, refund, cancellation, and reconciliation paths.
+- Issue a session-scoped permit only after authoritative confirmation.
+- Use signed or integrity-protected entitlement data for legitimate offline use and define expiry/revocation rules.
+- Never store customer banking credentials or raw payment secrets in the player.
 
-## Update and sync
-- Use TLS and authenticated APIs.
-- Validate package and application update metadata.
-- Download to staging, verify before activation, and support rollback.
-- Sync failure must not block local capture/printing.
-- Do not overwrite assets in active use.
+## Media delivery security
+- Local-only mode must not expose the photo directory through an unauthenticated network server.
+- LAN mode must share only explicitly selected outputs, never the full directory or other sessions by default.
+- Use high-entropy, short-lived, revocable tokens bound to one output/session; consider TLS, rate limits, and network binding.
+- Do not assume LAN equals trusted; protect against guest-to-guest access.
+- Cloud mode uses authenticated short-lived access, restricted object permissions, quotas, and explicit deletion/retention behavior.
+- Cloud upload failure must not delete the only local copy.
 
 ## Guest-photo privacy
-Default policy proposal:
-- Photos remain local unless the operator explicitly enables delivery.
-- Document local retention behavior and provide configurable cleanup.
-- Do not put photos, faces, QR tokens, or guest identifiers into logs, analytics, or crash reports by default.
-- For cloud delivery, define access control, token expiry, deletion, storage region, and retention before implementation.
-- Collect only the minimum data necessary.
-- Review applicable Vietnamese privacy and data-protection obligations against current legal sources before launch.
+Default policy:
+- Photos remain local unless the operator explicitly enables another delivery mode.
+- Document retention and provide configurable cleanup.
+- Do not place photos, faces, QR tokens, or guest identifiers in logs/analytics by default.
+- For cloud delivery, define who can access content, token expiry, deletion behavior, storage region, and retention before implementation.
+- Collect only minimum required data.
+- Review Vietnamese privacy/data-protection obligations against current legal sources before launch.
 
-## Secrets and operations
+## Updates and secrets
+- Use authenticated transport and protect credentials with OS-appropriate secure storage where feasible.
 - Never commit secrets or production settings.
-- Use appropriate OS-protected storage for credentials where feasible.
 - Redact authorization headers, signed URLs, tokens, and personal information from logs.
-- Define log rotation, permissions, backups, incident response, and update policy before commercial release.
-- Review security and SDK licensing/support before release.
+- Stage downloads, verify integrity, and preserve rollback for player/provider/content updates.
+- Never load arbitrary native plugins from the marketplace in the first version.
 
 ## Marketplace launch blockers
-- Moderation and takedown process.
-- Intellectual-property complaint and licensing process.
-- Validated upload/download security controls.
-- Server-side authorization and payment/entitlement checks.
-- Documented guest-photo retention and cloud-delivery policy.
-- Update/rollback process for player and content.
+- Moderation/takedown and intellectual-property complaint procedures.
+- Validated content upload/download controls.
+- Server-side authorization and payment/entitlement verification.
+- Documented guest-photo retention and delivery policy.
+- Player, provider and content update/rollback process.
 

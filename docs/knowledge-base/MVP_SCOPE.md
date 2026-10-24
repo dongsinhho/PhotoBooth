@@ -1,61 +1,46 @@
 ﻿# MVP Scope
 
-**Status:** Proposed baseline
+**Status:** Proposed; hardware and pilot workflows must be validated
 
 ## Goal
-Prove that the Windows player can reliably complete a capture-to-output workflow using a specific, explicitly supported hardware configuration. Build the foundation so online theme/frame delivery can be added without rewriting capture.
+Prove reliable capture-to-output on real hardware while laying architecture foundations for configurable media delivery, payment, cross-platform builds, and online content.
 
-## MVP vertical slice
-1. Launch in a kiosk-style interface.
-2. Load local configuration and a built-in/sample frame.
-3. Start a session and show countdown instructions.
-4. Capture a configured number of photos with one supported camera model.
-5. Track session state and handle cancellation/timeouts.
-6. Render selected photos into a static frame at a known output size.
-7. Preview and print or export through one tested output path.
-8. Store session metadata and required assets locally.
-9. Complete the core workflow with network disconnected.
-10. Log technical failures without logging guest photos or unnecessary personal information.
+## Proposed MVP vertical slice
+1. Start a kiosk session using local configuration.
+2. Show countdown and capture a configured sequence using one explicitly supported camera model.
+3. Render the source images into a static frame.
+4. Preview, then print or export through at least one tested output path.
+5. Preserve local session state and recover from common capture/render/output errors.
+6. Complete the core capture/render/output workflow without Internet.
+7. Validate one OS/hardware combination end-to-end. Define Linux as a target, then run a separate validation spike on an agreed distro and supported camera.
+8. Define configuration models for media delivery and payment even if the initial pilot enables only one mode of each.
+9. Make free/no-payment sessions work without a payment provider being configured.
 
-## Acceptance criteria
-The pilot is not complete until the exact camera, driver/SDK, Windows version, and printer/output path have been tested.
+## Acceptance checks
+- Expected number of captures is produced, or a clear recovery/error state is shown.
+- Camera disconnect/timeout does not permanently freeze the UI.
+- Frame layout output dimensions and slot positions are deterministic.
+- Output failure is recoverable without restarting the whole machine.
+- Bundled/installed assets work after restart and while offline.
+- Changing media delivery policy does not require changing capture code.
+- Changing payment policy does not require changing camera adapter code.
+- Automated tests cover session workflow, render geometry, config validation, and independent payment/media state machines where feasible.
+- Hardware-dependent tests explicitly record the exact device, OS, SDK/driver, and result.
 
-- A configured session captures the expected number of photos.
-- Failed capture attempts are clear and do not silently produce an incomplete result.
-- Camera disconnect or timeout does not permanently freeze the kiosk UI.
-- Rendering produces predictable dimensions and correct photo-slot placement.
-- Operator can recover from print/export failure without restarting the machine.
-- Required assets remain available after restart and without Internet.
-- Automated tests cover session transitions, rendering geometry, package/config validation, and hardware-independent error handling.
-
-Set numeric reliability targets after establishing a baseline on real hardware.
-
-## Include in the first milestone
-- One supported camera integration.
-- Local photo session workflow.
-- Static frame/render pipeline.
-- One tested output path; add a second only if scope permits.
-- Local settings and asset storage.
-- Basic diagnostics and recoverable error states.
-- A small set of bundled sample frames.
-- Version-controlled documentation and tests.
-
-## Defer until capture is stable
+## Defer until capture reliability is demonstrated
 - Public marketplace and creator payouts.
-- Paid checkout and subscription billing.
-- Unrestricted theme scripting or third-party plugins.
-- Broad support for all cameras and printers.
-- Cloud photo storage or guest accounts.
-- Complex video/GIF exports.
-- Advanced analytics, promotions, and multi-store management.
-- Microservices, event streaming, or distributed infrastructure without demonstrated need.
+- Full paid checkout and complex refund automation.
+- Broad support for every camera/printer.
+- Cloud photo delivery as a mandatory service.
+- Arbitrary code execution from third-party themes.
+- Multi-store analytics and high-volume distributed architecture.
+- GIF/video output unless a validated pilot requires it.
 
-## Pilot validation
-Interview booth operators about:
-- Most-used camera models and connection methods.
-- Print sizes, printers, QR, and digital delivery needs.
-- Whether guests select frames or the operator chooses a default.
-- Frequency and effort of frame/theme changes.
-- Offline expectations and acceptable update behavior.
-- Willingness to pay for individual content, bundles, or a subscription.
+## Pilot questions
+- Which camera models/connectivity and printing hardware dominate target stores?
+- Does a booth typically run Windows today, and which Linux stack would be acceptable?
+- Is LAN photo download expected to be available to every guest or only by session-specific access?
+- Which bank/QR payment method and payment confirmation signal are available?
+- Does the store want payment before capture, after capture, or either?
+- How long must local photos be retained, and who can delete them?
 

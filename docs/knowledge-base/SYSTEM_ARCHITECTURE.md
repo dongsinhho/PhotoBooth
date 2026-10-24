@@ -1,79 +1,78 @@
 ﻿# System Architecture
 
-**Status:** Proposed target architecture; not yet implemented
+**Status:** Target architecture; implementation not yet started
 
 ## Architecture approach
-Start with a modular desktop application and, when needed, a modular-monolith cloud API. Avoid distributing functionality across services until operational or scaling evidence requires it.
+Start with a modular player and a Go modular-monolith backend. Do not introduce microservices or message brokers before operational needs justify them. Preserve boundaries that permit future extraction.
 
-The local player owns all time-sensitive capture work. Cloud services distribute content and manage accounts, commerce, and publishing; they must not be required for a configured photo session.
+The critical capture path is local. Catalog, asset sync, optional cloud photo delivery, and payment verification may use the network, but network loss must not block a session that does not require payment.
 
-## Windows player modules
+## Player modules
 
-### 1. Kiosk UI / Theme Host
-Displays start screen, instructions, countdown, selection, preview, and completion screens. Theme data may change presentation but must not own or bypass capture workflow.
+### Presentation / Kiosk UI
+Renders guest and operator experiences using a theme schema and supported components. It does not own device or payment control.
 
-### 2. Session Orchestrator
-Owns session state, cancellation, timeouts, retry rules, and transitions. Coordinates camera, rendering, and output through explicit interfaces.
+### Session Orchestrator
+Owns session state, cancellation, deadlines, recovery, and sequencing. Coordinates capture, render, output, payment policy, and selected media-delivery behavior through interfaces.
 
-Initial state proposal:
-Idle -> Preparing -> Capturing -> Reviewing/Rendering -> Output -> Completed
-with explicit error, cancellation, recovery, and cleanup transitions. Validate the final states against real UX before treating them as fixed.
+Suggested state model: Idle -> Preflight -> AwaitingPayment (optional) -> Capturing -> Rendering -> Output -> Delivery -> Completed. Include Failed, Cancelled, TimedOut, and recovery paths. Payment and delivery states may be skipped according to configuration.
 
-### 3. Camera Adapter
-Wraps one vendor SDK or camera integration. Normalizes connection, live view, capture, transfer, timeout, and disconnect behavior. Vendor SDK types should not leak into domain or UI code.
+### Camera Provider Layer
+A stable internal contract with provider-specific implementations. Each provider advertises capabilities and supported camera/OS combinations. Do not assume every camera exposes trigger capture, live view, focus, or settings equally.
 
-### 4. Render Pipeline
-Converts source images and a frame definition into deterministic output. Define coordinate systems, slots, layer order, asset sizing, color handling, output resolution, and failure reporting.
+### Render Pipeline
+Produces deterministic static output from captured photos, frame definition, and versioned settings. Keep layout, crop, color/output dimensions, and error handling separate from UI.
 
-### 5. Print / Export
-Owns output sizing, printer interaction or file export, retries, and output status. It must not require an active Internet connection.
+### Print / Export
+Owns printer and file output operations. It can retry where safe and reports actionable status.
 
-### 6. Local Persistence and Asset Cache
-SQLite is a candidate for settings, session metadata, installed package versions, and sync state. Filesystem storage holds photos and content. Define retention, cleanup, and disk-full behavior.
+### Payment Module
+A policy/orchestrator plus provider adapters. It may be disabled. When payment is required, authoritative server/provider verification must happen before a session permit is granted. Do not treat a client redirect, QR display, screenshot, or guest claim as proof of payment.
 
-### 7. Sync Agent
-Runs outside the critical capture path. Downloads metadata/content, validates and stages updates, then activates them safely. Previously installed content remains usable when cloud sync fails.
+### Media Delivery Module
+Policy-based router with three modes:
+- **Local-only:** save photos at the booth; operator-managed access.
+- **LAN:** expose only the selected output to devices on the trusted store network via a short-lived session link/QR or controlled download endpoint.
+- **Platform cloud:** upload through a configured cloud service with explicit retention and access controls.
 
-## Cloud modules (later phase)
-- Identity and store/device registration.
-- Catalog, categories, tags, search, and metadata.
-- Asset upload, validation, preview generation, versioning, publishing, and moderation.
-- Orders, payments, entitlements, refunds, and licensing.
-- Creator profiles and payout records.
-- Signed content delivery and client update metadata.
-- Operational telemetry that avoids collecting guest photos by default.
+Capture/render must complete even if optional delivery later fails; delivery can become pending/retryable where policy permits.
 
-Potential stack: ASP.NET Core or Go API, PostgreSQL, S3-compatible object storage, and CDN. These are candidates, not accepted implementation decisions.
+### Local Persistence
+SQLite is a candidate for session metadata, settings, package versions, and sync state. Photos/assets live on local storage. Define disk-full handling and retention. Do not store payment secrets in plaintext configuration.
 
-## Content delivery flow
-1. Player requests catalog/update metadata when online.
-2. Player downloads an immutable package version.
-3. Player validates manifest, compatibility, file sizes, hashes/signature, and entitlement where relevant.
-4. Player stages package in a temporary location.
-5. Player activates only after full validation and outside an active session.
-6. The prior known-good version remains available for rollback.
+### Update / Sync Agent
+Runs outside active session critical sections. Downloads metadata/content to staging, validates integrity and compatibility, then activates when safe. Preserve rollback capability.
 
-## Reliability boundaries
-- No network request blocks camera capture or printing.
-- UI remains responsive during device/file I/O.
-- Hardware failures produce actionable errors and safe state transitions.
-- Corrupt or incompatible packages cannot replace working content.
-- Logs use session IDs and technical codes, not photos or unnecessary guest data.
+## Cloud backend modules (Go preferred)
+- Identity/store/device configuration.
+- Catalog/content versioning and signed package delivery.
+- Payment intent/order/verification and webhook handling.
+- Media upload/download authorization, retention and deletion.
+- Optional cloud album/session access.
+- Creator publishing, moderation, marketplace orders and entitlements.
+- Device update metadata and non-sensitive diagnostics.
 
-## Candidate technology direction
+Prefer a modular monolith with explicit packages/domain boundaries. PostgreSQL and S3-compatible object storage/CDN are candidates, not final decisions.
 
-| Area | Candidate | Status / validation |
-|---|---|---|
-| Windows desktop | C#/.NET + WPF | Proposed; validate kiosk, packaging, maintenance |
-| Configurable UI | WebView2 + declarative theme schema | Proposed; test performance/offline/security |
-| Camera | Vendor-specific adapter | First model and SDK undecided |
-| Image processing | .NET or suitable native/library component | Select after quality, speed, license tests |
-| Local database | SQLite | Proposed |
-| Backend | ASP.NET Core or Go | Undecided |
-| Cloud database | PostgreSQL | Candidate |
-| Asset storage | S3-compatible storage + CDN | Candidate |
-| Payments | Provider meeting marketplace needs | Undecided; verify local support/fees/payouts |
+## Cross-platform direction
+Keep domain/session contracts independent of OS APIs. Implement camera, printing, secret storage, kiosk integration, and packaging behind platform/provider adapters when behavior differs. Cross-platform UI does not make vendor SDKs cross-platform automatically.
 
-## Evolution triggers
-Split services only for a demonstrated reason such as independent deployment/security boundaries, sustained load, or isolated team ownership. Keep contracts stable and versioned as boundaries evolve.
+Candidate UI technologies:
+- Avalonia (.NET): potential C# reuse and Windows/Linux desktop target.
+- Qt: mature cross-platform UI ecosystem; licensing and tooling need evaluation.
 
+Choose only after an engineering spike covering touch/kiosk UX, camera preview if needed, rendering performance, printer integration, deployment/update, and maintenance.
+
+## Non-functional boundaries
+- No network calls may block capture/render/output when payment is not required.
+- Payment-required sessions fail closed if authoritative confirmation is unavailable; do not silently grant unpaid sessions.
+- Optional upload failure must not erase local output.
+- UI remains responsive during device, render, and network I/O.
+- Package/app updates are staged, integrity-checked, and rollback-capable.
+- Images and credentials are excluded from routine logs.
+
+
+## External references to re-check before implementation
+
+- [Avalonia supported platforms](https://docs.avaloniaui.net/docs/supported-platforms) and [Avalonia Desktop Linux guide](https://docs.avaloniaui.net/docs/platform-specific-guides/linux): useful when evaluating a .NET cross-platform kiosk UI. Support tiers and requirements can change between releases.
+- [Sony Camera Remote SDK](https://support.d-imaging.sony.co.jp/app/sdk/en/) and [libgphoto2 supported cameras](https://gphoto.sourceforge.io/proj/libgphoto2/support.php): investigate exact operations and supported OS/model combinations; these are not blanket guarantees for every camera.

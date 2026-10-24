@@ -1,43 +1,48 @@
 ﻿# PhotoBooth Knowledge Base
 
-This folder is the shared product and engineering context for humans and AI coding agents. Keep it current and grounded in decisions actually made.
+This folder is shared product and engineering context for humans and AI coding agents. Keep it current and grounded in decisions actually made.
 
 ## Status vocabulary
 
-- **Proposed** — recommended, not explicitly accepted or validated.
-- **Accepted** — a product decision has been made; implementation may not exist.
-- **Implemented** — behavior exists in code and has been verified.
-- **Deprecated** — no longer current; retained only when historical context helps.
+- **Proposed** — recommended direction, not yet confirmed by evidence or product decision.
+- **Accepted** — product requirement/decision is agreed; implementation may not exist.
+- **Implemented** — exists in code and has been verified.
+- **Deprecated** — no longer current; retain only if historical context helps.
 
-Never turn a proposal into an asserted fact.
+Do not turn a proposal into an asserted fact.
 
 ## Read in this order
 
-1. [PRODUCT_BRIEF.md](PRODUCT_BRIEF.md) — users, product value, and principles.
-2. [MVP_SCOPE.md](MVP_SCOPE.md) — first milestone, acceptance criteria, and exclusions.
-3. [SYSTEM_ARCHITECTURE.md](SYSTEM_ARCHITECTURE.md) — application boundaries and data flows.
-4. [DOMAIN_MODEL.md](DOMAIN_MODEL.md) — concepts and relationships.
-5. [CONTENT_PACKAGE_SPEC.md](CONTENT_PACKAGE_SPEC.md) — proposed theme/frame package contract.
-6. [SECURITY_PRIVACY.md](SECURITY_PRIVACY.md) — package safety and guest-photo privacy.
-7. [ENGINEERING_PLAYBOOK.md](ENGINEERING_PLAYBOOK.md) — development and testing practices.
-8. [ROADMAP.md](ROADMAP.md) — staged rollout and validation gates.
-9. [../adr/0001-offline-first-windows-player.md](../adr/0001-offline-first-windows-player.md) — initial architecture decision.
+1. [PRODUCT_BRIEF.md](PRODUCT_BRIEF.md) — target users, product value, configuration principles.
+2. [MVP_SCOPE.md](MVP_SCOPE.md) — first milestone, criteria, exclusions, and validation.
+3. [SYSTEM_ARCHITECTURE.md](SYSTEM_ARCHITECTURE.md) — player, cloud, and adapter boundaries.
+4. [DOMAIN_MODEL.md](DOMAIN_MODEL.md) — domain concepts and relationships.
+5. [CAMERA_INTEGRATION.md](CAMERA_INTEGRATION.md) — hardware abstraction and compatibility.
+6. [MEDIA_DELIVERY_AND_PAYMENT.md](MEDIA_DELIVERY_AND_PAYMENT.md) — local/LAN/cloud delivery and optional payment flows.
+7. [CONTENT_PACKAGE_SPEC.md](CONTENT_PACKAGE_SPEC.md) — proposed theme/frame package contract.
+8. [SECURITY_PRIVACY.md](SECURITY_PRIVACY.md) — package safety, payment verification, and guest-photo privacy.
+9. [ENGINEERING_PLAYBOOK.md](ENGINEERING_PLAYBOOK.md) — development and testing practices.
+10. [ROADMAP.md](ROADMAP.md) — staged rollout and validation gates.
+11. [../adr/0001-offline-first-windows-player.md](../adr/0001-offline-first-windows-player.md) — offline-first capture decision.
+12. [../adr/0002-configurable-delivery-and-payment.md](../adr/0002-configurable-delivery-and-payment.md) — per-store media and payment options.
+13. [../adr/0003-cross-platform-player-and-go-backend.md](../adr/0003-cross-platform-player-and-go-backend.md) — cross-platform and backend direction to validate.
 
 ## Maintenance rules
 
 - Update the nearest topic document when requirements or implementation change.
-- Use ADRs for decisions expensive to reverse or affecting multiple modules.
-- Add source links for vendor SDK limitations, licenses, security-sensitive behavior, and changeable external facts.
+- Use ADRs for decisions that affect multiple modules or are expensive to reverse.
+- Add source links for vendor SDK support, licensing, security-sensitive behavior, and other changeable facts.
 - Keep schemas/API contracts synchronized with implementation and tests.
-- Never put secrets, personal data, real customer photos, or credentials here.
+- Never put secrets, personal data, real guest photos, or credentials here.
 
 ## Open questions
 
-- Which camera models and Windows versions must be supported first?
+- Which camera models, SDKs, firmware, and connection methods must be supported first?
 - Which printer models, paper sizes, and output methods are required for the pilot?
-- Which camera SDK/provider should be the first integration?
-- What are the final client/backend languages and framework versions?
-- Which animation and export formats are required?
-- Should the first pilot include cloud sign-in/download, or start with local/manual content?
-- What are the pricing, commission, refund, and creator payout rules?
+- Which UI framework best balances cross-platform UI reuse and device integration?
+- What Linux distribution and kiosk configuration will be supported?
+- What are the backend API contracts and final Go framework/library choices?
+- Which payment provider and bank-transfer reconciliation workflow will be used?
+- What LAN photo access model, security controls, retention, and deletion behavior are required?
+- What are pricing, commission, refund, and creator payout rules?
 

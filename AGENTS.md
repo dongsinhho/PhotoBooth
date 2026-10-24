@@ -47,3 +47,13 @@ These instructions apply to the entire repository.
 4. Run relevant tests/formatters/builds available.
 5. Report changed files, actual checks/results, and remaining risks.
 
+
+## Additional product invariants
+
+- Media delivery is a store-level policy: local-only, controlled LAN download, or optional platform cloud. Do not upload by default.
+- LAN download must expose only the authorized output/session, not the whole photo directory; use short-lived access tokens and expiry.
+- Payment is optional and store-configurable: disabled/free, payment during the guest flow, or verified prepayment.
+- When payment is required, only trusted server/provider confirmation can authorize a paid session. The player must not trust a screenshot, QR display, redirect, or client-side success claim.
+- Payment and media delivery are independent of camera provider code and should use separate interfaces and state.
+- Windows and Linux are product targets, but support must be claimed per tested OS/camera/driver/printer combination.
+- Go is the preferred backend language. Keep the backend a modular monolith unless concrete evidence justifies splitting it.

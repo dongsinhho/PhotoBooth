@@ -1,56 +1,41 @@
 ﻿# Product Brief
 
-**Status:** Proposed baseline  
+**Status:** Accepted requirements with open implementation choices
 **Last updated:** 2026-10-24
 
 ## Vision
-Build a dependable photobooth platform whose on-site capture experience can be extended by a continuously refreshed ecosystem of themes and photo frames created by the community. Operators must be able to run a session without the cloud while discovering new content online.
+Build a reliable, configurable photobooth platform for store-operated booths. Guests take photos through a local player; operators control how images are stored/shared and whether a session requires payment. Online themes/frames and a community marketplace extend the product over time.
 
-## Primary users
+## Users
+- **Store owner/operator:** hardware setup, session flow, store policy, content, payment, photo access, and retention.
+- **Guest:** quick, attractive, predictable capture and a clear route to obtain the result.
+- **Creator:** publish versioned, licensed themes/frames and eventually earn revenue.
+- **Platform operator:** operate cloud services, content catalog, commerce, updates, moderation, and support.
 
-### Store operator / owner
-Needs a reliable session workflow, predictable image quality, easy installation and updates, configurable branding, and low operational overhead.
-
-### Guest
-Needs a quick, intuitive, attractive photo experience with clear instructions and dependable photo delivery.
-
-### Content creator
-Eventually needs a clear package format, accurate previews, versioning, attribution, compatibility information, and a transparent sales/download model.
-
-### Platform administrator / reviewer
-Eventually needs moderation, content takedown, abuse reports, account support, license enforcement, and marketplace operations.
+## Accepted product requirements
+- Media delivery is configurable per store: local-only, LAN access, or optional platform cloud.
+- Payment is configurable per store: disabled/free, QR payment in the guest flow, or verified prepayment before a session starts.
+- Camera integrations are abstracted behind provider interfaces to allow new models/providers in future releases.
+- Windows and Linux are target desktop platforms; actual hardware support is a tested compatibility matrix.
+- Go is the preferred backend language. Backend architecture/framework choices remain open.
+- Capture, rendering, and local output must not depend on Internet connectivity after the booth is configured and required assets are installed.
 
 ## Product surfaces
-- **Player:** kiosk interface, camera capture, session state, image processing, print/export, local asset management.
-- **Marketplace:** search, categories, previews, free/paid content, compatibility metadata, purchase/download.
-- **Store dashboard:** store/booth settings, installed content, device status, updates, and later multi-booth management.
-- **Creator portal:** upload, validate, preview, version, publish, and inspect content performance.
+- **Player:** kiosk UI, session orchestration, capture, render, print/export, payment integration, media delivery.
+- **Store configuration:** media policy, payment policy, device configuration, installed assets.
+- **Marketplace:** catalog, preview, free/paid content, purchase/download.
+- **Creator portal:** upload, validation, preview, versioning, publishing, moderation.
+- **Cloud media delivery:** optional service; not mandatory for every store or booth.
 
 ## Differentiation hypothesis
-The differentiator is not only camera control. It is a smooth content lifecycle: find a design, preview it, install it, activate it, and safely update it without reinstalling the player or disrupting a session. Local Vietnamese creator content and timely themes could improve relevance, but market demand and willingness to pay must be validated with operators and creators.
+A smooth lifecycle for new visual content—discover, preview, install, activate, update—combined with configuration flexibility may be a differentiator. Validate market demand, hardware mix, and willingness to pay with real operators and creators.
 
-## Product principles
+## Principles
 1. Offline-first capture.
-2. Reliability before feature breadth.
-3. Theme/frame content is declarative data, not arbitrary executable code.
-4. Presentation is separate from capture and output workflows.
-5. Privacy by default for guest photos.
-6. Explicit compatibility and package versions.
-7. A safe update and rollback path.
-8. Creator attribution and licensing are first-class metadata.
-
-## Success signals to validate
-Early pilot:
-- Operators can complete repeated capture-to-output sessions without network access.
-- Camera disconnects, print failures, and app restarts have understandable recovery paths.
-- Operators can change supported frames without technical assistance.
-- A small group of operators is willing to use the product repeatedly.
-
-Marketplace validation:
-- Operators regularly discover or install new content.
-- Free content contributes to acquisition without making paid content unattractive.
-- Creators can publish without support-heavy manual intervention.
-- Paid conversion and creator economics work at realistic Vietnamese market prices.
-
-Targets and thresholds remain unspecified until pilot data exists.
-
+2. Optional features must remain genuinely optional, not hidden cloud dependencies.
+3. Separation of presentation, capture, payment, media access, and printing.
+4. Adapter boundaries for replaceable hardware/payment/storage integrations.
+5. Downloaded content is declarative and validated, not arbitrary executable code.
+6. Privacy by default and explicit image retention/deletion policy.
+7. Cross-platform claims are backed by platform-specific tests.
+8. Document decisions and label unresolved assumptions.

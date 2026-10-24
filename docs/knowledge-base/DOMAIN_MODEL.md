@@ -1,70 +1,38 @@
 ﻿# Initial Domain Model
 
-**Status:** Proposed conceptual model
+**Status:** Proposed conceptual model, not a database schema
 
-This vocabulary is a starting point, not a finalized database schema.
+## Entities and concepts
+- **Store:** operator/business settings, user access, media delivery policy, payment policy, retention policy.
+- **BoothDevice:** player installation, OS/player version, registered capabilities, last sync, store assignment.
+- **PhotoSession:** lifecycle/status, timestamps, selected theme/frame versions, captures, payment authorization reference if required, output and delivery state.
+- **Capture:** image sequence index, local path/reference, capture status and processing metadata.
+- **Theme / Frame:** immutable content package types with version and compatibility metadata.
+- **ContentPackageVersion:** schema version, package version, checksums/signature, player compatibility, author and license.
+- **Installation:** package installed/active on a specific booth, with rollback version.
+- **PaymentPolicy:** disabled, pay-during-flow, or prepay-before-session, plus provider/configuration reference.
+- **PaymentAttempt / PaymentTransaction:** amount/currency, provider reference, idempotency key, state, timestamps and reconciliation metadata; no raw payment credentials.
+- **SessionPermit:** server/provider-verifiable authorization for a paid session, scoped to a session and expiring/one-time where supported.
+- **MediaDeliveryPolicy:** local-only, LAN, or platform cloud; retention and sharing settings.
+- **MediaAsset / DeliveryJob:** output file metadata, storage location/mode, delivery state, expiry and deletion status.
+- **Creator / Listing / Order / Entitlement:** later marketplace entities.
 
-## Core entities
+## Relationships (conceptual)
+- Store configures multiple BoothDevices.
+- BoothDevice runs PhotoSessions.
+- PhotoSession contains Captures and one finalized output configuration.
+- PhotoSession may reference PaymentAttempt/SessionPermit and MediaAsset/DeliveryJob.
+- Store configuration selects PaymentPolicy and MediaDeliveryPolicy.
+- A booth installs immutable ContentPackageVersions.
+- Creator publishes Listings with immutable package versions.
+- Paid Listing purchase grants Entitlement under explicit license terms.
 
-### Store
-Business/account context owning booths and controlling store settings, content activation, branding, and team access.
-
-### BoothDevice
-Player installation registered to a store. Records device identity, player version, capabilities, last sync, and configuration. Credentials must not be stored in plain text.
-
-### PhotoSession
-One guest photo workflow. May include timestamps, state, exact content version, output status, and technical diagnostics. Minimize guest data and define retention.
-
-### Capture
-One source image from a session, with sequence index, local file reference, processing metadata, and capture status.
-
-### Theme
-Declarative package that changes player presentation: screen layouts, typography, colors, approved assets, and transitions. Never arbitrary executable code.
-
-### Frame
-Declarative package defining photo composition: canvas, photo slots, overlays/backgrounds, layer order, output variants, and preview.
-
-### ContentPackageVersion
-Immutable published theme/frame version. Carries schema version, compatibility constraints, file manifest, hashes/signature, author, license, and release metadata.
-
-### Installation
-Record of a package version installed on a booth, with activation state and rollback information. Downloaded and active are distinct states.
-
-### Creator
-Person or organization publishing content; later profile, verification, listing ownership, statistics, and payout features.
-
-### Listing
-Marketplace entry with free/paid status, price, categories, previews, availability, moderation state, and package-version references.
-
-### Entitlement
-Grant allowing a store/account to use a paid package under specified terms. Use a signed or integrity-protected cached entitlement and a defined offline policy rather than a network call for each session.
-
-### Order
-Commercial transaction with payment/refund state and purchased listing/entitlements. Payment state must come from a trusted server/provider callback, not a client claim.
-
-## Relationship sketch
-
-~~~mermaid
-erDiagram
-  STORE ||--o{ BOOTH_DEVICE : operates
-  BOOTH_DEVICE ||--o{ PHOTO_SESSION : runs
-  PHOTO_SESSION ||--o{ CAPTURE : contains
-  STORE ||--o{ INSTALLATION : installs
-  CONTENT_PACKAGE_VERSION ||--o{ INSTALLATION : delivered_as
-  CREATOR ||--o{ LISTING : publishes
-  LISTING ||--o{ CONTENT_PACKAGE_VERSION : versions
-  LISTING ||--o{ ORDER : purchased_through
-  ORDER ||--o{ ENTITLEMENT : grants
-~~~
-
-Relationships are conceptual. Decide before database implementation whether PhotoSession references a theme version, frame version, both, or a full configuration snapshot.
-
-## Modeling principles
-- Use stable IDs and immutable content-version identifiers.
-- Snapshot exact theme/frame versions and rendering settings used by a session; later updates must not alter historical outputs.
-- Distinguish package ownership, installation, activation, and license entitlement.
-- Model asynchronous device/output operations with explicit status and error information.
-- Store image bytes in controlled file/object storage, not relational rows; reference them from metadata.
-- Do not persist more guest data than required.
-- Keep payments server-authoritative and make webhooks idempotent when commerce exists.
+## Modeling rules
+- Persist which theme/frame version rendered an output; later package updates must not change past results.
+- Separate payment state from session state, and delivery state from output-generation state.
+- Use idempotency keys for payment requests and webhook handling.
+- Represent policy changes explicitly; define whether changes apply only to new sessions or immediately.
+- Store image bytes in controlled file/object storage and metadata separately.
+- Do not store full card/bank credentials or payment secrets.
+- Keep only minimal guest/session identifiers and define deletion/retention behavior.
 
