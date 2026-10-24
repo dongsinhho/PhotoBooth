@@ -10,12 +10,12 @@ Help booth operators reuse cameras, computers and printers they already own. The
 
 ## Product surfaces
 
-1. **PhotoBooth Player** — desktop kiosk app for camera control, guest sessions, rendering, printing/export, optional payment and media delivery.
-2. **Application-level customization** — settings, configuration, frame/theme packages and documented content formats; not core-source editing.
-3. **Optional Photo Delivery** — local-only storage, controlled LAN downloads, or a configured cloud service.
-4. **Optional Payments** — free mode, payment in the guest flow, or verified prepayment.
-5. **Future Content Catalog** — browse, preview and install content; paid/community distribution may be added later.
-6. **Store Configuration** — device settings, content, media policy, payment policy and retention.
+1. **PhotoBooth Player** â€” desktop kiosk app for camera control, guest sessions, rendering, printing/export, optional payment and media delivery.
+2. **Application-level customization** â€” settings, configuration, frame/theme packages and documented content formats; not core-source editing.
+3. **Optional Photo Delivery** â€” local-only storage, controlled LAN downloads, or a configured cloud service.
+4. **Optional Payments** â€” free mode, payment in the guest flow, or verified prepayment.
+5. **Future Content Catalog** â€” browse, preview and install content; paid/community distribution may be added later.
+6. **Store Configuration** â€” device settings, content, media policy, payment policy and retention.
 
 ## Core principles
 
@@ -77,6 +77,14 @@ The product does not sell hardware. The official application is intended to be f
 
 Supported settings and theme/frame formats are the normal customization path. The standard user grant does not permit core-source modification or redistribution of modified core builds. See [License Strategy](docs/knowledge-base/LICENSE_STRATEGY.md); final legal text is not yet published.
 
+## Product discovery workspace
+
+- [Product Requirements Document](docs/knowledge-base/PRD.md)
+- [Competitor Research](docs/knowledge-base/COMPETITOR_RESEARCH.md)
+- [Operator Interview Guide](docs/knowledge-base/DISCOVERY_INTERVIEW_GUIDE.md)
+- [Discovery Log and Hypotheses](docs/knowledge-base/DISCOVERY_LOG.md)
+
+These are preparation materials. No customer interviews or hardware compatibility tests are claimed as completed yet.
 ## Knowledge base for AI-assisted development
 
 Read [AGENTS.md](AGENTS.md), then [docs/knowledge-base/README.md](docs/knowledge-base/README.md), and then the relevant product/architecture/license documents before changing code. Preserve the distinction between accepted requirements, proposals, and implementation that has actually been verified.

@@ -1,6 +1,6 @@
 # PhotoBooth Knowledge Base
 
-This folder is the shared product and engineering context for humans and AI coding agents. Keep it current and grounded in decisions actually made.
+This folder is shared product and engineering context for humans and AI coding agents. Keep it current and grounded in decisions actually made.
 
 ## Status vocabulary
 
@@ -14,21 +14,33 @@ Never turn a proposal into an asserted fact.
 ## Read in this order
 
 1. [PRODUCT_PLAN.md](PRODUCT_PLAN.md) - end-to-end plan from discovery through engineering, pilot, delivery, and marketing.
-2. [LICENSE_STRATEGY.md](LICENSE_STRATEGY.md) - free commercial use, app-level customization, core modification rights, and optional support.
-3. [PRODUCT_BRIEF.md](PRODUCT_BRIEF.md) - target users, value proposition, and accepted requirements.
-4. [MVP_SCOPE.md](MVP_SCOPE.md) - first milestone, acceptance criteria, and exclusions.
-5. [SYSTEM_ARCHITECTURE.md](SYSTEM_ARCHITECTURE.md) - player, cloud, and adapter boundaries.
-6. [DOMAIN_MODEL.md](DOMAIN_MODEL.md) - domain concepts and relationships.
-7. [CAMERA_INTEGRATION.md](CAMERA_INTEGRATION.md) - hardware abstraction and compatibility.
-8. [MEDIA_DELIVERY_AND_PAYMENT.md](MEDIA_DELIVERY_AND_PAYMENT.md) - local/LAN/cloud delivery and optional payment.
-9. [CONTENT_PACKAGE_SPEC.md](CONTENT_PACKAGE_SPEC.md) - theme/frame package contract proposal.
-10. [SECURITY_PRIVACY.md](SECURITY_PRIVACY.md) - package safety, payment verification, and guest-photo privacy.
-11. [ENGINEERING_PLAYBOOK.md](ENGINEERING_PLAYBOOK.md) - development and test practices.
-12. [ROADMAP.md](ROADMAP.md) - staged rollout and validation gates.
-13. [../adr/0001-offline-first-windows-player.md](../adr/0001-offline-first-windows-player.md) - offline-first capture constraint.
-14. [../adr/0002-configurable-delivery-and-payment.md](../adr/0002-configurable-delivery-and-payment.md) - store-configurable media/payment.
-15. [../adr/0003-cross-platform-player-and-go-backend.md](../adr/0003-cross-platform-player-and-go-backend.md) - cross-platform and backend direction.
-16. [../adr/0004-free-commercial-use-and-paid-support.md](../adr/0004-free-commercial-use-and-paid-support.md) - free commercial use, app-level customization, and controlled core.
+2. [PRD.md](PRD.md) - draft requirements, user jobs, MVP candidates, and acceptance metrics.
+3. [DISCOVERY_INTERVIEW_GUIDE.md](DISCOVERY_INTERVIEW_GUIDE.md) - interview questions and respondent note template.
+4. [COMPETITOR_RESEARCH.md](COMPETITOR_RESEARCH.md) - dated desk research with public sources and caveats.
+5. [DISCOVERY_LOG.md](DISCOVERY_LOG.md) - hypothesis register and interview tracking.
+6. [LICENSE_STRATEGY.md](LICENSE_STRATEGY.md) - free commercial use, app-level customization, core modification rights, and optional support.
+7. [PRODUCT_BRIEF.md](PRODUCT_BRIEF.md) - target users, value proposition, and accepted requirements.
+8. [MVP_SCOPE.md](MVP_SCOPE.md) - first milestone, acceptance criteria, and exclusions.
+9. [SYSTEM_ARCHITECTURE.md](SYSTEM_ARCHITECTURE.md) - player, cloud, and adapter boundaries.
+10. [DOMAIN_MODEL.md](DOMAIN_MODEL.md) - domain concepts and relationships.
+11. [CAMERA_INTEGRATION.md](CAMERA_INTEGRATION.md) - hardware abstraction and compatibility.
+12. [MEDIA_DELIVERY_AND_PAYMENT.md](MEDIA_DELIVERY_AND_PAYMENT.md) - local/LAN/cloud delivery and optional payment.
+13. [CONTENT_PACKAGE_SPEC.md](CONTENT_PACKAGE_SPEC.md) - theme/frame package contract proposal.
+14. [SECURITY_PRIVACY.md](SECURITY_PRIVACY.md) - package safety, payment verification, and guest-photo privacy.
+15. [ENGINEERING_PLAYBOOK.md](ENGINEERING_PLAYBOOK.md) - development and test practices.
+16. [ROADMAP.md](ROADMAP.md) - staged rollout and validation gates.
+17. [../adr/0001-offline-first-windows-player.md](../adr/0001-offline-first-windows-player.md) - offline-first capture constraint.
+18. [../adr/0002-configurable-delivery-and-payment.md](../adr/0002-configurable-delivery-and-payment.md) - store-configurable media/payment.
+19. [../adr/0003-cross-platform-player-and-go-backend.md](../adr/0003-cross-platform-player-and-go-backend.md) - cross-platform and backend direction.
+20. [../adr/0004-free-commercial-use-and-paid-support.md](../adr/0004-free-commercial-use-and-paid-support.md) - free commercial use, app-level customization, and controlled core.
+
+## Discovery status as of 2026-10-25
+
+- Interview guide and note template: prepared; interviews have not yet been conducted.
+- Competitor research: public desk research only; feature/pricing claims are vendor statements, not independently tested.
+- Hypotheses: unvalidated. See DISCOVERY_LOG.md.
+- Hardware compatibility: not yet tested for the selected pilot configuration.
+- Market demand and willingness to pay for support: not yet validated.
 
 ## Maintenance rules
 
