@@ -68,7 +68,7 @@ While it is holding the webcam, run a capture attempt from another window. The s
 
 ## Known gaps
 
-- The camera images have not been visually inspected for color, focus/exposure, framing, or stale frames.
+- One temporary B525 image was visually inspected and deleted: readable but soft/noisy under current indoor lighting and framed too close/off-center. Repeat the quality check with controlled booth lighting and intended mount distance; stale-frame and long-run quality tests remain pending.
 - The JSON renderer is a disposable prototype, not the production frame schema or renderer.
 - Printing, camera disconnect/reconnect, sustained-session stability, UI preview, and kiosk operation are not yet tested.
 - The built-in laptop camera requires a separate test on an actual laptop.

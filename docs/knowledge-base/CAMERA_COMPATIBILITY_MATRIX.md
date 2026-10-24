@@ -35,7 +35,7 @@ Observed:
 - DirectShow backend at index 0: 50/50 frames read and last frame written successfully to a temporary JPEG, 1280x720. Three additional open/read/save/release cycles of 10 frames each passed.
 - Media Foundation backend at index 0: 50/50 frames read and last frame written successfully to a temporary JPEG, 1280x720. Three additional open/read/save/release cycles of 10 frames each passed.
 - Temporary images were deleted after collecting file-size/result metadata.
-- The POC does not show or visually inspect the saved image; framing, exposure, color, focus, and image quality are not confirmed.
+- One temporary JPEG was visually inspected locally and deleted. It was readable at 1280x720, but the current indoor scene produced a soft/noisy image and very close, off-center framing. Focus/exposure under controlled booth lighting, mount distance, and consistent image quality remain unvalidated.
 - The JSON-configured three-photo strip was rendered to a 1200x1800 JPEG and read back to verify dimensions. Ten unit tests passed for configuration validation, slot bounds/count, contain/cover fit, and render dimensions. This is a disposable renderer, not the production frame schema.
 - Camera-busy test: while one process held the camera through Media Foundation, a second process failed to read its first frame with backend error -1072875772. The POC now reports likely causes and next steps. After the holder released the webcam, a new 10-frame capture passed. This validates low-level behavior, not production UI recovery.
 
@@ -45,7 +45,7 @@ Observed:
 - [x] Read 10 consecutive frames through DirectShow.
 - [x] Read 50 consecutive frames and write a JPEG through DirectShow.
 - [x] Read 50 consecutive frames and write a JPEG through Media Foundation.
-- [ ] Visually inspect a locally captured test image for dimensions, orientation, color, focus/exposure, and stale frames.
+- [x] Visually inspect one locally captured test image: readable 1280x720, but soft/noisy under current indoor lighting and framed too close/off-center. Temporary file deleted; repeat under controlled lighting and intended camera mounting distance.
 - [x] Close/reopen device cycles: 3 cycles of 10 frames each passed using DirectShow and 3 cycles using Media Foundation. This is an initial smoke check, not a soak test.
 - [x] Test concurrent access: while one MSMF process held the camera, a second capture could not read its first frame; after release, 10-frame capture passed. Production UI/retry handling remains untested.
 - [ ] Disconnect/reconnect and recover without restarting the computer.
