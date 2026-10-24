@@ -1,21 +1,21 @@
 # PhotoBooth
 
-**PhotoBooth** is planned cross-platform photobooth software that combines reliable on-site photo capture with configurable themes/frames and optional online content services.
+PhotoBooth is planned cross-platform photobooth software that combines reliable on-site photo capture with configurable themes/frames and optional online content services.
 
-> **Status:** Product definition and knowledge base only. The player, backend, and marketplace have not yet been implemented.
+Status: Product definition and technical proof-of-concept stage. The player, backend, and marketplace have not yet been implemented as a product.
 
 ## Product vision
 
-Help booth operators reuse cameras, computers and printers they already own. The official app is intended to be free for commercial photobooth operations. Owners may configure supported application behavior and add supported frames/themes without editing code. Optional paid support and authorized custom engineering are the intended business model.
+Help booth operators reuse cameras, computers, and printers they already own. The official app is intended to be free for commercial photobooth operations. Owners may configure supported application behavior and add supported frames/themes without editing core code. Optional paid support and authorized custom engineering are the intended business model.
 
 ## Product surfaces
 
-1. **PhotoBooth Player** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â desktop kiosk app for camera control, guest sessions, rendering, printing/export, optional payment and media delivery.
-2. **Application-level customization** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â settings, configuration, frame/theme packages and documented content formats; not core-source editing.
-3. **Optional Photo Delivery** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â local-only storage, controlled LAN downloads, or a configured cloud service.
-4. **Optional Payments** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â free mode, payment in the guest flow, or verified prepayment.
-5. **Future Content Catalog** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â browse, preview and install content; paid/community distribution may be added later.
-6. **Store Configuration** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â device settings, content, media policy, payment policy and retention.
+1. PhotoBooth Player: desktop kiosk app for camera control, guest sessions, rendering, printing/export, optional payment, and media delivery.
+2. Application-level customization: settings, configuration, frame/theme packages, and documented content formats; not core-source editing.
+3. Optional photo delivery: local-only storage, controlled LAN downloads, or a configured cloud service.
+4. Optional payments: free mode, payment during the guest flow, or verified prepayment.
+5. Future content catalog: browse, preview, and install content; paid/community distribution may be added later.
+6. Store configuration: device settings, content, media policy, payment policy, and retention.
 
 ## Core principles
 
@@ -23,41 +23,14 @@ Help booth operators reuse cameras, computers and printers they already own. The
 - Normal customization happens through supported app settings and frame/theme content, not source-code editing.
 - Core modification or distribution of a modified core build requires separate permission/licensing under the intended controlled-core model; final legal terms are pending.
 - Do not label the core Open Source unless the final license permits modifications and derived works under the Open Source Definition.
-- Capture/render/local output work offline once configured and assets are installed.
+- Capture, rendering, and local output should work offline once configured and assets are installed, except where a selected payment flow requires verification.
 - Camera and printer providers are extensible, with explicit tested compatibility.
 - Photo delivery and payment are independently configurable per store.
 - Guest photos stay local by default.
 
 ## Proposed architecture
 
-~~~mermaid
-flowchart TD
-  subgraph Player["Cross-platform PhotoBooth Player"]
-    UI["Kiosk UI + Supported Settings"]
-    Session["Session Orchestrator"]
-    Camera["Camera Provider"]
-    Render["Image Render Pipeline"]
-    Output["Print / Export"]
-    Payment["Payment Adapter (optional)"]
-    Media["Media Delivery Adapter"]
-    Local["Local DB + Asset/Photo Store"]
-    UI --> Session
-    Session --> Camera
-    Session --> Render
-    Render --> Output
-    Session --> Payment
-    Session --> Media
-    Session --> Local
-  end
-  subgraph Cloud["Optional Cloud Platform"]
-    API["Go API (preferred candidate)"]
-    Catalog["Catalog / Orders / Entitlements"]
-    Storage["Object Storage + CDN"]
-    API --> Catalog
-    API --> Storage
-  end
-  Local <-->|"Sync when enabled/online"| API
-~~~
+The player contains the kiosk UI and supported settings, session orchestrator, camera provider, render pipeline, print/export adapter, optional payment adapter, optional media-delivery adapter, and local database/asset/photo store. The optional cloud platform may provide the Go API, content catalog, orders/entitlements, and object storage/CDN.
 
 This is a target proposal, not a description of implemented code.
 
@@ -65,7 +38,9 @@ This is a target proposal, not a description of implemented code.
 
 - Backend: Go is preferred; start with a modular monolith.
 - Player UI: evaluate cross-platform choices such as Avalonia/.NET and Qt with a hardware/kiosk proof of concept.
-- Camera/printing: provider/adapter boundaries and a tested compatibility matrix.
+- Camera: begin with the available Logitech B525 UVC webcam; laptop integrated cameras are a required separate test case. DSLR/mirrorless support is a distinct future provider capability.
+- Windows 11 Pro 64-bit detected the B525. A disposable POC read 50 of 50 frames at 1280x720 using both DirectShow and Media Foundation, then rendered a sample layout to a 1200x1800 JPEG and verified that it could be decoded. Temporary image files were deleted.
+- Production frame rendering/printing, visual quality, device-loss recovery, built-in laptop camera, Linux, and sustained reliability remain untested.
 - Local data: SQLite and local asset/photo storage are candidates.
 - Cloud data/assets: PostgreSQL and S3-compatible storage/CDN are candidates, not locked decisions.
 - Media delivery: local-only, LAN, or optional platform cloud.
@@ -75,16 +50,18 @@ This is a target proposal, not a description of implemented code.
 
 The product does not sell hardware. The official application is intended to be free for commercial booth use. Support, setup, training, hardware integration, and authorized core modifications may be paid services.
 
-Supported settings and theme/frame formats are the normal customization path. The standard user grant does not permit core-source modification or redistribution of modified core builds. See [License Strategy](docs/knowledge-base/LICENSE_STRATEGY.md); final legal text is not yet published.
+Supported settings and theme/frame formats are the normal customization path. The standard user grant does not permit core-source modification or redistribution of modified core builds. See docs/knowledge-base/LICENSE_STRATEGY.md; final legal text is not yet published.
 
-## Product discovery workspace
+## Discovery and technical documents
 
-- [Product Requirements Document](docs/knowledge-base/PRD.md)
-- [Competitor Research](docs/knowledge-base/COMPETITOR_RESEARCH.md)
-- [Operator Interview Guide](docs/knowledge-base/DISCOVERY_INTERVIEW_GUIDE.md)
-- [Discovery Log and Hypotheses](docs/knowledge-base/DISCOVERY_LOG.md)
+- Product plan: docs/knowledge-base/PRODUCT_PLAN.md
+- Product requirements: docs/knowledge-base/PRD.md
+- Competitor context: docs/knowledge-base/COMPETITOR_RESEARCH.md
+- Self-service adoption hypotheses: docs/knowledge-base/DISCOVERY_LOG.md
+- Camera integration: docs/knowledge-base/CAMERA_INTEGRATION.md
+- Camera compatibility evidence: docs/knowledge-base/CAMERA_COMPATIBILITY_MATRIX.md
+- Webcam POC and test instructions: tools/camera-poc/README.md
+- AI coding-agent instructions: AGENTS.md
+- Knowledge-base index: docs/knowledge-base/README.md
 
-The interview guide is optional and not a project gate. No new hardware compatibility test or user-adoption result is claimed yet.
-## Knowledge base for AI-assisted development
-
-Read [AGENTS.md](AGENTS.md), then [docs/knowledge-base/README.md](docs/knowledge-base/README.md), and then the relevant product/architecture/license documents before changing code. Preserve the distinction between accepted requirements, proposals, and implementation that has actually been verified.
+The feedback/interview guide is optional and not a project gate. The next work is to validate image quality, recovery, production rendering/output, laptop camera, and Linux behavior. Maintain the distinction between tested, planned, and untested features.

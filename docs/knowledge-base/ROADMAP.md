@@ -1,4 +1,4 @@
-﻿# Roadmap and Validation Gates
+# Roadmap and Validation Gates
 
 **Status:** Proposed sequence; dates intentionally unset
 
@@ -70,3 +70,5 @@
 
 See [ADR 0005](../adr/0005-greenfield-self-service-adoption.md) for the greenfield/self-service growth strategy.
 
+
+See [ADR 0006](../adr/0006-webcam-first-technical-spike.md) for the webcam-first technical spike.

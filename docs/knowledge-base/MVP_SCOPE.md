@@ -7,7 +7,7 @@ Prove reliable capture-to-output on real hardware while laying architecture foun
 
 ## Proposed MVP vertical slice
 1. Start a kiosk session using local configuration.
-2. Show countdown and capture a configured sequence using one explicitly supported camera model.
+2. Show countdown and capture a configured sequence using the first tested UVC webcam provider (Logitech B525 is the current reference candidate). The built-in laptop camera should be tested as a second UVC target; DSLR remote-still support is a separate later provider.
 3. Render the source images into a static frame.
 4. Preview, then print or export through at least one tested output path.
 5. Preserve local session state and recover from common capture/render/output errors.

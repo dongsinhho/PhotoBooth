@@ -1,6 +1,6 @@
 # Product Requirements Document (PRD)
 
-**Version:** 0.2 — self-service/greenfield direction
+**Version:** 0.2 â€” self-service/greenfield direction
 **Status:** Proposed requirements; hardware validation pending
 **Last updated:** 2026-10-25
 

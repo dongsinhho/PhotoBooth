@@ -1,0 +1,10 @@
+# Local Python environments
+tools/camera-poc/.venv/
+
+# Local-only camera proof-of-concept images and outputs
+tools/camera-poc/output/
+photobooth-b525-poc.jpg
+
+# Python cache
+__pycache__/
+*.py[cod]
