@@ -10,12 +10,12 @@ Let booth operators run dependable photo sessions, configure media delivery and 
 
 ## Product surfaces
 
-1. **PhotoBooth Player** — desktop kiosk app for camera control, guest sessions, rendering, printing/export, optional payment, and media delivery.
-2. **Content Marketplace** — discover, preview, download, and purchase themes and frames.
-3. **Store Dashboard** — store/device configuration, policies, installed content, and eventually multi-booth management.
-4. **Creator Studio** — future package validation, publishing, versioning, and creator analytics.
-5. **Optional Photo Delivery** — local-only storage, downloads over the store's LAN, or a cloud service supplied by the platform.
-6. **Optional Payments** — free mode, QR payment during the guest flow, or verified prepayment before a session.
+1. **PhotoBooth Player** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â desktop kiosk app for camera control, guest sessions, rendering, printing/export, optional payment, and media delivery.
+2. **Content Marketplace** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â discover, preview, download, and purchase themes and frames.
+3. **Store Dashboard** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â store/device configuration, policies, installed content, and eventually multi-booth management.
+4. **Creator Studio** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â future package validation, publishing, versioning, and creator analytics.
+5. **Optional Photo Delivery** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â local-only storage, downloads over the store's LAN, or a cloud service supplied by the platform.
+6. **Optional Payments** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â free mode, QR payment during the guest flow, or verified prepayment before a session.
 
 ## Core principles
 
@@ -80,31 +80,34 @@ This is a **target proposal**, not a description of implemented code.
 5. Save session state and recover from common failures.
 6. Complete the capture workflow without a network connection.
 7. Prove the player can be built and run on the first selected target OS; keep the second OS as an explicit validation target.
-8. Define and test one media-delivery mode and one payment mode—or the disabled/free paths—without making them hard dependencies of capture.
+8. Define and test one media-delivery mode and one payment modeÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Âor the disabled/free pathsÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Âwithout making them hard dependencies of capture.
 
 ## Repository map
 
-~~~text
-.
-├── AGENTS.md
-├── README.md
-└── docs/
-    ├── adr/
-    └── knowledge-base/
-        ├── README.md
-        ├── PRODUCT_PLAN.md
-        ├── PRODUCT_BRIEF.md
-        ├── MVP_SCOPE.md
-        ├── SYSTEM_ARCHITECTURE.md
-        ├── DOMAIN_MODEL.md
-        ├── CAMERA_INTEGRATION.md
-        ├── MEDIA_DELIVERY_AND_PAYMENT.md
-        ├── CONTENT_PACKAGE_SPEC.md
-        ├── SECURITY_PRIVACY.md
-        ├── ENGINEERING_PLAYBOOK.md
-        └── ROADMAP.md
-~~~
+- `AGENTS.md` - repository instructions for AI coding agents.
+- `docs/knowledge-base/README.md` - documentation index and reading order.
+- `docs/knowledge-base/PRODUCT_PLAN.md` - end-to-end plan from discovery to launch.
+- `docs/knowledge-base/LICENSE_STRATEGY.md` - free commercial use, modification rights, and paid support.
+- `docs/knowledge-base/PRODUCT_BRIEF.md` - vision and target users.
+- `docs/knowledge-base/MVP_SCOPE.md` - initial product scope and acceptance criteria.
+- `docs/knowledge-base/SYSTEM_ARCHITECTURE.md` - proposed system and module boundaries.
+- `docs/knowledge-base/DOMAIN_MODEL.md` - domain concepts.
+- `docs/knowledge-base/CAMERA_INTEGRATION.md` - camera provider strategy.
+- `docs/knowledge-base/MEDIA_DELIVERY_AND_PAYMENT.md` - local/LAN/cloud delivery and payment.
+- `docs/knowledge-base/CONTENT_PACKAGE_SPEC.md` - theme/frame package format proposal.
+- `docs/knowledge-base/SECURITY_PRIVACY.md` - security and photo privacy.
+- `docs/knowledge-base/ENGINEERING_PLAYBOOK.md` - workflow and test strategy.
+- `docs/knowledge-base/ROADMAP.md` - staged rollout and validation gates.
+- `docs/adr/` - architecture decision records, including licensing and support model.
+## Distribution and business model
 
+PhotoBooth is intended to be software-only: the project does not sell camera, computer, printer, or booth hardware.
+
+- The official app is intended to be free to use for commercial photobooth sessions.
+- Operators can self-install and use it without buying support.
+- Supported settings and theme/frame packages are the primary customization route.
+- Optional paid services may include setup, troubleshooting, training, hardware integration, migration, and authorized custom core work.
+- The exact code license is not finalized. See [License and Support Strategy](docs/knowledge-base/LICENSE_STRATEGY.md). Do not assume the project is open source solely because the repository is public.
 ## For AI-assisted development
 
 Before planning or changing code, read [AGENTS.md](AGENTS.md), then [docs/knowledge-base/README.md](docs/knowledge-base/README.md), then the relevant topic documents and ADRs.

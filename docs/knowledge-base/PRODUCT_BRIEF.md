@@ -1,4 +1,4 @@
-﻿# Product Brief
+# Product Brief
 
 **Status:** Accepted requirements with open implementation choices
 **Last updated:** 2026-10-24
@@ -39,3 +39,12 @@ A smooth lifecycle for new visual content—discover, preview, install, activate
 6. Privacy by default and explicit image retention/deletion policy.
 7. Cross-platform claims are backed by platform-specific tests.
 8. Document decisions and label unresolved assumptions.
+
+## Distribution and support model
+
+- The project does not sell hardware or bundled booth kits.
+- The target offer is a free-to-use player for commercial photobooth operation, including self-installation.
+- Supported configuration, frame/theme packages, and documented extension points should permit normal booth customization without core-code edits.
+- Optional paid support and authorized custom engineering are the intended primary revenue sources.
+- Core modification and redistribution rights must be stated clearly in the final license. The source license has not been selected; do not describe the software as OSI open source if modifications/derivatives require additional permission.
+- A public marketplace or paid content is a possible future addition, not a prerequisite to use the basic player.

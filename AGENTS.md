@@ -1,4 +1,4 @@
-﻿# Instructions for AI Coding Agents
+# Instructions for AI Coding Agents
 
 These instructions apply to the entire repository.
 
@@ -57,3 +57,12 @@ These instructions apply to the entire repository.
 - Payment and media delivery are independent of camera provider code and should use separate interfaces and state.
 - Windows and Linux are product targets, but support must be claimed per tested OS/camera/driver/printer combination.
 - Go is the preferred backend language. Keep the backend a modular monolith unless concrete evidence justifies splitting it.
+
+## Distribution and licensing invariants
+
+- The product does not sell hardware. The intended basic player offer is free commercial use, with optional paid support and authorized custom engineering.
+- Keep supported store customization in documented settings and versioned theme/frame packages wherever possible.
+- Never imply that a public repository grants permission to modify or redistribute the core.
+- Read docs/knowledge-base/LICENSE_STRATEGY.md before adding a LICENSE file, publishing source code, accepting external code contributions, or designing plugin redistribution.
+- Do not call the core OSI open source unless the actual selected license meets the Open Source Definition.
+- Do not implement artificial feature restrictions merely to pressure users into purchasing support; paid support is optional under the intended product model.
