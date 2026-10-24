@@ -56,14 +56,15 @@ The first reference camera is the Logitech B525 HD Webcam available on the Windo
 - DirectShow at camera index 0 read 50 of 50 frames at 1280x720 and wrote a temporary JPEG.
 - Media Foundation at camera index 0 read 50 of 50 frames at 1280x720 and wrote a temporary JPEG.
 - Each backend was reopened three times and read 10 of 10 frames on each cycle.
-- A disposable one-photo sample layout was rendered to a 1200x1800 JPEG, which OpenCV decoded successfully.
-- All temporary camera and rendered images were deleted after collecting result metadata.
+- A JSON-configured three-photo strip was rendered to a 1200x1800 JPEG, which OpenCV decoded successfully; all temporary images were deleted.
+- Ten renderer unit tests passed, including malformed configuration, bounds, fit modes, and three-slot rendering.
+- A concurrent reader failed while a second process held the webcam; after release, a fresh capture succeeded. The low-level behavior is documented, but production UI recovery is not implemented.
 
 This is a successful initial webcam capture-to-file-render proof of concept, not production readiness. Image quality was not visually inspected. The production frame schema/renderer, printer path, device-loss recovery, sustained operation, integrated laptop camera, and Linux remain untested.
 
 ### Next camera tests
 1. Visually inspect a locally captured test image for orientation, focus/exposure, color, and stale frames.
-2. Test the camera-busy case when another application already owns the device.
+2. Design production session/UI behavior for camera-busy errors; the low-level failure and recovery-after-release have been observed in the POC, but app-level recovery is not implemented.
 3. Disconnect/reconnect and record recovery behavior.
 4. Test the built-in camera on a real laptop separately; do not infer this from the B525 test.
 5. Validate the actual product frame schema/renderer and printer or chosen output path.

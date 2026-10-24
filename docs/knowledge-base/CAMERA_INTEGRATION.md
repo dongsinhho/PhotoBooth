@@ -1,6 +1,6 @@
 # Camera Integration
 
-**Status:** Required architecture boundary accepted; provider implementations and compatibility matrix are not yet validated.
+**Status:** Camera architecture boundary accepted; first Windows UVC webcam stream/capture and disposable config-render POC partially validated. Production provider and compatibility matrix are still incomplete.
 
 ## Goal
 
@@ -71,7 +71,7 @@ Keep native or library-specific types behind provider boundaries. The domain/ses
 
 ## First technical spike
 
-Current reference device: Logitech B525 HD Webcam on Windows 11 Pro 64-bit. OS detection and a disposable OpenCV smoke test have passed: DirectShow and Media Foundation each read 50/50 frames at 1280x720, and each backend wrote a temporary JPEG successfully. A separate disposable sample-layout script then rendered a captured 1280x720 source into a 1200x1800 JPEG, which decoded successfully. This does not confirm visual quality, the production frame schema/renderer, printer output, device-loss recovery, sustained operation, or Linux compatibility. See CAMERA_COMPATIBILITY_MATRIX.md for exact evidence.
+Current reference device: Logitech B525 HD Webcam on Windows 11 Pro 64-bit. OS detection and a disposable OpenCV smoke test have passed: DirectShow and Media Foundation each read 50/50 frames at 1280x720, and each backend wrote a temporary JPEG successfully. A JSON-configured disposable renderer successfully composed three captured 1280x720 images into a 1200x1800 JPEG. Ten unit tests passed for layout validation and crop/contain behavior. A concurrent reader failed while another process held the camera, and capture succeeded again after release. These are low-level POC results; they do not confirm visual quality, the production renderer, printer output, hot-unplug recovery, sustained operation, or Linux compatibility. See CAMERA_COMPATIBILITY_MATRIX.md for exact evidence.
 
 1. Enumerate the B525 and determine the actual negotiated formats/resolutions; a 1280x720 frame was observed, but all supported formats have not been enumerated.
 2. Implement an app preview without blocking the UI; the current headless POC reads stream frames but does not implement UI preview.

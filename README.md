@@ -39,7 +39,7 @@ This is a target proposal, not a description of implemented code.
 - Backend: Go is preferred; start with a modular monolith.
 - Player UI: evaluate cross-platform choices such as Avalonia/.NET and Qt with a hardware/kiosk proof of concept.
 - Camera: begin with the available Logitech B525 UVC webcam; laptop integrated cameras are a required separate test case. DSLR/mirrorless support is a distinct future provider capability.
-- Windows 11 Pro 64-bit detected the B525. A disposable POC read 50 of 50 frames at 1280x720 using both DirectShow and Media Foundation, then rendered a sample layout to a 1200x1800 JPEG and verified that it could be decoded. Temporary image files were deleted.
+- Windows 11 Pro 64-bit detected the B525. A disposable POC read 50 of 50 frames at 1280x720 using both DirectShow and Media Foundation. A JSON-configured three-photo strip rendered to a 1200x1800 JPEG and decoded successfully; 10 renderer tests passed. Concurrent camera access failed clearly, then capture worked after the holder released the device. Temporary images were deleted.
 - Production frame rendering/printing, visual quality, device-loss recovery, built-in laptop camera, Linux, and sustained reliability remain untested.
 - Local data: SQLite and local asset/photo storage are candidates.
 - Cloud data/assets: PostgreSQL and S3-compatible storage/CDN are candidates, not locked decisions.

@@ -60,7 +60,9 @@ def capture_one(index: int, backend: str, count: int, output: Path) -> int:
         for _ in range(count):
             ok, current = cap.read()
             if not ok or current is None or not current.size:
-                print(f"FAIL: read failed after {good} valid frames")
+                print(f"FAIL: camera stopped returning frames after {good} valid frames.", file=sys.stderr)
+                print("Possible causes: another app owns the camera, access is denied, the device disconnected, or the backend failed.", file=sys.stderr)
+                print("Close camera-using apps and retry; if the device was unplugged, reconnect it before retrying.", file=sys.stderr)
                 return 1
             good += 1
             frame = current

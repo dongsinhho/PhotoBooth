@@ -1,6 +1,6 @@
 # Camera Compatibility Matrix
 
-**Status:** Partial webcam capture-to-file-render POC passed; product output and production reliability remain untested.
+**Status:** Partial webcam capture-to-configured-render POC passed; production output and reliability remain untested.
 **Last updated:** 2026-10-25
 
 ## Status definitions
@@ -18,7 +18,7 @@
 
 | Camera category/model | OS / version | Backend/provider | Detection | Stream result | Capture result | Render/export | Disconnect/recovery | Overall |
 |---|---|---|---|---|---|---|---|---|
-| Logitech B525 HD Webcam | Windows 11 Pro 64-bit (10.0.26200) | OpenCV 5.0.0.93 / DirectShow and Media Foundation | Detected by Windows on 2026-10-25 | Both backends read 50/50 frames at 1280x720 | OpenCV wrote final frame to JPEG (242836 bytes DSHOW; 210572 bytes MSMF); both temporary files deleted after test | Disposable sample layout rendered to 1200x1800 JPEG and decoded successfully; no printer test | Untested | Partial POC passed: webcam capture and test-file render/export only |
+| Logitech B525 HD Webcam | Windows 11 Pro 64-bit (10.0.26200) | OpenCV 5.0.0.93 / DirectShow and Media Foundation | Detected by Windows on 2026-10-25 | Both backends read 50/50 frames at 1280x720 | JPEG write passed on both backends; temporary images deleted | JSON-configured 3-photo strip rendered to 1200x1800 JPEG and decoded successfully; no printer test | Concurrent read failed while holder owned device; read recovered after release. Hot-unplug/reconnect untested | Partial POC passed: webcam capture and config-driven file render only |
 | Laptop integrated camera | Laptop OS/model not selected | Not selected | Not tested on a laptop | Untested | Untested | Untested | Untested | Untested |
 | DSLR/mirrorless reference model | Not selected | Vendor SDK/provider TBD | Untested | Untested | Untested | Untested | Untested | Untested |
 
@@ -36,7 +36,8 @@ Observed:
 - Media Foundation backend at index 0: 50/50 frames read and last frame written successfully to a temporary JPEG, 1280x720. Three additional open/read/save/release cycles of 10 frames each passed.
 - Temporary images were deleted after collecting file-size/result metadata.
 - The POC does not show or visually inspect the saved image; framing, exposure, color, focus, and image quality are not confirmed.
-- A disposable one-photo sample layout was rendered to a 1200x1800 JPEG and read back to verify the dimensions. This is not the product renderer or final frame schema. No printer test, disconnect/reconnect, camera-busy, long-duration, kiosk, or Linux test has been run.
+- The JSON-configured three-photo strip was rendered to a 1200x1800 JPEG and read back to verify dimensions. Ten unit tests passed for configuration validation, slot bounds/count, contain/cover fit, and render dimensions. This is a disposable renderer, not the production frame schema.
+- Camera-busy test: while one process held the camera through Media Foundation, a second process failed to read its first frame with backend error -1072875772. The POC now reports likely causes and next steps. After the holder released the webcam, a new 10-frame capture passed. This validates low-level behavior, not production UI recovery.
 
 ## Remaining B525 checklist
 
@@ -46,9 +47,9 @@ Observed:
 - [x] Read 50 consecutive frames and write a JPEG through Media Foundation.
 - [ ] Visually inspect a locally captured test image for dimensions, orientation, color, focus/exposure, and stale frames.
 - [x] Close/reopen device cycles: 3 cycles of 10 frames each passed using DirectShow and 3 cycles using Media Foundation. This is an initial smoke check, not a soak test.
-- [ ] Test camera already in use by another application.
+- [x] Test concurrent access: while one MSMF process held the camera, a second capture could not read its first frame; after release, 10-frame capture passed. Production UI/retry handling remains untested.
 - [ ] Disconnect/reconnect and recover without restarting the computer.
-- [x] Render a captured image into a disposable sample layout and export a JPEG; output decoded as 1200x1800. This does not validate the production renderer or printer path.
+- [x] Capture three frames, render them into the JSON-configured photo strip, and export a JPEG; output decoded as 1200x1800. This does not validate the production renderer or printer path.
 - [ ] Run sustained-session and memory/resource checks.
 - [ ] Test a laptop's integrated camera separately.
 - [ ] Test Linux on a selected distribution and record the exact backend/provider.

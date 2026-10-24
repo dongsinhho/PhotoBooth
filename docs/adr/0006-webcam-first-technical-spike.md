@@ -10,7 +10,7 @@ The project currently has a Logitech B525 HD Webcam available on a Windows 11 Pr
 
 ## Initial evidence (2026-10-25)
 
-The Logitech B525 was detected by Windows 11 Pro 64-bit. A disposable OpenCV 5.0.0.93 test read 50/50 frames at 1280x720 through both DirectShow and Media Foundation and wrote a temporary JPEG through each. Three additional open/read/save/release cycles of 10 frames each passed with both backends. The images were deleted after checking result metadata. A disposable script rendered one captured source into a 1200x1800 sample JPEG and decoded it successfully; that file was also deleted. Image quality, product preview/production renderer, printing, reconnection, sustained reliability, laptop camera, and Linux remain untested.
+The Logitech B525 was detected by Windows 11 Pro 64-bit. A disposable OpenCV 5.0.0.93 test read 50/50 frames at 1280x720 through both DirectShow and Media Foundation and wrote a temporary JPEG through each. Three additional open/read/save/release cycles of 10 frames each passed with both backends. A JSON-configured renderer composed three captured images into a 1200x1800 sample strip; ten renderer tests passed. While one process held the camera, a second reader failed on its first frame and emitted a diagnostic; after the holder released the device, a new capture succeeded. All temporary image files were deleted. Image quality, production preview/renderer, printing, hot-unplug/reconnect, sustained reliability, laptop camera, and Linux remain untested.
 
 ## Decision
 
