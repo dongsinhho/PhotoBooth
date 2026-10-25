@@ -1,6 +1,6 @@
-﻿# System Architecture
+# System Architecture
 
-**Status:** Target architecture; implementation not yet started
+**Status:** Target architecture with a partial, tested local Go vertical slice (synthetic camera, frame render, session-scoped local JPEG output); kiosk UI, real-camera provider, printer, and cloud modules are not yet implemented.
 
 ## Architecture approach
 Start with a modular player and a Go modular-monolith backend. Do not introduce microservices or message brokers before operational needs justify them. Preserve boundaries that permit future extraction.

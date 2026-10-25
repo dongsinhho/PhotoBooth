@@ -2,7 +2,21 @@
 
 PhotoBooth is planned cross-platform photobooth software that combines reliable on-site photo capture with configurable themes/frames and optional online content services.
 
-Status: Product definition and technical proof-of-concept stage. The player, backend, and marketplace have not yet been implemented as a product.
+Status: Product definition and technical proof-of-concept stage. The full player UI, real-camera Go adapter, backend, and marketplace are not yet implemented as a product.
+
+## Runnable local development slice
+
+A Go CLI demo now exercises the local workflow with a **synthetic camera only**: preflight, 3 captures, schema-v1 JSON frame rendering, and session-scoped local JPEG output. It does not access a physical camera and is not ready for guest use.
+
+Run from the repository root:
+
+```powershell
+go run ./apps/booth-player --countdown=0s --interval=0s
+```
+
+The demo writes working captures/rendered files under `data/sessions/` and finalized images under `data/output/`; these local artifacts are git-ignored. Use `--frame`, `--shots`, `--countdown`, `--interval`, `--sessions-dir`, and `--output-dir` to try a different configuration. The number of shots must match the frame's photo-slot count.
+
+Verified on 2026-10-25: `go test ./...`, `go vet ./...`, `go build ./...`, and a 3-shot synthetic-camera CLI run. The old Python/OpenCV webcam POC is still separate; real-camera capture is not yet connected to this Go workflow.
 
 ## Product vision
 

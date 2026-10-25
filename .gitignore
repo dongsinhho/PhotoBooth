@@ -5,6 +5,9 @@ tools/camera-poc/.venv/
 tools/camera-poc/output/
 photobooth-b525-poc.jpg
 
+# Local generated demo sessions, captures and outputs
+/data/
+
 # Python cache
 __pycache__/
 *.py[cod]

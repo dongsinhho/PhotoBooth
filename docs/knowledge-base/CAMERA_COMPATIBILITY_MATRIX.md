@@ -49,7 +49,7 @@ Observed:
 - [x] Close/reopen device cycles: 3 cycles of 10 frames each passed using DirectShow and 3 cycles using Media Foundation. This is an initial smoke check, not a soak test.
 - [x] Test concurrent access: while one MSMF process held the camera, a second capture could not read its first frame; after release, 10-frame capture passed. Production UI/retry handling remains untested.
 - [ ] Disconnect/reconnect and recover without restarting the computer.
-- [x] Capture three frames, render them into the JSON-configured photo strip, and export a JPEG; output decoded as 1200x1800. This does not validate the production renderer or printer path.
+- [x] The disposable Python/OpenCV POC captured three frames, rendered the JSON-configured photo strip, and exported a 1200x1800 JPEG. Separate Go renderer tests now pass with synthetic images, but actual B525 captures have not yet been passed through the Go renderer; printer path remains unvalidated.
 - [ ] Run sustained-session and memory/resource checks.
 - [ ] Test a laptop's integrated camera separately.
 - [ ] Test Linux on a selected distribution and record the exact backend/provider.

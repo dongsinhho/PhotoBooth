@@ -60,14 +60,14 @@ The first reference camera is the Logitech B525 HD Webcam available on the Windo
 - Ten renderer unit tests passed, including malformed configuration, bounds, fit modes, and three-slot rendering.
 - A concurrent reader failed while a second process held the webcam; after release, a fresh capture succeeded. The low-level behavior is documented, but production UI recovery is not implemented.
 
-This is a successful initial webcam capture-to-configured-file-render proof of concept, not production readiness. One image was visually inspected: readable, but soft/noisy under current indoor lighting and framed too close/off-center. Repeat with controlled lighting and intended camera mounting distance. The production frame schema/renderer, printer path, hot-unplug recovery, sustained operation, integrated laptop camera, and Linux remain untested.
+This is a successful initial webcam capture-to-configured-file-render proof of concept, not production readiness. One image was visually inspected: readable, but soft/noisy under current indoor lighting and framed too close/off-center. Repeat with controlled lighting and intended camera mounting distance. The Go frame schema/renderer now passes synthetic-input tests but has not yet been exercised with real B525 captures; printer path, hot-unplug recovery, sustained operation, integrated laptop camera, and Linux remain untested.
 
 ### Next camera tests
 1. Test image quality under controlled booth lighting and intended camera mounting distance; the first visual check looked soft/noisy and too close/off-center.
 2. Design production session/UI behavior for camera-busy errors; the low-level failure and recovery-after-release have been observed in the POC, but app-level recovery is not implemented.
 3. Disconnect/reconnect and record recovery behavior.
 4. Test the built-in camera on a real laptop separately; do not infer this from the B525 test.
-5. Validate the actual product frame schema/renderer and printer or chosen output path.
+5. Feed actual webcam captures through the Go frame renderer and validate a printer or chosen output path.
 6. Test Linux on one named distribution and record the exact camera/backend combination.
 
 ### Cross-platform spike
@@ -176,29 +176,33 @@ Basic commercial use and self-install are intended to be free. Support, setup, t
 
 See LICENSE_STRATEGY.md and ADR 0004. Exact legal terms are pending review.
 
-## Current execution status
+## Current execution status (2026-10-25)
 
-Implementation started:
-- Go 1.24.8 module initialized at the repository root.
-- Booth-player development entrypoint added and verified with `go test`, `go vet`, and `go build`.
-- Initial camera provider contract added so vendor/OS-specific implementations stay outside session orchestration.
-- Initial session state machine added with payment-optional and recoverable terminal transitions.
+Implemented and verified in the repository:
+- Go 1.24.8 module with a modular player core and session state machine.
+- Camera provider contract with requested sequence, dimensions, and explicit local output path.
+- Schema-v1 declarative JSON frame renderer in Go. It rejects unknown fields, validates geometry/colors/fit modes, bounds image/config resources, supports JPEG/PNG inputs, and writes JPEG output through a temporary file and rename.
+- Local output provider that saves only the finalized session image into a per-session directory.
+- Session runner for preflight, countdown events, N captures, camera close before render, local save, and explicit failure/cancellation/timeout state outcomes.
+- Deterministic synthetic camera and CLI demo, so the full offline slice can be tested without touching the physical webcam.
+- Tests for render geometry/validation, extreme aspect ratios, full workflow, output failures, capture failures, and preflight slot-count mismatch.
 - ADR 0007 records the modular Go core and provider-boundary decision.
 
-Completed:
-- Product/discovery documents and self-service growth strategy.
-- Logitech B525 device detection.
-- 50 of 50 frames at 1280x720 through DirectShow and Media Foundation.
-- Three open/read/save/release cycles per backend using 10 frames per cycle.
-- Disposable sample-layout render to a 1200x1800 JPEG and successful read-back.
+Observed checks:
+- `go test ./...` passed.
+- `go vet ./...` passed.
+- `go build ./...` passed.
+- A CLI run completed 3 synthetic captures, rendered a 1200x1800 JPEG, and wrote the session-scoped output under the Windows user's temporary directory. No physical camera or guest photos were used.
 
-Not yet completed:
-- Controlled booth-lighting/mounting image-quality test; one indoor visual check was already performed and recorded.
-- Production app-level camera-busy recovery and physical disconnect/reconnect test.
-- Production frame schema/renderer and printer output; the current JSON renderer is still a disposable POC.
-- Integrated laptop camera test.
-- Linux camera/kiosk/output test.
-- Sustained production reliability and user adoption evidence.
+The runnable CLI demo is a development proof, not a release-ready booth application. Run it from the repository root with `go run ./apps/booth-player --countdown=0s --interval=0s`.
+
+Still not completed:
+- A production Windows UVC provider wired into this Go runner; the existing Python/OpenCV webcam POC is separate.
+- The full real B525 capture ? Go render ? local output path and the controlled-lighting/mounting image-quality test.
+- Operator/guest UI, preview, kiosk behavior, and camera-busy/hot-unplug recovery in the application.
+- Printer integration or a selected, validated print path.
+- Built-in laptop camera and Linux camera/kiosk/output tests.
+- Sustained production reliability and user-adoption evidence.
 
 ## Weekly review
 

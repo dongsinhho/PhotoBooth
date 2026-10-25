@@ -34,14 +34,16 @@ Never turn a proposal into an asserted fact.
 21. [../adr/0004-free-commercial-use-and-paid-support.md](../adr/0004-free-commercial-use-and-paid-support.md) - free commercial use and controlled core.
 22. [../adr/0005-greenfield-self-service-adoption.md](../adr/0005-greenfield-self-service-adoption.md) - greenfield audience and gradual-growth strategy.
 23. [../adr/0006-webcam-first-technical-spike.md](../adr/0006-webcam-first-technical-spike.md) - webcam-first feasibility decision.
-24. [../../tools/camera-poc/README.md](../../tools/camera-poc/README.md) - how to rerun the disposable webcam POC.
+24. [../adr/0007-modular-go-core-and-provider-boundaries.md](../adr/0007-modular-go-core-and-provider-boundaries.md) - modular Go core, session lifecycle, and provider boundary decisions.
+25. [../adr/0008-versioned-frame-json-and-local-render-pipeline.md](../adr/0008-versioned-frame-json-and-local-render-pipeline.md) - current frame schema v1 and local render/output path.
+26. [../../tools/camera-poc/README.md](../../tools/camera-poc/README.md) - how to rerun the disposable webcam POC.
 
 ## Current status as of 2026-10-25
 
 - Logitech B525 was detected by Windows 11 Pro 64-bit.
 - A disposable OpenCV POC read 50/50 frames at 1280x720 through DirectShow and Media Foundation, wrote temporary JPEGs, and rendered a 1200x1800 sample layout JPEG. All temporary image files were deleted.
-- Visual quality, production frame renderer, printer output, device-loss recovery, sustained use, integrated laptop camera, and Linux are not yet tested.
-- Formal interviews are optional; the next evidence is technical capture-to-output validation.
+- The Go schema-v1 renderer, session orchestrator, fake-camera integration, and local output path have been exercised with synthetic inputs; this is not proof of real-camera integration. Printer output, controlled image quality, hot-unplug recovery, sustained use, built-in laptop camera, and Linux remain untested.
+- The offline synthetic capture-to-render-to-local-save vertical slice passes on Go 1.24.8. The next evidence is running real B525 captures through this Go pipeline and adding an operator/preview UI.
 - Competitor research is based on public vendor claims, not independent product testing.
 - No market-adoption or successful self-install results are claimed.
 

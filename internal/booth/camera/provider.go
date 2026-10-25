@@ -2,8 +2,7 @@ package camera
 
 import "context"
 
-// Provider is the stable boundary between booth orchestration and camera-specific APIs.
-// Implementations may wrap UVC/OpenCV, vendor SDKs, or another capture mechanism.
+// Provider isolates camera-specific APIs from session orchestration.
 type Provider interface {
 	Info() Info
 	Open(ctx context.Context) error
@@ -26,14 +25,13 @@ type Capabilities struct {
 	Resolution    []Resolution
 }
 
-type Resolution struct {
-	Width  int
-	Height int
-}
+type Resolution struct{ Width, Height int }
 
 type CaptureRequest struct {
-	Width  int
-	Height int
+	Sequence   int
+	Width      int
+	Height     int
+	OutputPath string
 }
 
 type CaptureResult struct {

@@ -36,6 +36,12 @@ Prove reliable capture-to-output on real hardware while laying architecture foun
 - Multi-store analytics and high-volume distributed architecture.
 - GIF/video output unless a validated pilot requires it.
 
+## Current implementation status (2026-10-25)
+
+A development-only offline path is implemented and tested: frame preflight (including slot-count matching), countdown events, repeated capture through a synthetic provider, Go JSON frame rendering, session-scoped local output, and explicit failed/cancelled/timed-out states. It is exercised through the CLI and is not yet connected to the Logitech B525 or a user-facing kiosk UI. The prior Python/OpenCV B525 POC remains a separate experiment.
+
+The MVP acceptance gate is still open until real-camera capture, preview/UI, printer/export choice, physical recovery tests, and the target hardware/OS workflow are validated.
+
 ## Optional validation questions
 - Which camera models/connectivity and printing hardware dominate target stores?
 - Does a booth typically run Windows today, and which Linux stack would be acceptable?
