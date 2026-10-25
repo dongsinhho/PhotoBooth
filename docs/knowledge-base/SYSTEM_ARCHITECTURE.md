@@ -7,6 +7,10 @@ Start with a modular player and a Go modular-monolith backend. Do not introduce 
 
 The critical capture path is local. Catalog, asset sync, optional cloud photo delivery, and payment verification may use the network, but network loss must not block a session that does not require payment.
 
+## UI framework evaluation
+
+The production UI framework remains unselected. An isolated Wails v2.17.0 shell spike under tools/ui-spike/wails-v2 validates the desktop WebView-to-Go binding and a simulated three-shot flow; it is not connected to the camera, renderer, output coordinator, or printer. Wails v2.17.0 requires Go 1.25.0, so the spike lives in a separate module and does not change the Go 1.24.8 core. Three hidden-mode runs measured a mean p50 round trip of 0.233 ms and mean p95 of 0.400 ms, with sampled working-set maximum 25.93 MB. These do not establish visible input latency, low-cost hardware performance, or Linux support. See UI_SPIKE_RESULTS.md and ADR 0012.
+
 ## Player modules
 
 ### Presentation / Kiosk UI

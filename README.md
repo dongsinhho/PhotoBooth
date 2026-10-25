@@ -20,11 +20,16 @@ go run ./apps/booth-player --camera=windowsmf --device="B525 HD Webcam" --width=
 
 Both modes run preflight, capture the configured number of photos, render the versioned JSON frame, and save a session-scoped output. The B525 adapter captures frames from an MJPEG video stream; it does not issue a dedicated DSLR-style still-shutter command. Default working captures/rendered files are under `data/sessions/`, and the finalized local copy is under `data/output/`; these paths are git-ignored. Real-camera test images may contain people or private surroundings: inspect locally and delete them after verification. The number of shots must match the frame's photo-slot count.
 
-On 2026-10-25, three consecutive runs of the built executable each completed three real B525 captures, rendering and local save; a separate go run pass verified all capture and output dimensions. In the built-binary runs, first-frame capture was 321-329 ms, later captures were 39-64 ms, render was 143-155 ms, and local save was 2-10 ms. A separate go run took about 2.02 s including process startup; these are early smoke measurements, not a production benchmark or soak result. The old Python/OpenCV webcam POC remains a separate experiment and reference.
+On 2026-10-25, three consecutive runs of the built executable each completed three real B525 captures, rendering and local save; a separate go run pass verified all capture and output dimensions. In the built-binary runs, first-frame capture was 321-329 ms, later captures were 39-64 ms, pre-adaptive render was 143-155 ms, and local save was 2-10 ms. A separate go run took about 2.02 s including process startup; these are early smoke measurements, not a production benchmark or soak result. The old Python/OpenCV webcam POC remains a separate experiment and reference.
 
 The output stage uses an independent-target coordinator. The local-storage target is implemented; a printer target can be added independently, and tests verify that one target failure does not suppress another. No physical printer adapter is included yet.
 
+## Performance and UI experiments
+
+The schema-v1 renderer now uses adaptive downscaling: on the same textured three-photo fixture, Catmull-Rom-only measured 171.7 ms/render and 73.1 MB allocated/op, while the adaptive path measured 102.3 ms/render and 17.3 MB allocated/op. See docs/knowledge-base/RENDERING_PERFORMANCE.md for commands and limitations. A separate Wails v2 kiosk-shell spike lives under tools/ui-spike/wails-v2; it requires Go 1.25.0 in its own module and is not the production UI decision.
+
 The upstream Windows camera wrapper is vendored as a narrowly patched copy under `third_party/windows-camera-go`. See `README.PHOTOBOOTH-PATCH.md` there for the upstream version, MIT notice, and CGO compatibility change. The upstream project warns that it is under development; treat this adapter as experimental until repeated-session, hot-unplug, cancellation, and image-quality validation passes.
+
 ## Product vision
 
 Help booth operators reuse cameras, computers, and printers they already own. The official app is intended to be free for commercial photobooth operations. Owners may configure supported application behavior and add supported frames/themes without editing core code. Optional paid support and authorized custom engineering are the intended business model.

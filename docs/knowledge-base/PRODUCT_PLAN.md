@@ -190,11 +190,12 @@ Implemented and verified in the repository:
 - Tests for renderer validation/geometry/resource bounds, adaptive-scaler pixel difference, centered cover crop, session flow, 25 repeated fake-camera sessions, capture/output/preflight errors, deadline cancellation, and MJPEG DHT normalization.
 - Renderer benchmark on Windows 11 / Ryzen 5 8600G / Go 1.24.8: same textured fixture compared Catmull-Rom-only at 171.75 ms and 73.1 MB allocated/op versus adaptive scaling at 102.26 ms and 17.3 MB allocated/op. This is allocated bytes, not peak RAM. A post-change B525 session still produced three 1280x720 captures and a valid 1200x1800 output.
 - ADR 0007 records modular Go core/provider boundaries; ADR 0008 records frame schema v1; ADR 0009 records the experimental Windows camera adapter.
+- Separate Wails v2.17 desktop shell experiment lives under tools/ui-spike/wails-v2 in a Go 1.25.0 module; the root core remains Go 1.24.8. Three hidden-mode runs verified 100 bridge calls each (average p50 0.233 ms, p95 0.400 ms; frontend-ready after startup callback averaged 95.2 ms; sampled maximum working set 25.93 MB). This does not measure visible input latency or camera/render integration. See UI_SPIKE_RESULTS.md and ADR 0012.
 
 Observed checks on the current source:
 - Full root go test -count=1 ./... passed after adaptive renderer changes and the 25-session lifecycle regression.
 - Root go vet ./..., Windows go build ./..., and Linux/amd64 CGO-disabled cross-build passed on this revision.
-- The separate Python/OpenCV POC regression suite passed 10/10 tests.
+- The separate Python/OpenCV POC regression suite passed 10/10 tests. The isolated Wails module also passes Go tests/vet, frontend build, and Windows Wails build.
 
 The CLI is a development tool, not a release-ready booth app. For a real B525 test, run the command documented in the root README. Real capture writes camera imagery locally; delete it after test verification.
 
