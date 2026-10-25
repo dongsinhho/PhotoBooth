@@ -27,4 +27,4 @@ The first end-to-end session needs a deterministic way to arrange captured photo
 
 ## Verification
 
-On 2026-10-25, tests passed for JSON validation, geometry, cover/contain rendering, output dimensions, extreme aspect ratios, capture failure, local-output failure, preflight shot/slot matching, and a full synthetic three-shot offline CLI run. This does not establish physical-camera or printer compatibility.
+On 2026-10-25, tests passed for JSON validation, geometry, cover/contain rendering, output dimensions, extreme aspect ratios, capture failure, local-output failure, preflight shot/slot matching, and synthetic offline runs. The later Windows Media Foundation provider has also passed three consecutive real B525 capture-render-local-save sessions. This does not establish controlled image quality, sustained reliability, or printer compatibility.

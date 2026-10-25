@@ -36,14 +36,15 @@ Never turn a proposal into an asserted fact.
 23. [../adr/0006-webcam-first-technical-spike.md](../adr/0006-webcam-first-technical-spike.md) - webcam-first feasibility decision.
 24. [../adr/0007-modular-go-core-and-provider-boundaries.md](../adr/0007-modular-go-core-and-provider-boundaries.md) - modular Go core, session lifecycle, and provider boundary decisions.
 25. [../adr/0008-versioned-frame-json-and-local-render-pipeline.md](../adr/0008-versioned-frame-json-and-local-render-pipeline.md) - current frame schema v1 and local render/output path.
-26. [../../tools/camera-poc/README.md](../../tools/camera-poc/README.md) - how to rerun the disposable webcam POC.
+26. [../adr/0009-windows-media-foundation-camera-adapter.md](../adr/0009-windows-media-foundation-camera-adapter.md) - experimental native Windows camera adapter, upstream patch, and validation limits.
+27. [../../tools/camera-poc/README.md](../../tools/camera-poc/README.md) - how to rerun the disposable webcam POC.
 
 ## Current status as of 2026-10-25
 
 - Logitech B525 was detected by Windows 11 Pro 64-bit.
 - A disposable OpenCV POC read 50/50 frames at 1280x720 through DirectShow and Media Foundation, wrote temporary JPEGs, and rendered a 1200x1800 sample layout JPEG. All temporary image files were deleted.
-- The Go schema-v1 renderer, session orchestrator, fake-camera integration, and local output path have been exercised with synthetic inputs; this is not proof of real-camera integration. Printer output, controlled image quality, hot-unplug recovery, sustained use, built-in laptop camera, and Linux remain untested.
-- The offline synthetic capture-to-render-to-local-save vertical slice passes on Go 1.24.8. The next evidence is running real B525 captures through this Go pipeline and adding an operator/preview UI.
+- Go frame renderer/session/local output have passed synthetic tests; an experimental Windows Media Foundation provider then passed three consecutive compiled-executable B525 sessions on Windows 11 (each 3 captures at 1280x720, 1200x1800 render and session-scoped local output). One separate run decoded and dimension-checked all five expected artifacts. This is short smoke evidence, not sustained compatibility. Printer output, controlled image quality, camera-busy/hot-unplug recovery, soak use, built-in laptop camera, and Linux hardware remain untested.
+- The offline Go slice passes on Go 1.24.8, and three consecutive compiled-executable sessions now pass with the real B525. Next evidence: controlled image quality, recovery/soak tests, then printer output-target design and the UI spike.
 - Competitor research is based on public vendor claims, not independent product testing.
 - No market-adoption or successful self-install results are claimed.
 

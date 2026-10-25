@@ -70,6 +70,17 @@ func TestRunCompletesOfflineCaptureRenderSaveFlow(t *testing.T) {
 	if result.State != session.Completed {
 		t.Fatalf("state=%s, want completed", result.State)
 	}
+	if len(result.CaptureDurations) != 3 {
+		t.Fatalf("capture duration count=%d, want 3", len(result.CaptureDurations))
+	}
+	for i, duration := range result.CaptureDurations {
+		if duration < 0 {
+			t.Fatalf("capture duration %d is negative: %s", i+1, duration)
+		}
+	}
+	if result.RenderDuration < 0 || result.OutputDuration < 0 || result.TotalDuration < 0 {
+		t.Fatalf("phase durations must be non-negative: render=%s output=%s total=%s", result.RenderDuration, result.OutputDuration, result.TotalDuration)
+	}
 	if len(result.CapturePaths) != 3 {
 		t.Fatalf("captures=%d, want 3", len(result.CapturePaths))
 	}

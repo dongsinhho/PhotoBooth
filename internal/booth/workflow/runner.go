@@ -41,23 +41,30 @@ type Event struct {
 	Seconds   int
 	Path      string
 	Message   string
+	Duration  time.Duration
 }
 
 type Result struct {
-	SessionID    string
-	State        session.State
-	CapturePaths []string
-	RenderedPath string
-	OutputPath   string
-	StartedAt    time.Time
-	FinishedAt   time.Time
+	SessionID        string
+	State            session.State
+	CapturePaths     []string
+	RenderedPath     string
+	OutputPath       string
+	CaptureDurations []time.Duration
+	RenderDuration   time.Duration
+	OutputDuration   time.Duration
+	TotalDuration    time.Duration
+	StartedAt        time.Time
+	FinishedAt       time.Time
 }
 
 type Runner struct {
 	Camera   camera.Provider
 	Renderer Renderer
 	Output   output.Provider
-	OnEvent  func(Event)
+	// OnEvent runs on the session goroutine. Handlers must return quickly and must
+	// not block on UI rendering, network or disk; UI adapters should enqueue events.
+	OnEvent func(Event)
 	// Sleep can be injected by tests to exercise countdown/interval paths instantly.
 	Sleep func(context.Context, time.Duration) error
 }
@@ -148,9 +155,11 @@ func (r *Runner) Run(ctx context.Context, cfg Config) (result Result, runErr err
 			return r.fail(result, err)
 		}
 		path := filepath.Join(captureDir, fmt.Sprintf("capture-%02d.jpg", shot))
+		captureStarted := time.Now()
 		captured, err := r.Camera.Capture(ctx, camera.CaptureRequest{
 			Sequence: shot, Width: cfg.CaptureWidth, Height: cfg.CaptureHeight, OutputPath: path,
 		})
+		captureDuration := time.Since(captureStarted)
 		if err != nil {
 			return r.fail(result, fmt.Errorf("capture shot %d/%d: %w", shot, cfg.CaptureCount, err))
 		}
@@ -171,7 +180,8 @@ func (r *Runner) Run(ctx context.Context, cfg Config) (result Result, runErr err
 			return r.fail(result, fmt.Errorf("validate capture shot %d output: %w", shot, err))
 		}
 		result.CapturePaths = append(result.CapturePaths, captured.Path)
-		r.emit(Event{Type: "captured", State: result.State, SessionID: result.SessionID, Shot: shot, Total: cfg.CaptureCount, Path: captured.Path})
+		result.CaptureDurations = append(result.CaptureDurations, captureDuration)
+		r.emit(Event{Type: "captured", State: result.State, SessionID: result.SessionID, Shot: shot, Total: cfg.CaptureCount, Path: captured.Path, Duration: captureDuration})
 		if shot < cfg.CaptureCount && cfg.Interval > 0 {
 			if err := r.sleep(ctx, cfg.Interval); err != nil {
 				return r.fail(result, err)
@@ -190,9 +200,13 @@ func (r *Runner) Run(ctx context.Context, cfg Config) (result Result, runErr err
 		return r.fail(result, err)
 	}
 	renderedPath := filepath.Join(sessionDir, "rendered.jpg")
-	if err := r.Renderer.Render(ctx, cfg.FrameConfigPath, result.CapturePaths, renderedPath); err != nil {
-		return r.fail(result, fmt.Errorf("render session output: %w", err))
+	renderStarted := time.Now()
+	renderErr := r.Renderer.Render(ctx, cfg.FrameConfigPath, result.CapturePaths, renderedPath)
+	result.RenderDuration = time.Since(renderStarted)
+	if renderErr != nil {
+		return r.fail(result, fmt.Errorf("render session output: %w", renderErr))
 	}
+	r.emit(Event{Type: "rendered", State: result.State, SessionID: result.SessionID, Path: renderedPath, Duration: result.RenderDuration})
 	info, err := os.Stat(renderedPath)
 	if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
 		if err == nil {
@@ -205,16 +219,20 @@ func (r *Runner) Run(ctx context.Context, cfg Config) (result Result, runErr err
 	if err := r.transition(&result, session.Output, "save finalized photo locally"); err != nil {
 		return r.fail(result, err)
 	}
+	outputStarted := time.Now()
 	outputPath, err := r.Output.Save(ctx, result.SessionID, renderedPath)
+	result.OutputDuration = time.Since(outputStarted)
 	if err != nil {
 		return r.fail(result, fmt.Errorf("save local output: %w", err))
 	}
 	result.OutputPath = outputPath
+	r.emit(Event{Type: "output_saved", State: result.State, SessionID: result.SessionID, Path: outputPath, Duration: result.OutputDuration})
 	if err := r.transition(&result, session.Completed, "session complete"); err != nil {
 		return r.fail(result, err)
 	}
 	result.FinishedAt = time.Now()
-	r.emit(Event{Type: "completed", State: result.State, SessionID: result.SessionID, Path: result.OutputPath})
+	result.TotalDuration = result.FinishedAt.Sub(result.StartedAt)
+	r.emit(Event{Type: "completed", State: result.State, SessionID: result.SessionID, Path: result.OutputPath, Duration: result.TotalDuration})
 	return result, nil
 }
 
@@ -263,7 +281,8 @@ func (r *Runner) fail(result Result, err error) (Result, error) {
 		}
 	}
 	result.FinishedAt = time.Now()
-	r.emit(Event{Type: "failed", State: result.State, SessionID: result.SessionID, Message: err.Error()})
+	result.TotalDuration = result.FinishedAt.Sub(result.StartedAt)
+	r.emit(Event{Type: "failed", State: result.State, SessionID: result.SessionID, Message: err.Error(), Duration: result.TotalDuration})
 	return result, err
 }
 

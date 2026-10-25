@@ -1,6 +1,6 @@
 # System Architecture
 
-**Status:** Target architecture with a partial, tested local Go vertical slice (synthetic camera, frame render, session-scoped local JPEG output); kiosk UI, real-camera provider, printer, and cloud modules are not yet implemented.
+**Status:** Target architecture with a tested local Go vertical slice and an experimental Windows Media Foundation provider that passed three consecutive real B525 sessions; kiosk UI, printer, cloud modules, recovery, and sustained reliability remain incomplete.
 
 ## Architecture approach
 Start with a modular player and a Go modular-monolith backend. Do not introduce microservices or message brokers before operational needs justify them. Preserve boundaries that permit future extraction.

@@ -19,10 +19,11 @@ type Info struct {
 }
 
 type Capabilities struct {
-	Preview       bool
-	StillCapture  bool
-	RemoteTrigger bool
-	Resolution    []Resolution
+	Preview                bool
+	FrameCaptureFromStream bool
+	StillCapture           bool
+	RemoteTrigger          bool
+	Resolution             []Resolution
 }
 
 type Resolution struct{ Width, Height int }

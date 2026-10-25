@@ -38,7 +38,7 @@ Prove reliable capture-to-output on real hardware while laying architecture foun
 
 ## Current implementation status (2026-10-25)
 
-A development-only offline path is implemented and tested: frame preflight (including slot-count matching), countdown events, repeated capture through a synthetic provider, Go JSON frame rendering, session-scoped local output, and explicit failed/cancelled/timed-out states. It is exercised through the CLI and is not yet connected to the Logitech B525 or a user-facing kiosk UI. The prior Python/OpenCV B525 POC remains a separate experiment.
+A development-only offline path is implemented and tested: frame preflight (including slot-count matching), countdown events, capture through a provider, Go JSON frame rendering, session-scoped local output, phase timing, and explicit failed/cancelled/timed-out states. The CLI includes an experimental Windows Media Foundation provider; three consecutive real Logitech B525 3-shot sessions passed through capture-render-save. The prior Python/OpenCV B525 POC remains separate. User-facing kiosk UI, production recovery, long-run reliability and printer integration are not implemented.
 
 The MVP acceptance gate is still open until real-camera capture, preview/UI, printer/export choice, physical recovery tests, and the target hardware/OS workflow are validated.
 

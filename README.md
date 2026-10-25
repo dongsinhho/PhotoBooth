@@ -2,22 +2,27 @@
 
 PhotoBooth is planned cross-platform photobooth software that combines reliable on-site photo capture with configurable themes/frames and optional online content services.
 
-Status: Product definition and technical proof-of-concept stage. The full player UI, real-camera Go adapter, backend, and marketplace are not yet implemented as a product.
+Status: Product definition and technical proof-of-concept stage. An experimental Go Windows Media Foundation provider has passed an end-to-end Logitech B525 capture-render-local-save run and three consecutive compiled-executable sessions. The player UI, printer path, reliable recovery/soak validation, backend, and marketplace are not yet implemented as a product.
 
-## Runnable local development slice
+## Runnable local development workflow
 
-A Go CLI demo now exercises the local workflow with a **synthetic camera only**: preflight, 3 captures, schema-v1 JSON frame rendering, and session-scoped local JPEG output. It does not access a physical camera and is not ready for guest use.
-
-Run from the repository root:
+Synthetic-camera demo (does not open a physical camera):
 
 ```powershell
-go run ./apps/booth-player --countdown=0s --interval=0s
+go run ./apps/booth-player --camera=fake --countdown=0s --interval=0s
 ```
 
-The demo writes working captures/rendered files under `data/sessions/` and finalized images under `data/output/`; these local artifacts are git-ignored. Use `--frame`, `--shots`, `--countdown`, `--interval`, `--sessions-dir`, and `--output-dir` to try a different configuration. The number of shots must match the frame's photo-slot count.
+Experimental Windows Media Foundation run with the reference Logitech B525 (this opens the physical camera and captures real images):
 
-Verified on 2026-10-25: `go test ./...`, `go vet ./...`, `go build ./...`, and a 3-shot synthetic-camera CLI run. The old Python/OpenCV webcam POC is still separate; real-camera capture is not yet connected to this Go workflow.
+```powershell
+go run ./apps/booth-player --camera=windowsmf --device="B525 HD Webcam" --width=1280 --height=720 --fps=30 --countdown=0s --interval=0s
+```
 
+Both modes run preflight, capture the configured number of photos, render the versioned JSON frame, and save a session-scoped output. The B525 adapter captures frames from an MJPEG video stream; it does not issue a dedicated DSLR-style still-shutter command. Default working captures/rendered files are under `data/sessions/`, and the finalized local copy is under `data/output/`; these paths are git-ignored. Real-camera test images may contain people or private surroundings: inspect locally and delete them after verification. The number of shots must match the frame's photo-slot count.
+
+On 2026-10-25, three consecutive runs of the built executable each completed three real B525 captures, rendering and local save; a separate go run pass verified all capture and output dimensions. In the built-binary runs, first-frame capture was 321-329 ms, later captures were 39-64 ms, render was 143-155 ms, and local save was 2-10 ms. A separate go run took about 2.02 s including process startup; these are early smoke measurements, not a production benchmark or soak result. The old Python/OpenCV webcam POC remains a separate experiment and reference.
+
+The upstream Windows camera wrapper is vendored as a narrowly patched copy under `third_party/windows-camera-go`. See `README.PHOTOBOOTH-PATCH.md` there for the upstream version, MIT notice, and CGO compatibility change. The upstream project warns that it is under development; treat this adapter as experimental until repeated-session, hot-unplug, cancellation, and image-quality validation passes.
 ## Product vision
 
 Help booth operators reuse cameras, computers, and printers they already own. The official app is intended to be free for commercial photobooth operations. Owners may configure supported application behavior and add supported frames/themes without editing core code. Optional paid support and authorized custom engineering are the intended business model.

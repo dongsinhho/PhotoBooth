@@ -9,10 +9,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/dongsinhho/PhotoBooth/internal/booth/camera"
 	fakecamera "github.com/dongsinhho/PhotoBooth/internal/booth/camera/fake"
+	"github.com/dongsinhho/PhotoBooth/internal/booth/camera/windowsmf"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/output"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/render"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/session"
@@ -32,13 +35,16 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	flags := flag.NewFlagSet("booth-player", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	frameFlag := flags.String("frame", "", "path to a schema v1 frame JSON")
+	cameraFlag := flags.String("camera", "fake", "camera provider: fake or windowsmf (Windows only)")
+	deviceFlag := flags.String("device", "", "camera friendly name or exact symbolic link (windowsmf only)")
+	fpsFlag := flags.Float64("fps", 30, "requested camera stream frame rate (windowsmf only)")
 	workDir := flags.String("sessions-dir", filepath.Join("data", "sessions"), "local directory for temporary session captures and render")
 	outputDir := flags.String("output-dir", filepath.Join("data", "output"), "local directory for finalized photos")
 	shots := flags.Int("shots", 3, "number of captures (1-12; must match frame slots)")
 	countdown := flags.Duration("countdown", 3*time.Second, "countdown duration per shot, e.g. 3s or 0s")
 	interval := flags.Duration("interval", time.Second, "delay between shots, e.g. 1s or 0s")
-	width := flags.Int("width", 640, "synthetic capture width")
-	height := flags.Int("height", 480, "synthetic capture height")
+	width := flags.Int("width", 1280, "camera capture width")
+	height := flags.Int("height", 720, "camera capture height")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -50,12 +56,29 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 
-	fmt.Fprintln(stdout, "PhotoBooth — OFFLINE DEMO (synthetic camera; no physical camera is accessed)")
+	modeLabel := "OFFLINE DEMO (synthetic camera; no physical camera is accessed)"
+	if strings.EqualFold(strings.TrimSpace(*cameraFlag), "windowsmf") {
+		modeLabel = "LOCAL CAMERA RUN (Windows Media Foundation; photos saved locally)"
+	}
+	fmt.Fprintf(stdout, "PhotoBooth - %s\n", modeLabel)
 	fmt.Fprintf(stdout, "Frame: %s\n", framePath)
-	fmt.Fprintf(stdout, "Settings: %d shot(s), countdown=%s, interval=%s\n", *shots, *countdown, *interval)
+	fmt.Fprintf(stdout, "Provider: %s; device selector: %q\n", *cameraFlag, *deviceFlag)
+	fmt.Fprintf(stdout, "Settings: %d shot(s), %dx%d, target FPS=%.1f, countdown=%s, interval=%s\n", *shots, *width, *height, *fpsFlag, *countdown, *interval)
+
+	var cameraProvider camera.Provider
+	switch strings.ToLower(strings.TrimSpace(*cameraFlag)) {
+	case "fake":
+		cameraProvider = fakecamera.New()
+	case "windowsmf":
+		cameraProvider = windowsmf.New(windowsmf.Options{
+			DeviceID: *deviceFlag, Width: *width, Height: *height, FPS: *fpsFlag,
+		})
+	default:
+		return fmt.Errorf("unsupported camera provider %q (choose fake or windowsmf)", *cameraFlag)
+	}
 
 	runner := &workflow.Runner{
-		Camera:   fakecamera.New(),
+		Camera:   cameraProvider,
 		Renderer: render.New(),
 		Output:   output.NewLocal(*outputDir),
 		OnEvent: func(event workflow.Event) {
@@ -69,7 +92,11 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 					fmt.Fprintf(stdout, "Shot %d/%d in %d…\n", event.Shot, event.Total, event.Seconds)
 				}
 			case "captured":
-				fmt.Fprintf(stdout, "Captured shot %d/%d\n", event.Shot, event.Total)
+				fmt.Fprintf(stdout, "Captured shot %d/%d in %s\n", event.Shot, event.Total, event.Duration.Round(time.Millisecond))
+			case "rendered":
+				fmt.Fprintf(stdout, "Rendered in %s\n", event.Duration.Round(time.Millisecond))
+			case "output_saved":
+				fmt.Fprintf(stdout, "Local output saved in %s\n", event.Duration.Round(time.Millisecond))
 			case "completed":
 				fmt.Fprintf(stdout, "Session %s completed.\n", event.SessionID)
 			case "failed":
@@ -94,7 +121,11 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "Rendered image: %s\n", result.RenderedPath)
 	fmt.Fprintf(stdout, "Locally saved output: %s\n", result.OutputPath)
-	fmt.Fprintln(stdout, "This run used synthetic images. Connect a real camera provider before using it with guests.")
+	if strings.EqualFold(*cameraFlag, "fake") {
+		fmt.Fprintln(stdout, "This run used synthetic images. Connect a real camera provider before using it with guests.")
+	} else {
+		fmt.Fprintln(stdout, "This run used a real camera stream. Confirm lighting, framing, and retention settings before production use.")
+	}
 	return nil
 }
 

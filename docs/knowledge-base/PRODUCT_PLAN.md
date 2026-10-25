@@ -179,30 +179,29 @@ See LICENSE_STRATEGY.md and ADR 0004. Exact legal terms are pending review.
 ## Current execution status (2026-10-25)
 
 Implemented and verified in the repository:
-- Go 1.24.8 module with a modular player core and session state machine.
-- Camera provider contract with requested sequence, dimensions, and explicit local output path.
-- Schema-v1 declarative JSON frame renderer in Go. It rejects unknown fields, validates geometry/colors/fit modes, bounds image/config resources, supports JPEG/PNG inputs, and writes JPEG output through a temporary file and rename.
-- Local output provider that saves only the finalized session image into a per-session directory.
-- Session runner for preflight, countdown events, N captures, camera close before render, local save, and explicit failure/cancellation/timeout state outcomes.
-- Deterministic synthetic camera and CLI demo, so the full offline slice can be tested without touching the physical webcam.
-- Tests for render geometry/validation, extreme aspect ratios, full workflow, output failures, capture failures, and preflight slot-count mismatch.
-- ADR 0007 records the modular Go core and provider-boundary decision.
+- Go 1.24.8 modular core, explicit session state machine, and camera provider boundary.
+- Schema-v1 declarative Go renderer with geometry/config validation, bounded inputs, JPEG/PNG decode and atomic JPEG output.
+- Local finalized-output provider, independent from the camera implementation.
+- Session runner with preflight, countdown, capture loop, close-camera-before-render, local output, explicit failure/cancel/timeout state, and per-phase capture/render/save timings.
+- Synthetic camera and CLI mode for deterministic offline tests.
+- Experimental Windows Media Foundation camera provider behind camera.Provider. The locally patched windows-camera-go v0.2.0 adapter runs without CGO, selects a B525 MJPEG mode, captures stream frames on a thread-locked worker, and normalizes abbreviated MJPEG frames missing DHT tables.
+- Three consecutive built-executable B525 sessions on Windows 11 Pro 64-bit passed: each captured 3 frames at 1280x720, rendered a 1200x1800 image, and wrote the local session output. A separate run verified dimensions/decode. Built-binary phase timings across three runs: first capture 321-329ms, next capture 39-49ms, third capture 63-64ms, render 143-155ms, local save 2-10ms. These are smoke measures, not a benchmark.
+- Tests for renderer validation/geometry/resource bounds, session flow, capture/output/preflight errors, cancellation/timeout, and MJPEG DHT normalization.
+- ADR 0007 records modular Go core/provider boundaries; ADR 0008 records frame schema v1; ADR 0009 records the experimental Windows camera adapter.
 
-Observed checks:
-- `go test ./...` passed.
-- `go vet ./...` passed.
-- `go build ./...` passed.
-- A CLI run completed 3 synthetic captures, rendered a 1200x1800 JPEG, and wrote the session-scoped output under the Windows user's temporary directory. No physical camera or guest photos were used.
+Observed checks on the current source:
+- go test ./... passed after camera integration and timing instrumentation. Repeat the full test suite after all final edits.
+- go vet ./... and go build ./... must be rerun on this revision.
+- The separate Python/OpenCV POC has 10 existing tests; rerun as a regression check.
 
-The runnable CLI demo is a development proof, not a release-ready booth application. Run it from the repository root with `go run ./apps/booth-player --countdown=0s --interval=0s`.
+The CLI is a development tool, not a release-ready booth app. For a real B525 test, run the command documented in the root README. Real capture writes camera imagery locally; delete it after test verification.
 
 Still not completed:
-- A production Windows UVC provider wired into this Go runner; the existing Python/OpenCV webcam POC is separate.
-- The full real B525 capture ? Go render ? local output path and the controlled-lighting/mounting image-quality test.
-- Operator/guest UI, preview, kiosk behavior, and camera-busy/hot-unplug recovery in the application.
-- Printer integration or a selected, validated print path.
-- Built-in laptop camera and Linux camera/kiosk/output tests.
-- Sustained production reliability and user-adoption evidence.
+- Repeat/soak sessions, resource and memory profiling, busy-camera recovery, cancellation during a blocked native frame read, physical unplug/reconnect, and controlled-lighting/mounting image-quality checks.
+- Guest/operator UI, preview, kiosk behavior, and a non-blocking UI event adapter.
+- Output Coordinator that independently dispatches local storage and printer targets; printer integration and retry/duplicate-print semantics.
+- Built-in laptop camera and Linux physical camera/kiosk/output tests. A cross-platform compile check is not hardware validation.
+- Optional payment, LAN/cloud media delivery, marketplace, sustained production reliability and user-adoption evidence.
 
 ## Weekly review
 
