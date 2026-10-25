@@ -8,3 +8,6 @@ photobooth-b525-poc.jpg
 # Python cache
 __pycache__/
 *.py[cod]
+
+# Local Go build outputs
+*.exe

@@ -178,6 +178,13 @@ See LICENSE_STRATEGY.md and ADR 0004. Exact legal terms are pending review.
 
 ## Current execution status
 
+Implementation started:
+- Go 1.24.8 module initialized at the repository root.
+- Booth-player development entrypoint added and verified with `go test`, `go vet`, and `go build`.
+- Initial camera provider contract added so vendor/OS-specific implementations stay outside session orchestration.
+- Initial session state machine added with payment-optional and recoverable terminal transitions.
+- ADR 0007 records the modular Go core and provider-boundary decision.
+
 Completed:
 - Product/discovery documents and self-service growth strategy.
 - Logitech B525 device detection.
@@ -186,9 +193,9 @@ Completed:
 - Disposable sample-layout render to a 1200x1800 JPEG and successful read-back.
 
 Not yet completed:
-- Visual image-quality inspection.
-- Camera-busy and disconnect/reconnect recovery.
-- Production frame schema/renderer and printer output.
+- Controlled booth-lighting/mounting image-quality test; one indoor visual check was already performed and recorded.
+- Production app-level camera-busy recovery and physical disconnect/reconnect test.
+- Production frame schema/renderer and printer output; the current JSON renderer is still a disposable POC.
 - Integrated laptop camera test.
 - Linux camera/kiosk/output test.
 - Sustained production reliability and user adoption evidence.
