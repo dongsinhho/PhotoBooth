@@ -1,6 +1,6 @@
 # Camera Integration
 
-**Status:** Camera provider boundary accepted; experimental Windows Media Foundation UVC provider integrated. Three consecutive built-executable B525 sessions passed, plus a separate dimension-verified end-to-end run. Reliability beyond this short smoke test remains unvalidated.
+**Status:** Experimental Windows Media Foundation UVC provider integrated. A 100-session B525 reliability batch passed (300/300 captures, 100 strips, 100 local copies), and all 500 JPEG artifacts decoded with expected dimensions. A separate competing-camera test reproduced HRESULT 0xC00D3704 and a fresh session passed after release. Persistent-process memory growth, physical unplug/reconnect, and production UI recovery remain unvalidated.
 
 ## Goal
 
@@ -71,13 +71,13 @@ Keep native or library-specific types behind provider boundaries. The domain/ses
 
 ## First technical spike
 
-Current reference device: Logitech B525 HD Webcam on Windows 11 Pro 64-bit. OS detection and a disposable OpenCV smoke test passed: DirectShow and Media Foundation each read 50/50 frames at 1280x720, and each backend wrote a temporary JPEG. The Go Media Foundation adapter has now passed three consecutive built-executable capture-render-save sessions; each captured three frames, with capture dimensions 1280x720 and the configured strip/local output at 1200x1800 verified in a separate run. One earlier image check found soft/noisy quality and close/off-center framing under indoor lighting. This does not establish consistent quality under controlled booth lighting, production reliability, printer output, hot-unplug recovery, sustained operation, laptop integrated camera, or Linux compatibility. See CAMERA_COMPATIBILITY_MATRIX.md for exact evidence.
+Current reference device: Logitech B525 HD Webcam on Windows 11 Pro 64-bit. A disposable OpenCV POC previously read 50/50 frames through both DirectShow and Media Foundation. The Go Media Foundation player then passed 100 consecutive standalone capture-render-save sessions, with 300/300 captures, 100 strips and 100 local copies. The verifier decoded 500 JPEGs at expected dimensions. A separate contention test failed at frame one with MF_E_HW_MFT_FAILED_START_STREAMING (0xC00D3704), and a fresh session passed after release. Coarse image diagnostics were collected but quality is not certified. This does not establish persistent-process memory stability, controlled-lighting quality, physical hot-unplug recovery, printer output, laptop integrated camera or Linux compatibility. See CAMERA_COMPATIBILITY_MATRIX.md and CAMERA_RELIABILITY_RESULTS.md.
 
 1. Enumerate the B525 and determine the actual negotiated formats/resolutions; a 1280x720 frame was observed, but all supported formats have not been enumerated.
 2. Implement an app preview without blocking the UI; the current headless POC reads stream frames but does not implement UI preview.
 3. Capture a frame to a timestamped image file.
 4. Verify actual dimensions, orientation, color, exposure stability and repeated-capture behavior.
-5. Test disconnect/reconnect, another application holding the camera, and app cancellation.
+5. Another application holding the camera has been tested: contention can fail at the first stream frame with a resource HRESULT, and a new session succeeds after the holder exits. Physical USB disconnect/reconnect and application cancellation during a blocked native read remain untested.
 6. The Go renderer passed unit tests and several short real B525 capture-render-save runs. The stream returned abbreviated MJPEG without Huffman-table markers; the adapter restores standard DHT tables when absent. Printer output remains unimplemented.
 7. Record OS/backend/version and exact results in CAMERA_COMPATIBILITY_MATRIX.md.
 
@@ -87,7 +87,7 @@ Laptop integrated camera is also an intended use case. The development machine d
 
 The implementation lives in internal/booth/camera/windowsmf and wraps a locally patched windows-camera-go v0.2.0 copy behind camera.Provider. It keeps Media Foundation calls on a locked OS thread. B525 capture extracts frames from an MJPEG stream, not a dedicated still-shutter trigger. Some frames omit DHT Huffman tables; the adapter inserts standard tables only when absent.
 
-One Windows 11 / Go 1.24.8 B525 run passed: three 1280x720 captures, Go rendering to 1200x1800, and session-scoped local save. This is one successful run, not a reliability claim. The upstream wrapper warns that it is under development; the local patch and MIT license notice are under third_party/windows-camera-go. Camera-busy, cancellation during a blocked native read, hot-unplug, soak reliability, and image quality under controlled lighting remain untested.
+On Windows 11 / Go 1.24.8, 100 consecutive standalone sessions each completed three 1280x720 captures, rendering and local save (300 captures, 100 strips, 100 local copies). The verifier decoded all 500 JPEGs at expected dimensions. Mean wall time was 0.919 s, median 0.910 s, and p95 0.960 s. Per-process working set averaged 37.51 MB (max 41.44 MB); private bytes averaged 35.35 MB (max 36.23 MB). A separate contention test held the camera via OpenCV Media Foundation; the Go session failed at shot 1 with HRESULT 0xC00D3704, and a fresh session passed in 0.89 s after release. These are 100 fresh-process session lifecycles, not a persistent-process memory-leak test. Physical USB hot-unplug, cancellation during a blocked native read, controlled lighting and production UI retry/recovery remain untested. See CAMERA_RELIABILITY_RESULTS.md.
 
 ## Version and update model
 

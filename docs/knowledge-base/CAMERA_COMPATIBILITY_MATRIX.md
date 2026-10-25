@@ -1,6 +1,6 @@
 # Camera Compatibility Matrix
 
-**Status:** Three consecutive compiled-executable B525 capture-render-save sessions passed on Windows 11. This is short smoke evidence; controlled image quality, hot-unplug, long-run reliability, and printing remain untested.
+**Status:** 100 consecutive CLI-process B525 capture-render-save sessions passed on Windows 11 (300 captures, 100 rendered strips, 100 local copies, all 500 JPEG artifacts dimension-verified). A competing Media Foundation holder reproduced a resource HRESULT followed by a successful new session after release. Persistent-process memory growth, physical hot-unplug, controlled image quality and printing remain untested.
 **Last updated:** 2026-10-25
 
 ## Status definitions
@@ -19,7 +19,7 @@
 | Camera category/model | OS / version | Backend/provider | Detection | Stream result | Capture result | Render/export | Disconnect/recovery | Overall |
 |---|---|---|---|---|---|---|---|---|
 | Logitech B525 HD Webcam | Windows 11 Pro 64-bit (10.0.26200) | OpenCV 5.0.0.93 / DirectShow and Media Foundation | Detected by Windows on 2026-10-25 | Both backends read 50/50 frames at 1280x720 | JPEG write passed on both backends; temporary images deleted | JSON-configured 3-photo strip rendered to 1200x1800 JPEG and decoded successfully; no printer test | Concurrent read failed while holder owned device; read recovered after release. Hot-unplug/reconnect untested | Partial POC passed: webcam capture and config-driven file render only |
-| Logitech B525 HD Webcam | Windows 11 Pro 64-bit (10.0.26200) | Go 1.24.8 / Windows Media Foundation / experimental windowsmf.Provider | Detected and selected by friendly name | Opened MJPEG 1280x720 stream, selected 30 FPS format | Repeated 3-shot capture passed; abbreviated MJPEG without DHT normalized before Go JPEG decode | Go renderer produced 1200x1800 strip and local output; dimensions and decode verified | 3 consecutive sessions passed; one OpenCV Media Foundation holder did not prevent native Go capture in one concurrent probe; hot-unplug and soak untested | Short repeated-session smoke passed; experimental, not production-certified |
+| Logitech B525 HD Webcam | Windows 11 Pro 64-bit (10.0.26200) | Go 1.24.8 / Windows Media Foundation / experimental windowsmf.Provider | Detected and selected by friendly name | 100 consecutive sessions; 300/300 frames at 1280x720 | All captured frames and outputs decoded; abbreviated MJPEG without DHT normalized before Go JPEG decode | 100 strips and 100 local copies at 1200x1800; separate recovery session after contention also passed | Competing OpenCV Media Foundation holder caused failure on shot 1 with HRESULT 0xC00D3704; fresh Go session passed after release. Physical hot-unplug and same-process recovery remain untested | 100-process reliability batch passed; experimental, not production-certified |
 | Laptop integrated camera | Laptop OS/model not selected | Not selected | Not tested on a laptop | Untested | Untested | Untested | Untested | Untested |
 | DSLR/mirrorless reference model | Not selected | Vendor SDK/provider TBD | Untested | Untested | Untested | Untested | Untested | Untested |
 
@@ -37,7 +37,7 @@ Observed:
 - Media Foundation backend at index 0: 50/50 frames read and last frame written successfully to a temporary JPEG, 1280x720. Three additional open/read/save/release cycles of 10 frames each passed.
 - Temporary images were deleted after collecting file-size/result metadata.
 - One temporary JPEG was visually inspected locally and deleted. It was readable at 1280x720, but the current indoor scene produced a soft/noisy image and very close, off-center framing. Focus/exposure under controlled booth lighting, mount distance, and consistent image quality remain unvalidated.
-- The disposable Python/OpenCV JSON renderer made a 1200x1800 strip in the initial POC. The Go schema-v1 renderer has separate unit tests and has now also passed one integrated run with real B525 captures.
+- The disposable Python/OpenCV JSON renderer made a 1200x1800 strip in the initial POC. The Go schema-v1 renderer and experimental Media Foundation provider passed 100 sequential standalone real-camera sessions; see CAMERA_RELIABILITY_RESULTS.md for per-process timing/memory sampling and contention/recovery evidence.
 - Camera-busy test: while one process held the camera through Media Foundation, a second process failed to read its first frame with backend error -1072875772. The POC now reports likely causes and next steps. After the holder released the webcam, a new 10-frame capture passed. This validates low-level behavior, not production UI recovery.
 
 ## Remaining B525 checklist
@@ -48,10 +48,11 @@ Observed:
 - [x] Read 50 consecutive frames and write a JPEG through Media Foundation.
 - [x] Visually inspect one locally captured test image: readable 1280x720, but soft/noisy under current indoor lighting and framed too close/off-center. Temporary file deleted; repeat under controlled lighting and intended camera mounting distance.
 - [x] Close/reopen device cycles: 3 cycles of 10 frames each passed using DirectShow and 3 cycles using Media Foundation. This is an initial smoke check, not a soak test.
-- [x] Test concurrent access: while one MSMF process held the camera, a second capture could not read its first frame; after release, 10-frame capture passed. Production UI/retry handling remains untested.
+- [x] Test concurrent access/recovery: a separate OpenCV Media Foundation holder caused the Go player to fail at the first frame with MF_E_HW_MFT_FAILED_START_STREAMING (0xC00D3704); the error now explains likely competing-app/resource causes. After holder release, a fresh Go session passed. Production UI retry and same-process recovery remain unimplemented.
 - [ ] Disconnect/reconnect and recover without restarting the computer.
-- [x] Real B525 E2E path: three consecutive compiled-executable sessions each completed three 1280x720 captures, Go frame render, and session-scoped local save; all produced the 5 expected artifacts. A separate run verified JPEG dimensions (1200x1800 output). Built-binary phase timings across three runs: first capture 321-329ms, next capture 39-49ms, third capture 63-64ms, render 143-155ms, local save 2-10ms. These are smoke observations, not a production benchmark. One concurrent OpenCV Media Foundation holder did not block a Go Media Foundation session in a single probe; do not generalize beyond this device/driver combination.
-- [ ] Run sustained-session and memory/resource checks.
+- [x] Real B525 E2E/reliability batch: 100 consecutive standalone processes completed three 1280x720 captures each, rendered the schema-v1 strip and saved local output. The verifier decoded 500 JPEGs (300 capture frames and 200 rendered/local copies) with zero dimension mismatches. Per-session wall time mean 0.919 s, median 0.910 s, p95 0.960 s. Sampled working set mean/max 37.51/41.44 MB; private bytes mean/max 35.35/36.23 MB. A separate contention probe and fresh-session recovery passed.
+- [x] Resource sampling during the 100-process batch: working set mean 37.51 MB, max 41.44 MB; private bytes mean 35.35 MB, max 36.23 MB. This does not measure memory growth in a persistent kiosk process.
+- [ ] Run a persistent-process soak, capture peak-memory/GC behavior inside a long-lived kiosk process, and measure thermal/resource growth over time.
 - [ ] Test a laptop's integrated camera separately.
 - [ ] Test Linux on a selected distribution and record the exact backend/provider.
 

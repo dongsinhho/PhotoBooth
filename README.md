@@ -2,7 +2,7 @@
 
 PhotoBooth is planned cross-platform photobooth software that combines reliable on-site photo capture with configurable themes/frames and optional online content services.
 
-Status: Product definition and technical proof-of-concept stage. An experimental Go Windows Media Foundation provider has passed an end-to-end Logitech B525 capture-render-local-save run and three consecutive compiled-executable sessions. The player UI, printer path, reliable recovery/soak validation, backend, and marketplace are not yet implemented as a product.
+Status: Product definition and technical proof-of-concept stage. The experimental Go Windows Media Foundation provider has passed 100 sequential Logitech B525 sessions (300/300 captures); all 500 capture/render/local JPEG artifacts had expected dimensions. A competing-camera test also confirmed actionable resource diagnostics and successful new session after release. Production kiosk UI, physical printer path, USB hot-unplug, persistent-process memory soak, backend, and marketplace are not yet implemented or certified.
 
 ## Runnable local development workflow
 
@@ -20,15 +20,15 @@ go run ./apps/booth-player --camera=windowsmf --device="B525 HD Webcam" --width=
 
 Both modes run preflight, capture the configured number of photos, render the versioned JSON frame, and save a session-scoped output. The B525 adapter captures frames from an MJPEG video stream; it does not issue a dedicated DSLR-style still-shutter command. Default working captures/rendered files are under `data/sessions/`, and the finalized local copy is under `data/output/`; these paths are git-ignored. Real-camera test images may contain people or private surroundings: inspect locally and delete them after verification. The number of shots must match the frame's photo-slot count.
 
-On 2026-10-25, three consecutive runs of the built executable each completed three real B525 captures, rendering and local save; a separate go run pass verified all capture and output dimensions. In the built-binary runs, first-frame capture was 321-329 ms, later captures were 39-64 ms, pre-adaptive render was 143-155 ms, and local save was 2-10 ms. A separate go run took about 2.02 s including process startup; these are early smoke measurements, not a production benchmark or soak result. The old Python/OpenCV webcam POC remains a separate experiment and reference.
+On 2026-10-25, three consecutive runs of the built executable initially established the capture-render-save path. A later 100-session reliability batch completed 300/300 captures, 100 renders and 100 local copies; all 500 JPEGs decoded with expected dimensions. Mean session wall time was 0.919 s, median 0.910 s, p95 0.960 s. The earlier pre-adaptive-render phase timings are historical. This is a repeated fresh-process reliability test, not a long-lived kiosk or production certification.
 
-The output stage uses an independent-target coordinator. The local-storage target is implemented; a printer target can be added independently, and tests verify that one target failure does not suppress another. No physical printer adapter is included yet.
+The output stage uses an independent-target coordinator. The local-storage target is implemented; a printer target can be added independently, and tests verify that one target failure does not suppress another. No physical printer adapter is included yet. For the repeatable Windows B525 reliability harness, see docs/knowledge-base/CAMERA_RELIABILITY_RESULTS.md.
 
 ## Performance and UI experiments
 
 The schema-v1 renderer now uses adaptive downscaling: on the same textured three-photo fixture, Catmull-Rom-only measured 171.7 ms/render and 73.1 MB allocated/op, while the adaptive path measured 102.3 ms/render and 17.3 MB allocated/op. See docs/knowledge-base/RENDERING_PERFORMANCE.md for commands and limitations. A separate Wails v2 kiosk-shell spike lives under tools/ui-spike/wails-v2; it requires Go 1.25.0 in its own module and is not the production UI decision.
 
-The upstream Windows camera wrapper is vendored as a narrowly patched copy under `third_party/windows-camera-go`. See `README.PHOTOBOOTH-PATCH.md` there for the upstream version, MIT notice, and CGO compatibility change. The upstream project warns that it is under development; treat this adapter as experimental until repeated-session, hot-unplug, cancellation, and image-quality validation passes.
+The upstream Windows camera wrapper is vendored as a narrowly patched copy under `third_party/windows-camera-go`. See `README.PHOTOBOOTH-PATCH.md` there for the upstream version, MIT notice, and CGO compatibility change. The upstream project warns that it is under development; treat this adapter as experimental until persistent-process soak, hot-unplug, blocked-read cancellation, and controlled-lighting image-quality validation passes.
 
 ## Product vision
 

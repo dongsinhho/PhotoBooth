@@ -17,6 +17,7 @@ import (
 	"time"
 
 	mf "github.com/Kirizu-Official/windows-camera-go/camera/v1"
+	mfconsts "github.com/Kirizu-Official/windows-camera-go/windows/consts"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/camera"
 )
 
@@ -145,7 +146,7 @@ func (b *windowsBackend) Capture(ctx context.Context, req camera.CaptureRequest)
 
 	data, err := worker.nextFrame(ctx)
 	if err != nil {
-		return camera.CaptureResult{}, fmt.Errorf("read frame from Windows Media Foundation: %w", err)
+		return camera.CaptureResult{}, fmt.Errorf("read frame from Windows Media Foundation: %w", diagnoseCaptureError(err))
 	}
 	data, err = normalizeMJPEG(data)
 	if err != nil {
@@ -392,6 +393,21 @@ func (w *captureWorker) close() error {
 	case <-ctx.Done():
 		return fmt.Errorf("timed out closing Media Foundation camera after %s", closeTimeout)
 	}
+}
+
+// diagnoseCaptureError turns a common hardware-streaming HRESULT into an
+// actionable message without discarding the original error for diagnostics.
+// MF_E_HW_MFT_FAILED_START_STREAMING may occur when another application owns
+// the camera or when the device/driver cannot allocate streaming resources.
+func diagnoseCaptureError(err error) error {
+	var hresult mfconsts.HResultError
+	if errors.As(err, &hresult) && uint32(hresult.Code) == 0xC00D3704 {
+		return fmt.Errorf(
+			"Media Foundation could not start the camera stream (MF_E_HW_MFT_FAILED_START_STREAMING, HRESULT 0x%08X); the camera may be in use by another application or the driver may lack streaming resources. Close other camera apps, wait for the device to be released, then start a new session: %w",
+			uint32(hresult.Code), err,
+		)
+	}
+	return err
 }
 
 func readMJPEGFrame(opened *openedCamera) ([]byte, error) {

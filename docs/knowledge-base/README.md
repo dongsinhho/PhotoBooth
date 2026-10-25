@@ -22,35 +22,36 @@ Never turn a proposal into an asserted fact.
 9. [SYSTEM_ARCHITECTURE.md](SYSTEM_ARCHITECTURE.md) - player, cloud, and adapter boundaries.
 10. [DOMAIN_MODEL.md](DOMAIN_MODEL.md) - domain concepts and relationships.
 11. [CAMERA_INTEGRATION.md](CAMERA_INTEGRATION.md) - provider capabilities and platform boundaries.
-12. [OUTPUT_TARGETS.md](OUTPUT_TARGETS.md) - independent local/print output targets and lifecycle status.
-13. [RENDERING_PERFORMANCE.md](RENDERING_PERFORMANCE.md) - repeatable renderer/output benchmarks and lifecycle test evidence.
-14. [UI_SPIKE_RESULTS.md](../../tools/ui-spike/wails-v2/UI_SPIKE_RESULTS.md) - isolated Wails shell bridge performance, resource samples, Go toolchain constraint, and unvalidated areas.
-15. [CAMERA_COMPATIBILITY_MATRIX.md](CAMERA_COMPATIBILITY_MATRIX.md) - observed/tested camera, OS, and backend combinations.
-16. [MEDIA_DELIVERY_AND_PAYMENT.md](MEDIA_DELIVERY_AND_PAYMENT.md) - local/LAN/cloud delivery and optional payment.
-17. [CONTENT_PACKAGE_SPEC.md](CONTENT_PACKAGE_SPEC.md) - theme/frame package contract proposal.
-18. [SECURITY_PRIVACY.md](SECURITY_PRIVACY.md) - package safety, payment verification, and guest-photo privacy.
-19. [ENGINEERING_PLAYBOOK.md](ENGINEERING_PLAYBOOK.md) - development and test practices.
-20. [ROADMAP.md](ROADMAP.md) - staged rollout and validation gates.
-21. [../adr/0001-offline-first-windows-player.md](../adr/0001-offline-first-windows-player.md) - offline-first capture.
-22. [../adr/0002-configurable-delivery-and-payment.md](../adr/0002-configurable-delivery-and-payment.md) - store-configurable media/payment.
-23. [../adr/0003-cross-platform-player-and-go-backend.md](../adr/0003-cross-platform-player-and-go-backend.md) - cross-platform and backend direction.
-24. [../adr/0004-free-commercial-use-and-paid-support.md](../adr/0004-free-commercial-use-and-paid-support.md) - free commercial use and controlled core.
-25. [../adr/0005-greenfield-self-service-adoption.md](../adr/0005-greenfield-self-service-adoption.md) - greenfield audience and gradual-growth strategy.
-26. [../adr/0006-webcam-first-technical-spike.md](../adr/0006-webcam-first-technical-spike.md) - webcam-first feasibility decision.
-27. [../adr/0007-modular-go-core-and-provider-boundaries.md](../adr/0007-modular-go-core-and-provider-boundaries.md) - modular Go core, session lifecycle, and provider boundary decisions.
-28. [../adr/0008-versioned-frame-json-and-local-render-pipeline.md](../adr/0008-versioned-frame-json-and-local-render-pipeline.md) - current frame schema v1 and local render/output path.
-29. [../adr/0009-windows-media-foundation-camera-adapter.md](../adr/0009-windows-media-foundation-camera-adapter.md) - experimental native Windows camera adapter, upstream patch, and validation limits.
-30. [../adr/0010-independent-output-targets.md](../adr/0010-independent-output-targets.md) - separate local-storage and printer targets, statuses, and session outcomes.
-31. [../adr/0011-adaptive-image-scaling-for-renderer.md](../adr/0011-adaptive-image-scaling-for-renderer.md) - adaptive downscaling, pixel-quality regression, and benchmark evidence.
-32. [../adr/0012-isolate-wails-ui-spike-toolchain.md](../adr/0012-isolate-wails-ui-spike-toolchain.md) - keep Wails evaluation separate from the Go 1.24.8 core.
-33. [../../tools/camera-poc/README.md](../../tools/camera-poc/README.md) - how to rerun the disposable webcam POC.
+12. [CAMERA_RELIABILITY_RESULTS.md](CAMERA_RELIABILITY_RESULTS.md) - reproducible 100-session B525 capture, process-memory sampling, contention and recovery evidence.
+13. [OUTPUT_TARGETS.md](OUTPUT_TARGETS.md) - independent local/print output targets and lifecycle status.
+14. [RENDERING_PERFORMANCE.md](RENDERING_PERFORMANCE.md) - repeatable renderer/output benchmarks and lifecycle test evidence.
+15. [UI_SPIKE_RESULTS.md](../../tools/ui-spike/wails-v2/UI_SPIKE_RESULTS.md) - isolated Wails shell bridge performance, resource samples, Go toolchain constraint, and unvalidated areas.
+16. [CAMERA_COMPATIBILITY_MATRIX.md](CAMERA_COMPATIBILITY_MATRIX.md) - observed/tested camera, OS, and backend combinations.
+17. [MEDIA_DELIVERY_AND_PAYMENT.md](MEDIA_DELIVERY_AND_PAYMENT.md) - local/LAN/cloud delivery and optional payment.
+18. [CONTENT_PACKAGE_SPEC.md](CONTENT_PACKAGE_SPEC.md) - theme/frame package contract proposal.
+19. [SECURITY_PRIVACY.md](SECURITY_PRIVACY.md) - package safety, payment verification, and guest-photo privacy.
+20. [ENGINEERING_PLAYBOOK.md](ENGINEERING_PLAYBOOK.md) - development and test practices.
+21. [ROADMAP.md](ROADMAP.md) - staged rollout and validation gates.
+22. [../adr/0001-offline-first-windows-player.md](../adr/0001-offline-first-windows-player.md) - offline-first capture.
+23. [../adr/0002-configurable-delivery-and-payment.md](../adr/0002-configurable-delivery-and-payment.md) - store-configurable media/payment.
+24. [../adr/0003-cross-platform-player-and-go-backend.md](../adr/0003-cross-platform-player-and-go-backend.md) - cross-platform and backend direction.
+25. [../adr/0004-free-commercial-use-and-paid-support.md](../adr/0004-free-commercial-use-and-paid-support.md) - free commercial use and controlled core.
+26. [../adr/0005-greenfield-self-service-adoption.md](../adr/0005-greenfield-self-service-adoption.md) - greenfield audience and gradual-growth strategy.
+27. [../adr/0006-webcam-first-technical-spike.md](../adr/0006-webcam-first-technical-spike.md) - webcam-first feasibility decision.
+28. [../adr/0007-modular-go-core-and-provider-boundaries.md](../adr/0007-modular-go-core-and-provider-boundaries.md) - modular Go core, session lifecycle, and provider boundary decisions.
+29. [../adr/0008-versioned-frame-json-and-local-render-pipeline.md](../adr/0008-versioned-frame-json-and-local-render-pipeline.md) - current frame schema v1 and local render/output path.
+30. [../adr/0009-windows-media-foundation-camera-adapter.md](../adr/0009-windows-media-foundation-camera-adapter.md) - experimental native Windows camera adapter, upstream patch, and validation limits.
+31. [../adr/0010-independent-output-targets.md](../adr/0010-independent-output-targets.md) - separate local-storage and printer targets, statuses, and session outcomes.
+32. [../adr/0011-adaptive-image-scaling-for-renderer.md](../adr/0011-adaptive-image-scaling-for-renderer.md) - adaptive downscaling, pixel-quality regression, and benchmark evidence.
+33. [../adr/0012-isolate-wails-ui-spike-toolchain.md](../adr/0012-isolate-wails-ui-spike-toolchain.md) - keep Wails evaluation separate from the Go 1.24.8 core.
+34. [../../tools/camera-poc/README.md](../../tools/camera-poc/README.md) - how to rerun the disposable webcam POC.
 
 ## Current status as of 2026-10-25
 
 - Logitech B525 was detected by Windows 11 Pro 64-bit.
 - A disposable OpenCV POC read 50/50 frames at 1280x720 through DirectShow and Media Foundation, wrote temporary JPEGs, and rendered a 1200x1800 sample layout JPEG. All temporary image files were deleted.
-- Go frame renderer/session/local output have passed synthetic tests; an experimental Windows Media Foundation provider passed three consecutive compiled-executable B525 sessions on Windows 11. The output coordinator and local-storage target pass concurrency, per-target outcome and partial-success tests. Adaptive rendering improved the textured-frame benchmark from 171.7 to 102.3 ms/op and allocations from 73.1 to 17.3 MB/op; a new real B525 session still rendered/saved 1200x1800 output. A physical printer adapter is not implemented. Controlled image quality, hot-unplug, soak use, laptop camera and Linux hardware remain untested.
-- Root Go core validation passed on Go 1.24.8: tests, vet, Windows build, Linux cross-build (compile-only), and 10 Python POC tests. The adaptive renderer benchmark is about 102 ms/op and 17.3 MB allocated/op on the textured fixture (allocated bytes, not peak RAM). Three isolated Wails runs verified 100 bridge calls each (average p50 0.233 ms, average p95 0.400 ms, backend startup callback to frontend ready 95.2 ms); sampled maxima were 25.93 MB working set and 18.33 MB private bytes. Production UI remains unselected; no physical printer adapter exists.
+- Go frame renderer/session/local output have passed synthetic tests; the experimental Windows Media Foundation provider passed 100 sequential B525 sessions (300/300 captures, 100 strips and 100 local copies). All 500 JPEGs decoded at expected dimensions. Mean session time was 0.919 s, median 0.910 s, p95 0.960 s; sampled working set averaged 37.51 MB (max 41.44 MB) and private bytes averaged 35.35 MB (max 36.23 MB) per fresh process. A separate contention probe reproduced HRESULT 0xC00D3704, and a new session passed after release. Adaptive rendering improved the textured-frame benchmark from 171.7 to 102.3 ms/op and allocations from 73.1 to 17.3 MB/op. Persistent-process memory growth, physical USB hot-unplug, controlled image quality, printer output, laptop camera and Linux hardware remain untested.
+- Root Go core validation on Go 1.24.8 passed after the reliability diagnostic change: go test -count=1 ./..., go vet ./..., Windows build, Linux/amd64 cross-build (compile-only), and the 10-test Python POC regression suite. The reusable Windows B525 harness additionally passed 100/100 real-camera sessions, all 500 JPEGs verified, with per-process memory sampling; details are in CAMERA_RELIABILITY_RESULTS.md. The isolated Wails UI spike remains a separate Go 1.25.0 module and does not change the root toolchain.
 - Competitor research is based on public vendor claims, not independent product testing.
 - No market-adoption or successful self-install results are claimed.
 

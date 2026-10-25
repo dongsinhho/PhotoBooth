@@ -1,6 +1,6 @@
 # System Architecture
 
-**Status:** Target architecture with a tested local Go vertical slice, experimental Windows Media Foundation camera provider, and output coordinator with local-storage target. Three consecutive real B525 sessions passed; kiosk UI, physical printer adapter, cloud modules, recovery, and sustained reliability remain incomplete.
+**Status:** Tested local Go vertical slice, experimental Windows Media Foundation provider, independent output coordinator and adaptive renderer. One hundred sequential B525 sessions and a competing-camera/recovery probe passed their expected outcomes. Production kiosk UI, physical printer adapter, USB hot-unplug, persistent-process memory soak, cloud modules and Linux hardware remain incomplete.
 
 ## Architecture approach
 Start with a modular player and a Go modular-monolith backend. Do not introduce microservices or message brokers before operational needs justify them. Preserve boundaries that permit future extraction.

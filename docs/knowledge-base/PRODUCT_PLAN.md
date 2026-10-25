@@ -64,10 +64,10 @@ This section records the first Python/OpenCV webcam POC, not the current full va
 
 ### Remaining camera tests
 1. Test image quality under controlled booth lighting and intended camera mounting distance; the first visual check looked soft/noisy and too close/off-center.
-2. Design production session/UI behavior for camera-busy errors; the low-level failure and recovery-after-release have been observed in the POC, but app-level recovery is not implemented.
-3. Disconnect/reconnect and record recovery behavior.
+2. The provider now gives actionable diagnostics for the observed camera-busy/resource HRESULT, and a fresh session succeeds after the competing app releases the camera. Production UI retry/recovery and same-process session continuation are not implemented.
+3. Physically disconnect/reconnect the USB webcam and record recovery behavior; this requires hardware interaction and remains untested.
 4. Test the built-in camera on a real laptop separately; do not infer this from the B525 test.
-5. Compare optimized renderer output under controlled lighting and with representative real photos; test a physical printer after selecting its model and OS/driver target.
+5. Compare optimized renderer output under controlled booth lighting and intended mounting distance; test a physical printer after selecting its model and OS/driver target.
 6. Test Linux on one named distribution and record the exact camera/backend combination.
 
 ### Cross-platform spike
@@ -186,21 +186,22 @@ Implemented and verified in the repository:
 - Output coordinator dispatches configured targets concurrently (bounded to four), records per-target status/duration/error, and treats local storage and printer targets independently. Session state distinguishes completed, partial_success, and total output failure. Local storage is implemented; printer behavior is covered with a synthetic target only.
 - Synthetic camera and CLI mode for deterministic offline tests.
 - Experimental Windows Media Foundation camera provider behind camera.Provider. The locally patched windows-camera-go v0.2.0 adapter runs without CGO, selects a B525 MJPEG mode, captures stream frames on a thread-locked worker, and normalizes abbreviated MJPEG frames missing DHT tables.
-- Three consecutive built-executable B525 sessions on Windows 11 Pro 64-bit passed: each captured 3 frames at 1280x720, rendered a 1200x1800 image, and wrote the local session output. A separate run verified dimensions/decode. Pre-adaptive-scaling built-binary phase timings across three runs: first capture 321-329ms, next capture 39-49ms, third capture 63-64ms, render 143-155ms, local save 2-10ms. These are smoke measures, not a benchmark.
+- One hundred consecutive standalone B525 sessions on Windows 11 Pro 64-bit passed (300/300 captures, 100 rendered strips and 100 local copies); the verifier decoded all 500 JPEG artifacts at expected dimensions. Mean session wall time was 0.919 s, median 0.910 s, p95 0.960 s. Sampled per-process working set averaged 37.51 MB and peaked at 41.44 MB; private bytes averaged 35.35 MB and peaked at 36.23 MB. A separate contention/recovery test confirmed actionable MF_E_HW_MFT_FAILED_START_STREAMING diagnostics (0xC00D3704) when another app holds the camera, followed by a successful new session after release. This does not establish same-process memory stability.
 - Tests for renderer validation/geometry/resource bounds, adaptive-scaler pixel difference, centered cover crop, session flow, 25 repeated fake-camera sessions, capture/output/preflight errors, deadline cancellation, and MJPEG DHT normalization.
 - Renderer benchmark on Windows 11 / Ryzen 5 8600G / Go 1.24.8: same textured fixture compared Catmull-Rom-only at 171.75 ms and 73.1 MB allocated/op versus adaptive scaling at 102.26 ms and 17.3 MB allocated/op. This is allocated bytes, not peak RAM. A post-change B525 session still produced three 1280x720 captures and a valid 1200x1800 output.
+- The Windows-only HRESULT regression tests verify actionable MF_E_HW_MFT_FAILED_START_STREAMING diagnostics and preservation of the underlying HRESULT. The 100-session harness and 500-JPEG verifier completed with no failures or dimension mismatches. Details are in docs/knowledge-base/CAMERA_RELIABILITY_RESULTS.md.
 - ADR 0007 records modular Go core/provider boundaries; ADR 0008 records frame schema v1; ADR 0009 records the experimental Windows camera adapter.
 - Separate Wails v2.17 desktop shell experiment lives under tools/ui-spike/wails-v2 in a Go 1.25.0 module; the root core remains Go 1.24.8. Three hidden-mode runs verified 100 bridge calls each (average p50 0.233 ms, p95 0.400 ms; frontend-ready after startup callback averaged 95.2 ms; sampled maximum working set 25.93 MB). This does not measure visible input latency or camera/render integration. See UI_SPIKE_RESULTS.md and ADR 0012.
 
 Observed checks on the current source:
-- Full root go test -count=1 ./... passed after adaptive renderer changes and the 25-session lifecycle regression.
+- Full root go test -count=1 ./..., go vet ./..., Windows go build ./..., and Linux/amd64 CGO-disabled cross-build passed after the Windows camera diagnostic changes.
 - Root go vet ./..., Windows go build ./..., and Linux/amd64 CGO-disabled cross-build passed on this revision.
-- The separate Python/OpenCV POC regression suite passed 10/10 tests. The isolated Wails module also passes Go tests/vet, frontend build, and Windows Wails build.
+- The separate Python/OpenCV POC regression suite passed 10/10 tests. The reusable Windows B525 reliability harness passed 100/100 sessions and verified all 500 JPEGs; the isolated Wails module tests/vet, frontend build and Windows Wails build also pass.
 
 The CLI is a development tool, not a release-ready booth app. For a real B525 test, run the command documented in the root README. Real capture writes camera imagery locally; delete it after test verification.
 
 Still not completed:
-- Repeat/soak sessions, resource and memory profiling, busy-camera recovery, cancellation during a blocked native frame read, physical unplug/reconnect, and controlled-lighting/mounting image-quality checks.
+- Persistent-process kiosk soak and memory-growth profiling, cancellation during a blocked native frame read, physical USB unplug/reconnect, same-process UI retry/recovery, and controlled-lighting/mounting image-quality checks.
 - Production guest/operator UI, real camera preview, full kiosk behavior, and a non-blocking UI event adapter.
 - Physical printer adapter and tests for the selected printer model/OS/driver; provider-aware retry and duplicate-print semantics.
 - Built-in laptop camera and Linux physical camera/kiosk/output tests. A cross-platform compile check is not hardware validation.
