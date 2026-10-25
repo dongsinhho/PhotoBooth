@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -274,5 +276,133 @@ func TestExpiredContextMarksSessionTimedOut(t *testing.T) {
 	result, err := runner.Run(ctx, cfg)
 	if !errors.Is(err, context.DeadlineExceeded) || result.State != session.TimedOut {
 		t.Fatalf("result=%+v err=%v, want timed out session", result, err)
+	}
+}
+
+func TestRepeatedSessionsCloseCameraAndKeepOutputsIsolated(t *testing.T) {
+	root := t.TempDir()
+	workDir := filepath.Join(root, "sessions")
+	outputDir := filepath.Join(root, "output")
+	framePath := testFrameConfig(t)
+
+	const sessionCount = 25
+	for i := 0; i < sessionCount; i++ {
+		cam := fake.New()
+		runner := &Runner{
+			Camera: cam, Renderer: render.New(), Output: output.NewLocal(outputDir),
+			Sleep: func(ctx context.Context, _ time.Duration) error { return ctx.Err() },
+		}
+		cfg := Config{
+			FrameConfigPath: framePath,
+			WorkDir:         workDir,
+			CaptureCount:    3,
+			Countdown:       0,
+			Interval:        0,
+			CaptureWidth:    640,
+			CaptureHeight:   480,
+			SessionID:       fmt.Sprintf("%032x", i+1),
+		}
+		result, err := runner.Run(context.Background(), cfg)
+		if err != nil {
+			t.Fatalf("session %d: Run: %v", i+1, err)
+		}
+		if result.State != session.Completed {
+			t.Fatalf("session %d state=%s, want completed", i+1, result.State)
+		}
+		if len(result.CapturePaths) != 3 || len(result.OutputResults) != 1 {
+			t.Fatalf("session %d has incomplete artifacts: captures=%d targets=%+v", i+1, len(result.CapturePaths), result.OutputResults)
+		}
+		if _, err := os.Stat(result.OutputPath); err != nil {
+			t.Fatalf("session %d output is missing: %v", i+1, err)
+		}
+		if _, err := cam.Capture(context.Background(), camera.CaptureRequest{
+			Sequence: 1, Width: 640, Height: 480,
+			OutputPath: filepath.Join(root, "must-not-exist.jpg"),
+		}); err == nil {
+			t.Fatalf("session %d did not release the camera after completion", i+1)
+		}
+	}
+	sessions, err := os.ReadDir(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputs, err := os.ReadDir(outputDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != sessionCount || len(outputs) != sessionCount {
+		t.Fatalf("session directories=%d output directories=%d; want %d each", len(sessions), len(outputs), sessionCount)
+	}
+}
+
+type blockingCamera struct {
+	mu     sync.Mutex
+	opened bool
+	closed bool
+}
+
+func (c *blockingCamera) Info() camera.Info {
+	return camera.Info{Name: "Blocking test camera", Backend: "test"}
+}
+func (c *blockingCamera) Open(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.opened = true
+	return nil
+}
+func (c *blockingCamera) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.opened = false
+	c.closed = true
+	return nil
+}
+func (c *blockingCamera) Capture(ctx context.Context, _ camera.CaptureRequest) (camera.CaptureResult, error) {
+	c.mu.Lock()
+	opened := c.opened
+	c.mu.Unlock()
+	if !opened {
+		return camera.CaptureResult{}, errors.New("blocking camera is not open")
+	}
+	<-ctx.Done()
+	return camera.CaptureResult{}, ctx.Err()
+}
+func (c *blockingCamera) isClosed() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed && !c.opened
+}
+
+func TestDeadlineDuringCaptureClosesCameraAndTimesOutSession(t *testing.T) {
+	cam := &blockingCamera{}
+	runner := &Runner{
+		Camera: cam, Renderer: render.New(), Output: output.NewLocal(t.TempDir()),
+		Sleep: func(ctx context.Context, _ time.Duration) error { return ctx.Err() },
+	}
+	cfg := Config{
+		FrameConfigPath: testFrameConfig(t),
+		WorkDir:         filepath.Join(t.TempDir(), "sessions"),
+		CaptureCount:    3,
+		CaptureWidth:    640,
+		CaptureHeight:   480,
+		SessionID:       "abcdef0123456789abcdef0123456789",
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	result, err := runner.Run(ctx, cfg)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Run err=%v, want context deadline exceeded", err)
+	}
+	if result.State != session.TimedOut {
+		t.Fatalf("state=%s, want timed_out", result.State)
+	}
+	if !cam.isClosed() {
+		t.Fatal("camera must be closed when cancellation interrupts capture")
+	}
+	if len(result.CapturePaths) != 0 {
+		t.Fatalf("captured %d frames even though capture was cancelled", len(result.CapturePaths))
 	}
 }

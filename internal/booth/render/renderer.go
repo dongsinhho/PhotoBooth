@@ -366,36 +366,59 @@ func fitImage(src image.Image, width, height int, mode string, background color.
 	if src == nil || src.Bounds().Empty() {
 		return nil, errors.New("source image is empty")
 	}
+	if width < 1 || height < 1 {
+		return nil, errors.New("target slot dimensions must be positive")
+	}
 	bounds := src.Bounds()
 	srcW, srcH := bounds.Dx(), bounds.Dy()
-	var scale float64
+	outBounds := image.Rect(0, 0, width, height)
+	out := image.NewRGBA(outBounds)
+
 	switch mode {
 	case "cover":
-		scale = math.Max(float64(width)/float64(srcW), float64(height)/float64(srcH))
+		// Crop the source to the target aspect ratio before scaling. Scaling a
+		// potentially larger intermediate image and cropping it afterwards
+		// multiplies peak allocations with no visual benefit.
+		sourceRect := bounds
+		sourceAspect := float64(srcW) / float64(srcH)
+		targetAspect := float64(width) / float64(height)
+		if sourceAspect > targetAspect {
+			cropWidth := max(1, min(srcW, int(math.Round(float64(srcH)*targetAspect))))
+			left := bounds.Min.X + (srcW-cropWidth)/2
+			sourceRect = image.Rect(left, bounds.Min.Y, left+cropWidth, bounds.Max.Y)
+		} else if sourceAspect < targetAspect {
+			cropHeight := max(1, min(srcH, int(math.Round(float64(srcW)/targetAspect))))
+			top := bounds.Min.Y + (srcH-cropHeight)/2
+			sourceRect = image.Rect(bounds.Min.X, top, bounds.Max.X, top+cropHeight)
+		}
+		scaleInto(out, outBounds, src, sourceRect)
+		return out, nil
+
 	case "contain":
-		scale = math.Min(float64(width)/float64(srcW), float64(height)/float64(srcH))
+		imagedraw.Draw(out, outBounds, &image.Uniform{C: background}, image.Point{}, imagedraw.Src)
+		scale := math.Min(float64(width)/float64(srcW), float64(height)/float64(srcH))
+		resizedW := max(1, int(math.Round(float64(srcW)*scale)))
+		resizedH := max(1, int(math.Round(float64(srcH)*scale)))
+		rect := image.Rect((width-resizedW)/2, (height-resizedH)/2,
+			(width-resizedW)/2+resizedW, (height-resizedH)/2+resizedH)
+		scaleInto(out, rect, src, bounds)
+		return out, nil
+
 	default:
 		return nil, fmt.Errorf("unsupported fit mode %q", mode)
 	}
-	resizedW := max(1, int(math.Round(float64(srcW)*scale)))
-	resizedH := max(1, int(math.Round(float64(srcH)*scale)))
-	if resizedW > maxCanvasSize*4 || resizedH > maxCanvasSize*4 || int64(resizedW)*int64(resizedH) > maxCanvasPixels {
-		return nil, fmt.Errorf("resized input dimensions %dx%d exceed rendering limits", resizedW, resizedH)
+}
+
+// scaleInto chooses a low-allocation interpolator for downscaling and the
+// higher-quality Catmull-Rom kernel for upscaling. PhotoBooth's common UVC
+// path reduces 1280x720 captures into smaller frame slots, where ApproxBiLinear
+// offers reasonable quality without allocating a large kernel scratch buffer.
+func scaleInto(dst *image.RGBA, dstRect image.Rectangle, src image.Image, srcRect image.Rectangle) {
+	if dstRect.Dx() <= srcRect.Dx() && dstRect.Dy() <= srcRect.Dy() {
+		xdraw.ApproxBiLinear.Scale(dst, dstRect, src, srcRect, imagedraw.Src, nil)
+		return
 	}
-	resized := image.NewRGBA(image.Rect(0, 0, resizedW, resizedH))
-	xdraw.CatmullRom.Scale(resized, resized.Bounds(), src, bounds, imagedraw.Src, nil)
-	out := image.NewRGBA(image.Rect(0, 0, width, height))
-	imagedraw.Draw(out, out.Bounds(), &image.Uniform{C: background}, image.Point{}, imagedraw.Src)
-	if mode == "cover" {
-		cropX := max(0, (resizedW-width)/2)
-		cropY := max(0, (resizedH-height)/2)
-		imagedraw.Draw(out, out.Bounds(), resized, image.Pt(cropX, cropY), imagedraw.Src)
-		return out, nil
-	}
-	x := (width - resizedW) / 2
-	y := (height - resizedH) / 2
-	imagedraw.Draw(out, image.Rect(x, y, x+resizedW, y+resizedH), resized, image.Point{}, imagedraw.Src)
-	return out, nil
+	xdraw.CatmullRom.Scale(dst, dstRect, src, srcRect, imagedraw.Src, nil)
 }
 
 func drawBorder(dst *image.RGBA, bounds image.Rectangle, c color.Color, thickness, inset int) {

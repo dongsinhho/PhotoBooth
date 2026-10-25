@@ -60,19 +60,19 @@ The first reference camera is the Logitech B525 HD Webcam available on the Windo
 - Ten renderer unit tests passed, including malformed configuration, bounds, fit modes, and three-slot rendering.
 - A concurrent reader failed while a second process held the webcam; after release, a fresh capture succeeded. The low-level behavior is documented, but production UI recovery is not implemented.
 
-This is a successful initial webcam capture-to-configured-file-render proof of concept, not production readiness. One image was visually inspected: readable, but soft/noisy under current indoor lighting and framed too close/off-center. Repeat with controlled lighting and intended camera mounting distance. The Go frame schema/renderer now passes synthetic-input tests but has not yet been exercised with real B525 captures; printer path, hot-unplug recovery, sustained operation, integrated laptop camera, and Linux remain untested.
+This section records the first Python/OpenCV webcam POC, not the current full validation state. A later experimental Go Media Foundation provider was integrated with the Go schema-v1 renderer and local output: three consecutive compiled-executable B525 sessions passed, and another end-to-end run passed after the adaptive renderer optimization. The earlier visual inspection still found soft/noisy quality and close/off-center framing under indoor lighting. Controlled booth lighting/mounting, printer hardware, hot-unplug recovery, sustained use, laptop integrated camera, and Linux hardware remain untested.
 
-### Next camera tests
+### Remaining camera tests
 1. Test image quality under controlled booth lighting and intended camera mounting distance; the first visual check looked soft/noisy and too close/off-center.
 2. Design production session/UI behavior for camera-busy errors; the low-level failure and recovery-after-release have been observed in the POC, but app-level recovery is not implemented.
 3. Disconnect/reconnect and record recovery behavior.
 4. Test the built-in camera on a real laptop separately; do not infer this from the B525 test.
-5. Feed actual webcam captures through the Go frame renderer and validate a printer or chosen output path.
+5. Compare optimized renderer output under controlled lighting and with representative real photos; test a physical printer after selecting its model and OS/driver target.
 6. Test Linux on one named distribution and record the exact camera/backend combination.
 
 ### Cross-platform spike
 - Investigate Windows Media Foundation and Linux Video4Linux2 for the generic UVC path.
-- OpenCV is currently a disposable POC tool; the production backend and UI framework remain undecided.
+- OpenCV is currently a disposable POC tool. A separate Wails v2.17 Windows shell spike now builds and measures WebView-to-Go calls, but the production UI framework remains undecided because Wails v2.17 requires Go 1.25 and adds a WebView runtime; Linux UI/runtime and hardware are not tested.
 - Select one Windows baseline and one specific Linux distribution for an actual kiosk prototype.
 - Test startup, full-screen mode, input, packaging/update, camera integration, output, and support burden.
 - Treat each OS/camera/printer combination as a separate compatibility claim.
@@ -186,20 +186,21 @@ Implemented and verified in the repository:
 - Output coordinator dispatches configured targets concurrently (bounded to four), records per-target status/duration/error, and treats local storage and printer targets independently. Session state distinguishes completed, partial_success, and total output failure. Local storage is implemented; printer behavior is covered with a synthetic target only.
 - Synthetic camera and CLI mode for deterministic offline tests.
 - Experimental Windows Media Foundation camera provider behind camera.Provider. The locally patched windows-camera-go v0.2.0 adapter runs without CGO, selects a B525 MJPEG mode, captures stream frames on a thread-locked worker, and normalizes abbreviated MJPEG frames missing DHT tables.
-- Three consecutive built-executable B525 sessions on Windows 11 Pro 64-bit passed: each captured 3 frames at 1280x720, rendered a 1200x1800 image, and wrote the local session output. A separate run verified dimensions/decode. Built-binary phase timings across three runs: first capture 321-329ms, next capture 39-49ms, third capture 63-64ms, render 143-155ms, local save 2-10ms. These are smoke measures, not a benchmark.
-- Tests for renderer validation/geometry/resource bounds, session flow, capture/output/preflight errors, cancellation/timeout, and MJPEG DHT normalization.
+- Three consecutive built-executable B525 sessions on Windows 11 Pro 64-bit passed: each captured 3 frames at 1280x720, rendered a 1200x1800 image, and wrote the local session output. A separate run verified dimensions/decode. Pre-adaptive-scaling built-binary phase timings across three runs: first capture 321-329ms, next capture 39-49ms, third capture 63-64ms, render 143-155ms, local save 2-10ms. These are smoke measures, not a benchmark.
+- Tests for renderer validation/geometry/resource bounds, adaptive-scaler pixel difference, centered cover crop, session flow, 25 repeated fake-camera sessions, capture/output/preflight errors, deadline cancellation, and MJPEG DHT normalization.
+- Renderer benchmark on Windows 11 / Ryzen 5 8600G / Go 1.24.8: same textured fixture compared Catmull-Rom-only at 171.75 ms and 73.1 MB allocated/op versus adaptive scaling at 102.26 ms and 17.3 MB allocated/op. This is allocated bytes, not peak RAM. A post-change B525 session still produced three 1280x720 captures and a valid 1200x1800 output.
 - ADR 0007 records modular Go core/provider boundaries; ADR 0008 records frame schema v1; ADR 0009 records the experimental Windows camera adapter.
 
 Observed checks on the current source:
-- go test ./... passed after camera integration and timing instrumentation. Repeat the full test suite after all final edits.
-- go vet ./... and go build ./... must be rerun on this revision.
-- The separate Python/OpenCV POC has 10 existing tests; rerun as a regression check.
+- Full root go test -count=1 ./... passed after adaptive renderer changes and the 25-session lifecycle regression.
+- Root go vet ./..., Windows go build ./..., and Linux/amd64 CGO-disabled cross-build passed on this revision.
+- The separate Python/OpenCV POC regression suite passed 10/10 tests.
 
 The CLI is a development tool, not a release-ready booth app. For a real B525 test, run the command documented in the root README. Real capture writes camera imagery locally; delete it after test verification.
 
 Still not completed:
 - Repeat/soak sessions, resource and memory profiling, busy-camera recovery, cancellation during a blocked native frame read, physical unplug/reconnect, and controlled-lighting/mounting image-quality checks.
-- Guest/operator UI, preview, kiosk behavior, and a non-blocking UI event adapter.
+- Production guest/operator UI, real camera preview, full kiosk behavior, and a non-blocking UI event adapter.
 - Physical printer adapter and tests for the selected printer model/OS/driver; provider-aware retry and duplicate-print semantics.
 - Built-in laptop camera and Linux physical camera/kiosk/output tests. A cross-platform compile check is not hardware validation.
 - Optional payment, LAN/cloud media delivery, marketplace, sustained production reliability and user-adoption evidence.
