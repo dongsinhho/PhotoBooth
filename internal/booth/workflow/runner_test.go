@@ -133,19 +133,87 @@ func TestCaptureFailureStopsSessionAndClosesCamera(t *testing.T) {
 	}
 }
 
-type failingOutput struct{}
+type failingOutput struct {
+	targetName string
+}
 
-func (failingOutput) Save(context.Context, string, string) (string, error) {
-	return "", errors.New("disk full")
+func (f failingOutput) Name() string {
+	return f.targetName
+}
+
+func (f failingOutput) Execute(context.Context, output.Job) (output.TargetOutput, error) {
+	return output.TargetOutput{}, errors.New("simulated output failure")
+}
+
+type successfulPrinter struct{}
+
+func (successfulPrinter) Name() string { return output.TargetPrinter }
+func (successfulPrinter) Execute(context.Context, output.Job) (output.TargetOutput, error) {
+	return output.TargetOutput{Status: output.TargetQueued, JobID: "print-job-test-123"}, nil
 }
 
 func TestOutputFailureMarksSessionFailed(t *testing.T) {
 	cam := fake.New()
 	runner, cfg, _, _ := newTestRunner(t, cam, testFrameConfig(t), nil)
-	runner.Output = failingOutput{}
+	runner.Output = output.NewCoordinator(failingOutput{targetName: output.TargetLocalStorage})
 	result, err := runner.Run(context.Background(), cfg)
 	if err == nil || result.State != session.Failed {
 		t.Fatalf("result=%+v err=%v, want failed session", result, err)
+	}
+	if len(result.OutputResults) != 1 || result.OutputResults[0].Status != output.TargetFailed {
+		t.Fatalf("unexpected target results: %+v", result.OutputResults)
+	}
+}
+
+func TestLocalOutputSucceedsWhenPrinterFails(t *testing.T) {
+	cam := fake.New()
+	runner, cfg, _, outputDir := newTestRunner(t, cam, testFrameConfig(t), nil)
+	runner.Output = output.NewCoordinator(
+		output.NewLocal(outputDir),
+		failingOutput{targetName: output.TargetPrinter},
+	)
+	result, err := runner.Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.State != session.PartialSuccess {
+		t.Fatalf("state=%s, want partial_success", result.State)
+	}
+	if result.OutputPath == "" {
+		t.Fatal("local output should succeed independently of printer failure")
+	}
+	if _, err := os.Stat(result.OutputPath); err != nil {
+		t.Fatalf("local output missing: %v", err)
+	}
+	if len(result.OutputResults) != 2 ||
+		result.OutputResults[0].Status != output.TargetSucceeded ||
+		result.OutputResults[1].Status != output.TargetFailed {
+		t.Fatalf("unexpected per-target outcomes: %+v", result.OutputResults)
+	}
+}
+
+func TestPrinterCanSucceedWhenLocalOutputFails(t *testing.T) {
+	cam := fake.New()
+	runner, cfg, _, _ := newTestRunner(t, cam, testFrameConfig(t), nil)
+	runner.Output = output.NewCoordinator(
+		failingOutput{targetName: output.TargetLocalStorage},
+		successfulPrinter{},
+	)
+	result, err := runner.Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.State != session.PartialSuccess {
+		t.Fatalf("state=%s, want partial_success", result.State)
+	}
+	if result.OutputPath != "" {
+		t.Fatalf("local output path=%q, expected no local file", result.OutputPath)
+	}
+	if len(result.OutputResults) != 2 ||
+		result.OutputResults[0].Status != output.TargetFailed ||
+		result.OutputResults[1].Status != output.TargetQueued ||
+		result.OutputResults[1].JobID != "print-job-test-123" {
+		t.Fatalf("unexpected per-target outcomes: %+v", result.OutputResults)
 	}
 }
 

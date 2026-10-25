@@ -22,6 +22,8 @@ Both modes run preflight, capture the configured number of photos, render the ve
 
 On 2026-10-25, three consecutive runs of the built executable each completed three real B525 captures, rendering and local save; a separate go run pass verified all capture and output dimensions. In the built-binary runs, first-frame capture was 321-329 ms, later captures were 39-64 ms, render was 143-155 ms, and local save was 2-10 ms. A separate go run took about 2.02 s including process startup; these are early smoke measurements, not a production benchmark or soak result. The old Python/OpenCV webcam POC remains a separate experiment and reference.
 
+The output stage uses an independent-target coordinator. The local-storage target is implemented; a printer target can be added independently, and tests verify that one target failure does not suppress another. No physical printer adapter is included yet.
+
 The upstream Windows camera wrapper is vendored as a narrowly patched copy under `third_party/windows-camera-go`. See `README.PHOTOBOOTH-PATCH.md` there for the upstream version, MIT notice, and CGO compatibility change. The upstream project warns that it is under development; treat this adapter as experimental until repeated-session, hot-unplug, cancellation, and image-quality validation passes.
 ## Product vision
 

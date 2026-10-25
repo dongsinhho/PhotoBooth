@@ -11,13 +11,14 @@ const (
 	Output          State = "output"
 	Delivery        State = "delivery"
 	Completed       State = "completed"
+	PartialSuccess  State = "partial_success"
 	Failed          State = "failed"
 	Cancelled       State = "cancelled"
 	TimedOut        State = "timed_out"
 )
 
 func (s State) Terminal() bool {
-	return s == Completed || s == Failed || s == Cancelled || s == TimedOut
+	return s == Completed || s == PartialSuccess || s == Failed || s == Cancelled || s == TimedOut
 }
 
 func CanTransition(from, to State) bool {
@@ -36,9 +37,9 @@ func CanTransition(from, to State) bool {
 	case Rendering:
 		return to == Output || to == Failed || to == Cancelled || to == TimedOut
 	case Output:
-		return to == Delivery || to == Completed || to == Failed || to == Cancelled || to == TimedOut
+		return to == Delivery || to == Completed || to == PartialSuccess || to == Failed || to == Cancelled || to == TimedOut
 	case Delivery:
-		return to == Completed || to == Failed || to == Cancelled || to == TimedOut
+		return to == Completed || to == PartialSuccess || to == Failed || to == Cancelled || to == TimedOut
 	default:
 		return false
 	}

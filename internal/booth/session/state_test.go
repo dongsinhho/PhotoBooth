@@ -20,8 +20,20 @@ func TestValidSessionFlowWithPayment(t *testing.T) {
 	}
 }
 
+func TestPartialOutputIsTerminal(t *testing.T) {
+	if !CanTransition(Output, PartialSuccess) {
+		t.Fatal("expected Output -> PartialSuccess transition")
+	}
+	if !PartialSuccess.Terminal() {
+		t.Fatal("partial success should be terminal")
+	}
+	if CanTransition(PartialSuccess, Idle) {
+		t.Fatal("partial success must not continue to another session state")
+	}
+}
+
 func TestTerminalStatesCannotContinue(t *testing.T) {
-	for _, state := range []State{Completed, Failed, Cancelled, TimedOut} {
+	for _, state := range []State{Completed, PartialSuccess, Failed, Cancelled, TimedOut} {
 		if !state.Terminal() {
 			t.Fatalf("expected %s to be terminal", state)
 		}

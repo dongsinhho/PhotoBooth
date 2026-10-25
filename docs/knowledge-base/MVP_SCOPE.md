@@ -21,6 +21,7 @@ Prove reliable capture-to-output on real hardware while laying architecture foun
 - Camera disconnect/timeout does not permanently freeze the UI.
 - Frame layout output dimensions and slot positions are deterministic.
 - Output failure is recoverable without restarting the whole machine.
+- When multiple output targets are configured, each target is attempted independently; one target failing does not cancel a sibling, and target results are retained separately.
 - Bundled/installed assets work after restart and while offline.
 - Changing media delivery policy does not require changing capture code.
 - Changing payment policy does not require changing camera adapter code.
@@ -38,7 +39,7 @@ Prove reliable capture-to-output on real hardware while laying architecture foun
 
 ## Current implementation status (2026-10-25)
 
-A development-only offline path is implemented and tested: frame preflight (including slot-count matching), countdown events, capture through a provider, Go JSON frame rendering, session-scoped local output, phase timing, and explicit failed/cancelled/timed-out states. The CLI includes an experimental Windows Media Foundation provider; three consecutive real Logitech B525 3-shot sessions passed through capture-render-save. The prior Python/OpenCV B525 POC remains separate. User-facing kiosk UI, production recovery, long-run reliability and printer integration are not implemented.
+A development-only offline path is implemented and tested: frame preflight (including slot-count matching), countdown events, capture through a provider, Go JSON frame rendering, phase timings, and a bounded output coordinator with an independent local-storage target and per-target status. Session outcomes distinguish completed, partial_success, and failed. The CLI includes an experimental Windows Media Foundation provider; three consecutive real Logitech B525 3-shot sessions passed through capture-render-save. Synthetic printer-target tests pass, but no physical printer adapter exists yet. User-facing kiosk UI, production recovery, and long-run reliability remain unimplemented.
 
 The MVP acceptance gate is still open until real-camera capture, preview/UI, printer/export choice, physical recovery tests, and the target hardware/OS workflow are validated.
 

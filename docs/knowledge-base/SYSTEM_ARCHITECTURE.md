@@ -1,6 +1,6 @@
 # System Architecture
 
-**Status:** Target architecture with a tested local Go vertical slice and an experimental Windows Media Foundation provider that passed three consecutive real B525 sessions; kiosk UI, printer, cloud modules, recovery, and sustained reliability remain incomplete.
+**Status:** Target architecture with a tested local Go vertical slice, experimental Windows Media Foundation camera provider, and output coordinator with local-storage target. Three consecutive real B525 sessions passed; kiosk UI, physical printer adapter, cloud modules, recovery, and sustained reliability remain incomplete.
 
 ## Architecture approach
 Start with a modular player and a Go modular-monolith backend. Do not introduce microservices or message brokers before operational needs justify them. Preserve boundaries that permit future extraction.
@@ -15,7 +15,7 @@ Renders guest and operator experiences using a theme schema and supported compon
 ### Session Orchestrator
 Owns session state, cancellation, deadlines, recovery, and sequencing. Coordinates capture, render, output, payment policy, and selected media-delivery behavior through interfaces.
 
-Suggested state model: Idle -> Preflight -> AwaitingPayment (optional) -> Capturing -> Rendering -> Output -> Delivery -> Completed. Include Failed, Cancelled, TimedOut, and recovery paths. Payment and delivery states may be skipped according to configuration.
+Suggested state model: Idle -> Preflight -> AwaitingPayment (optional) -> Capturing -> Rendering -> Output -> Delivery -> Completed. Include PartialSuccess, Failed, Cancelled, TimedOut, and recovery paths. Payment and delivery states may be skipped according to configuration.
 
 ### Camera Provider Layer
 A stable internal contract with provider-specific implementations. Each provider advertises capabilities and supported camera/OS combinations. Do not assume every camera exposes trigger capture, live view, focus, or settings equally.
@@ -23,8 +23,14 @@ A stable internal contract with provider-specific implementations. Each provider
 ### Render Pipeline
 Produces deterministic static output from captured photos, frame definition, and versioned settings. Keep layout, crop, color/output dimensions, and error handling separate from UI.
 
-### Print / Export
-Owns printer and file output operations. It can retry where safe and reports actionable status.
+### Output Coordinator and Targets
+The output coordinator receives the finalized photo and invokes configured output targets independently. The coordinator bounds concurrency, preserves a result for each target, and reports per-target status/duration/error. A failed target does not cancel or roll back a sibling target. The current implementation supports the local-storage target and a tested target contract; the physical printer adapter remains unimplemented.
+
+### Local Storage Target
+Persists the finalized photo under a session-scoped path. A successful local save is reported independently from the printer outcome.
+
+### Printer Target
+A future adapter will submit a print job through the selected OS/driver integration. It should return a spool/job identifier and queued status when accepted, rather than block the capture/session thread until paper physically emerges. Retry and duplicate-print behavior must be provider-aware; do not blindly retry an uncertain spool operation.
 
 ### Payment Module
 A policy/orchestrator plus provider adapters. It may be disabled. When payment is required, authoritative server/provider verification must happen before a session permit is granted. Do not treat a client redirect, QR display, screenshot, or guest claim as proof of payment.
@@ -67,6 +73,7 @@ Choose only after an engineering spike covering touch/kiosk UX, camera preview i
 - No network calls may block capture/render/output when payment is not required.
 - Payment-required sessions fail closed if authoritative confirmation is unavailable; do not silently grant unpaid sessions.
 - Optional upload failure must not erase local output.
+- Failure of one configured output target must not suppress another target; aggregate session state must distinguish completed, partial_success, and total output failure.
 - UI remains responsive during device, render, and network I/O.
 - Package/app updates are staged, integrity-checked, and rollback-capable.
 - Images and credentials are excluded from routine logs.

@@ -18,6 +18,19 @@ type LocalProvider struct{ RootDir string }
 
 func NewLocal(root string) *LocalProvider { return &LocalProvider{RootDir: root} }
 
+func (p *LocalProvider) Name() string { return TargetLocalStorage }
+
+func (p *LocalProvider) Execute(ctx context.Context, job Job) (TargetOutput, error) {
+	path, err := p.Save(ctx, job.SessionID, job.SourcePath)
+	return TargetOutput{OutputPath: path}, err
+}
+
+// Dispatch preserves the simple local-only mode while using the same target
+// reporting contract as a multi-target coordinator.
+func (p *LocalProvider) Dispatch(ctx context.Context, job Job) (DispatchResult, error) {
+	return NewCoordinator(p).Dispatch(ctx, job)
+}
+
 // Save writes only the specified rendered image into a session-scoped directory.
 func (p *LocalProvider) Save(ctx context.Context, sessionID, sourcePath string) (string, error) {
 	if err := ctx.Err(); err != nil {

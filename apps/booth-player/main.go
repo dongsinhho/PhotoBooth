@@ -89,16 +89,26 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				if event.Seconds == 0 {
 					fmt.Fprintf(stdout, "Shot %d/%d: countdown disabled\n", event.Shot, event.Total)
 				} else {
-					fmt.Fprintf(stdout, "Shot %d/%d in %d…\n", event.Shot, event.Total, event.Seconds)
+					fmt.Fprintf(stdout, "Shot %d/%d in %dâ€¦\n", event.Shot, event.Total, event.Seconds)
 				}
 			case "captured":
 				fmt.Fprintf(stdout, "Captured shot %d/%d in %s\n", event.Shot, event.Total, event.Duration.Round(time.Millisecond))
 			case "rendered":
 				fmt.Fprintf(stdout, "Rendered in %s\n", event.Duration.Round(time.Millisecond))
-			case "output_saved":
-				fmt.Fprintf(stdout, "Local output saved in %s\n", event.Duration.Round(time.Millisecond))
-			case "completed":
-				fmt.Fprintf(stdout, "Session %s completed.\n", event.SessionID)
+			case "output_target":
+				if event.Status == string(output.TargetQueued) {
+					fmt.Fprintf(stdout, "Output target %s queued job %s in %s\n", event.Target, event.JobID, event.Duration.Round(time.Millisecond))
+				} else if event.Status == string(output.TargetSucceeded) {
+					if event.Path != "" {
+						fmt.Fprintf(stdout, "Output target %s succeeded in %s: %s\n", event.Target, event.Duration.Round(time.Millisecond), event.Path)
+					} else {
+						fmt.Fprintf(stdout, "Output target %s succeeded in %s\n", event.Target, event.Duration.Round(time.Millisecond))
+					}
+				} else {
+					fmt.Fprintf(stderr, "Output target %s %s in %s: %s\n", event.Target, event.Status, event.Duration.Round(time.Millisecond), event.Message)
+				}
+			case "completed", "partial_success":
+				fmt.Fprintf(stdout, "Session %s ended in state %s.\n", event.SessionID, event.State)
 			case "failed":
 				fmt.Fprintf(stderr, "Session ended in %s: %s\n", event.State, event.Message)
 			}
@@ -120,7 +130,11 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(stdout, "Rendered image: %s\n", result.RenderedPath)
-	fmt.Fprintf(stdout, "Locally saved output: %s\n", result.OutputPath)
+	if result.OutputPath != "" {
+		fmt.Fprintf(stdout, "Locally saved output: %s\n", result.OutputPath)
+	} else {
+		fmt.Fprintln(stdout, "No local copy was saved; check the output-target results above.")
+	}
 	if strings.EqualFold(*cameraFlag, "fake") {
 		fmt.Fprintln(stdout, "This run used synthetic images. Connect a real camera provider before using it with guests.")
 	} else {

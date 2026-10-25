@@ -183,6 +183,7 @@ Implemented and verified in the repository:
 - Schema-v1 declarative Go renderer with geometry/config validation, bounded inputs, JPEG/PNG decode and atomic JPEG output.
 - Local finalized-output provider, independent from the camera implementation.
 - Session runner with preflight, countdown, capture loop, close-camera-before-render, local output, explicit failure/cancel/timeout state, and per-phase capture/render/save timings.
+- Output coordinator dispatches configured targets concurrently (bounded to four), records per-target status/duration/error, and treats local storage and printer targets independently. Session state distinguishes completed, partial_success, and total output failure. Local storage is implemented; printer behavior is covered with a synthetic target only.
 - Synthetic camera and CLI mode for deterministic offline tests.
 - Experimental Windows Media Foundation camera provider behind camera.Provider. The locally patched windows-camera-go v0.2.0 adapter runs without CGO, selects a B525 MJPEG mode, captures stream frames on a thread-locked worker, and normalizes abbreviated MJPEG frames missing DHT tables.
 - Three consecutive built-executable B525 sessions on Windows 11 Pro 64-bit passed: each captured 3 frames at 1280x720, rendered a 1200x1800 image, and wrote the local session output. A separate run verified dimensions/decode. Built-binary phase timings across three runs: first capture 321-329ms, next capture 39-49ms, third capture 63-64ms, render 143-155ms, local save 2-10ms. These are smoke measures, not a benchmark.
@@ -199,7 +200,7 @@ The CLI is a development tool, not a release-ready booth app. For a real B525 te
 Still not completed:
 - Repeat/soak sessions, resource and memory profiling, busy-camera recovery, cancellation during a blocked native frame read, physical unplug/reconnect, and controlled-lighting/mounting image-quality checks.
 - Guest/operator UI, preview, kiosk behavior, and a non-blocking UI event adapter.
-- Output Coordinator that independently dispatches local storage and printer targets; printer integration and retry/duplicate-print semantics.
+- Physical printer adapter and tests for the selected printer model/OS/driver; provider-aware retry and duplicate-print semantics.
 - Built-in laptop camera and Linux physical camera/kiosk/output tests. A cross-platform compile check is not hardware validation.
 - Optional payment, LAN/cloud media delivery, marketplace, sustained production reliability and user-adoption evidence.
 

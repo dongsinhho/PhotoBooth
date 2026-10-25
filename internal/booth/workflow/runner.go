@@ -40,6 +40,9 @@ type Event struct {
 	Total     int
 	Seconds   int
 	Path      string
+	Target    string
+	Status    string
+	JobID     string
 	Message   string
 	Duration  time.Duration
 }
@@ -50,6 +53,7 @@ type Result struct {
 	CapturePaths     []string
 	RenderedPath     string
 	OutputPath       string
+	OutputResults    []output.TargetResult
 	CaptureDurations []time.Duration
 	RenderDuration   time.Duration
 	OutputDuration   time.Duration
@@ -61,7 +65,7 @@ type Result struct {
 type Runner struct {
 	Camera   camera.Provider
 	Renderer Renderer
-	Output   output.Provider
+	Output   output.Dispatcher
 	// OnEvent runs on the session goroutine. Handlers must return quickly and must
 	// not block on UI rendering, network or disk; UI adapters should enqueue events.
 	OnEvent func(Event)
@@ -220,19 +224,51 @@ func (r *Runner) Run(ctx context.Context, cfg Config) (result Result, runErr err
 		return r.fail(result, err)
 	}
 	outputStarted := time.Now()
-	outputPath, err := r.Output.Save(ctx, result.SessionID, renderedPath)
+	dispatched, err := r.Output.Dispatch(ctx, output.Job{SessionID: result.SessionID, SourcePath: renderedPath})
 	result.OutputDuration = time.Since(outputStarted)
 	if err != nil {
-		return r.fail(result, fmt.Errorf("save local output: %w", err))
+		return r.fail(result, fmt.Errorf("dispatch output targets: %w", err))
 	}
-	result.OutputPath = outputPath
-	r.emit(Event{Type: "output_saved", State: result.State, SessionID: result.SessionID, Path: outputPath, Duration: result.OutputDuration})
-	if err := r.transition(&result, session.Completed, "session complete"); err != nil {
+	result.OutputResults = dispatched.Results
+	for _, targetResult := range dispatched.Results {
+		r.emit(Event{
+			Type: "output_target", State: result.State, SessionID: result.SessionID,
+			Target: targetResult.Name, Status: string(targetResult.Status), Path: targetResult.OutputPath,
+			JobID: targetResult.JobID, Message: targetResult.Error, Duration: targetResult.Duration,
+		})
+		if targetResult.Name == output.TargetLocalStorage && targetResult.Status == output.TargetSucceeded {
+			result.OutputPath = targetResult.OutputPath
+		}
+	}
+	successfulCount := dispatched.Succeeded + dispatched.Queued
+	if successfulCount == 0 {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return r.fail(result, ctxErr)
+		}
+		failures := make([]string, 0, len(dispatched.Results))
+		for _, targetResult := range dispatched.Results {
+			if targetResult.Status != output.TargetSucceeded {
+				failures = append(failures, fmt.Sprintf("%s=%s", targetResult.Name, targetResult.Error))
+			}
+		}
+		return r.fail(result, fmt.Errorf("no output target succeeded: %s", strings.Join(failures, "; ")))
+	}
+	nextState := session.Completed
+	transitionMessage := fmt.Sprintf("%d output target(s) completed or queued", successfulCount)
+	if failedCount := dispatched.Failed + dispatched.Cancelled + dispatched.TimedOut; failedCount > 0 {
+		nextState = session.PartialSuccess
+		transitionMessage = fmt.Sprintf("partial output: %d completed or queued, %d failed or cancelled", successfulCount, failedCount)
+	}
+	if err := r.transition(&result, nextState, transitionMessage); err != nil {
 		return r.fail(result, err)
 	}
 	result.FinishedAt = time.Now()
 	result.TotalDuration = result.FinishedAt.Sub(result.StartedAt)
-	r.emit(Event{Type: "completed", State: result.State, SessionID: result.SessionID, Path: result.OutputPath, Duration: result.TotalDuration})
+	finishedEvent := "completed"
+	if result.State == session.PartialSuccess {
+		finishedEvent = "partial_success"
+	}
+	r.emit(Event{Type: finishedEvent, State: result.State, SessionID: result.SessionID, Path: result.OutputPath, Duration: result.TotalDuration})
 	return result, nil
 }
 
