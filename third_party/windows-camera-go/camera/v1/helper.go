@@ -13,6 +13,7 @@ func callEnumDeviceSources() ([]*mf.IMFActivate, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer att.Release()
 
 	err = att.SetGUID(&guid.MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, &guid.MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID)
 	if err != nil {
@@ -25,7 +26,6 @@ func callEnumDeviceSources() ([]*mf.IMFActivate, error) {
 	if err != nil {
 		return nil, err
 	}
-	_ = att.Release()
 	return list, nil
 }
 

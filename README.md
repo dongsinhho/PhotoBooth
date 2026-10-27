@@ -2,7 +2,7 @@
 
 PhotoBooth is planned cross-platform photobooth software that combines reliable on-site photo capture with configurable themes/frames and optional online content services.
 
-Status: Product definition and technical proof-of-concept stage. The experimental Go Windows Media Foundation provider has passed 100 sequential Logitech B525 sessions (300/300 captures); all 500 capture/render/local JPEG artifacts had expected dimensions. A competing-camera test also confirmed actionable resource diagnostics and successful new session after release. Production kiosk UI, physical printer path, USB hot-unplug, persistent-process memory soak, backend, and marketplace are not yet implemented or certified.
+Status: Product definition and technical proof-of-concept stage. The experimental Go Windows Media Foundation provider has passed 100 consecutive B525 sessions in one Go process after native resource-lifecycle cleanup (300/300 captures, 500/500 JPEGs verified). Sampled Windows working set/private bytes did not rise across the run. A same-process competing-camera test also verified recovery after release. Production kiosk UI, printer adapter, USB hot-unplug, UI-level retry, backend and marketplace are not yet implemented or certified.
 
 ## Runnable local development workflow
 
@@ -28,7 +28,7 @@ The output stage uses an independent-target coordinator. The local-storage targe
 
 The schema-v1 renderer now uses adaptive downscaling: on the same textured three-photo fixture, Catmull-Rom-only measured 171.7 ms/render and 73.1 MB allocated/op, while the adaptive path measured 102.3 ms/render and 17.3 MB allocated/op. See docs/knowledge-base/RENDERING_PERFORMANCE.md for commands and limitations. A separate Wails v2 kiosk-shell spike lives under tools/ui-spike/wails-v2; it requires Go 1.25.0 in its own module and is not the production UI decision.
 
-The upstream Windows camera wrapper is vendored as a narrowly patched copy under `third_party/windows-camera-go`. See `README.PHOTOBOOTH-PATCH.md` there for the upstream version, MIT notice, and CGO compatibility change. The upstream project warns that it is under development; treat this adapter as experimental until persistent-process soak, hot-unplug, blocked-read cancellation, and controlled-lighting image-quality validation passes.
+The upstream Windows camera wrapper is vendored as a narrowly patched copy under third_party/windows-camera-go. See README.PHOTOBOOTH-PATCH.md there for the pinned upstream version, MIT notice, CGO compatibility and native resource-lifecycle fixes. The upstream project warns that it is under development; treat this adapter as experimental until GUI/kiosk soak, physical hot-unplug, blocked-read cancellation, and controlled-lighting image-quality validation pass.
 
 ## Product vision
 

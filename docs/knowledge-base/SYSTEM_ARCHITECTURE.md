@@ -1,6 +1,6 @@
 # System Architecture
 
-**Status:** Tested local Go vertical slice, experimental Windows Media Foundation provider, independent output coordinator and adaptive renderer. One hundred sequential B525 sessions and a competing-camera/recovery probe passed their expected outcomes. Production kiosk UI, physical printer adapter, USB hot-unplug, persistent-process memory soak, cloud modules and Linux hardware remain incomplete.
+**Status:** Tested local Go vertical slice, experimental Windows Media Foundation provider, independent output coordinator and adaptive renderer. One hundred same-process B525 sessions passed following native resource-lifecycle cleanup, and a same-process contention/recovery probe passed. Production kiosk UI, physical printer adapter, USB hot-unplug, UI-level retry, cloud modules and Linux hardware remain incomplete.
 
 ## Architecture approach
 Start with a modular player and a Go modular-monolith backend. Do not introduce microservices or message brokers before operational needs justify them. Preserve boundaries that permit future extraction.

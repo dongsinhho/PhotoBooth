@@ -1,6 +1,6 @@
 # Camera Integration
 
-**Status:** Experimental Windows Media Foundation UVC provider integrated. A 100-session B525 reliability batch passed (300/300 captures, 100 strips, 100 local copies), and all 500 JPEG artifacts decoded with expected dimensions. A separate competing-camera test reproduced HRESULT 0xC00D3704 and a fresh session passed after release. Persistent-process memory growth, physical unplug/reconnect, and production UI recovery remain unvalidated.
+**Status:** Experimental Windows Media Foundation UVC provider integrated. A 100-session single-process B525 run passed (300/300 captures); all 500 JPEG artifacts decoded with expected dimensions. A same-process competing-camera test reproduced HRESULT 0xC00D3704 and recovered after release. Native COM/attributes/DLL resource ownership was tightened; post-fix OS working-set and private-byte samples declined from the first 10% to last 10% of the soak. Physical unplug/reconnect, production UI recovery and controlled image quality remain unvalidated.
 
 ## Goal
 
@@ -71,7 +71,7 @@ Keep native or library-specific types behind provider boundaries. The domain/ses
 
 ## First technical spike
 
-Current reference device: Logitech B525 HD Webcam on Windows 11 Pro 64-bit. A disposable OpenCV POC previously read 50/50 frames through both DirectShow and Media Foundation. The Go Media Foundation player then passed 100 consecutive standalone capture-render-save sessions, with 300/300 captures, 100 strips and 100 local copies. The verifier decoded 500 JPEGs at expected dimensions. A separate contention test failed at frame one with MF_E_HW_MFT_FAILED_START_STREAMING (0xC00D3704), and a fresh session passed after release. Coarse image diagnostics were collected but quality is not certified. This does not establish persistent-process memory stability, controlled-lighting quality, physical hot-unplug recovery, printer output, laptop integrated camera or Linux compatibility. See CAMERA_COMPATIBILITY_MATRIX.md and CAMERA_RELIABILITY_RESULTS.md.
+Current reference device: Logitech B525 HD Webcam on Windows 11 Pro 64-bit. A disposable OpenCV POC previously read 50/50 frames through DirectShow and Media Foundation. After native resource-lifecycle cleanup in the vendored wrapper, the Go Media Foundation player passed 100 consecutive sessions in one Go process: 300/300 captures, 100 strips and 100 local copies. The verifier decoded 500 JPEGs at expected dimensions. A separate same-process contention test failed at frame one with MF_E_HW_MFT_FAILED_START_STREAMING (0xC00D3704) and then recovered after release. Post-fix OS sampling during the 100-session run did not show rising memory across time. This remains headless CLI/harness evidence, not GUI kiosk certification. Physical hot-unplug, blocked native-read cancellation, controlled-lighting quality, printer output, laptop camera and Linux compatibility remain untested. See CAMERA_COMPATIBILITY_MATRIX.md and CAMERA_RELIABILITY_RESULTS.md.
 
 1. Enumerate the B525 and determine the actual negotiated formats/resolutions; a 1280x720 frame was observed, but all supported formats have not been enumerated.
 2. Implement an app preview without blocking the UI; the current headless POC reads stream frames but does not implement UI preview.
@@ -87,7 +87,7 @@ Laptop integrated camera is also an intended use case. The development machine d
 
 The implementation lives in internal/booth/camera/windowsmf and wraps a locally patched windows-camera-go v0.2.0 copy behind camera.Provider. It keeps Media Foundation calls on a locked OS thread. B525 capture extracts frames from an MJPEG stream, not a dedicated still-shutter trigger. Some frames omit DHT Huffman tables; the adapter inserts standard tables only when absent.
 
-On Windows 11 / Go 1.24.8, 100 consecutive standalone sessions each completed three 1280x720 captures, rendering and local save (300 captures, 100 strips, 100 local copies). The verifier decoded all 500 JPEGs at expected dimensions. Mean wall time was 0.919 s, median 0.910 s, and p95 0.960 s. Per-process working set averaged 37.51 MB (max 41.44 MB); private bytes averaged 35.35 MB (max 36.23 MB). A separate contention test held the camera via OpenCV Media Foundation; the Go session failed at shot 1 with HRESULT 0xC00D3704, and a fresh session passed in 0.89 s after release. These are 100 fresh-process session lifecycles, not a persistent-process memory-leak test. Physical USB hot-unplug, cancellation during a blocked native read, controlled lighting and production UI retry/recovery remain untested. See CAMERA_RELIABILITY_RESULTS.md.
+On Windows 11 / Go 1.24.8, the earlier 100 fresh-process sessions each completed three 1280x720 captures, render and local save (300 captures, 100 strips, 100 local copies). The later same-process soak and post-fix memory comparison are documented in CAMERA_RELIABILITY_RESULTS.md; those measurements are now the main evidence for session-runner lifecycle testing.
 
 ## Version and update model
 

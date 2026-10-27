@@ -69,8 +69,8 @@ While it is holding the webcam, run a capture attempt from another window. The s
 ## Known gaps
 
 - One temporary B525 image was visually inspected and deleted: readable but soft/noisy under current indoor lighting and framed too close/off-center. Repeat the quality check with controlled booth lighting and intended mount distance; stale-frame and long-run quality tests remain pending.
-- The Python JSON renderer remains a disposable POC. The Go renderer is now the main development path. One hundred consecutive standalone B525 capture-render-save sessions passed (300/300 captures, 100 rendered strips, 100 local copies); all 500 JPEG artifacts had the expected dimensions. Sampled working set peaked at 41.44 MB and private bytes at 36.23 MB per fresh process. A separate OpenCV Media Foundation holder triggered HRESULT 0xC00D3704; a new Go session passed after release. See docs/knowledge-base/CAMERA_RELIABILITY_RESULTS.md. Persistent-process memory growth, physical USB unplug/reconnect and controlled-lighting image quality remain untested.
-- Printing, physical camera disconnect/reconnect, long-duration stability, UI preview, and kiosk operation are not yet tested.
+- The Python JSON renderer remains a disposable POC. The Go renderer is the main development path. The experimental Windows Media Foundation provider passed 100 sequential real B525 sessions in one Go process after native resource-lifecycle cleanup (300/300 captures, 100 rendered strips, 100 local copies); all 500 JPEG artifacts had expected dimensions. OS memory sampled across 813 points did not increase in the final 10% of the run. A same-process OpenCV holder triggered HRESULT 0xC00D3704; the same Go process recovered after release. See docs/knowledge-base/CAMERA_RELIABILITY_RESULTS.md. Physical USB unplug/reconnect and controlled-lighting image quality remain untested.
+- Printing, physical camera disconnect/reconnect, full-day/overnight stability, UI preview, and full kiosk operation are not yet tested.
 - The built-in laptop camera requires a separate test on an actual laptop.
 - Linux capture/output needs a selected distro and a separate test.
 - DSLR/mirrorless remote still capture and original-file download need another provider path.
@@ -83,4 +83,11 @@ On the development Windows machine with the Logitech B525 connected and the repo
 
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\camera-poc\windows-b525-reliability.ps1 -Sessions 100 -Shots 3
 
-The script builds a standalone player, runs sequential real-camera sessions, validates JPEG decode and dimensions with verify_soak_artifacts.py, and optionally checks a competing camera holder and recovery after release. The script uses temporary directories for photos/logs and removes them by default; only a CSV summary remains in the user's TEMP directory. Add KeepArtifacts only when local inspection is necessary, and delete the retained images after inspection. A cross-session test does not replace physical USB unplug/reconnect or a long-duration soak.
+The script builds a standalone player, runs sequential fresh-process real-camera sessions, validates JPEG decode and dimensions with verify_soak_artifacts.py, and optionally checks a competing camera holder. The script uses temporary directories for photos/logs and removes them by default; only a CSV summary remains in the user's TEMP directory. Add KeepArtifacts only when local inspection is necessary, and delete the retained images after inspection. For same-process heap/OS-memory measurements and same-process contention recovery, use the separate harness documented in persistent-soak/README.md. Neither test replaces physical USB unplug/reconnect or a full-day/overnight kiosk soak.
+
+
+## Persistent single-process soak
+
+For a longer test that reuses one Go process and the same camera-provider boundary, see [persistent-soak/README.md](persistent-soak/README.md). It records heap/GC/goroutine metrics, validates all session image files, optionally emits a Go heap profile, and can simulate camera contention followed by recovery in the same process.
+
+This headless harness passed 100 consecutive B525 sessions after native resource-lifecycle cleanup; it is not the final GUI kiosk. USB unplug/reconnect, blocked native-read cancellation, and controlled-lighting image quality remain separate gates.

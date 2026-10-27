@@ -85,6 +85,7 @@ func (d *Device) startCapture(config *CaptureConfig) error {
 	if err != nil {
 		return err
 	}
+	defer sourceReaderAttributes.Release()
 
 	if config.enableAsync {
 		err = sourceReaderAttributes.SetUnknown(guid.MF_SOURCE_READER_ASYNC_CALLBACK, config.callBack)
@@ -97,7 +98,6 @@ func (d *Device) startCapture(config *CaptureConfig) error {
 	if err != nil {
 		return err
 	}
-	//sourceReaderAttributes.Release()
 	err = d.pSourceReader.SetCurrentMediaType(0xFFFFFFFC, d.pMediaType)
 	if err != nil {
 		return err

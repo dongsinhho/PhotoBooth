@@ -1,10 +1,10 @@
 # Windows B525 Reliability Results
 
-**Test date:** 2026-10-25
+**Test dates:** 2026-10-25 and 2026-10-27
 **Reference device:** Logitech B525 HD Webcam
 **Host:** Windows 11 Pro 64-bit, AMD Ryzen 5 8600G
 **Provider:** Experimental Go 1.24.8 / Windows Media Foundation adapter
-**Status:** 100 sequential CLI-process sessions and a competing-camera recovery test passed. Not a same-process soak or production certification.
+**Status:** 100 fresh-process sessions and 100 same-process sessions passed. A same-process contention/recovery test also passed after native resource-lifecycle fixes. This is strong headless evidence, not production certification.
 
 ## Reproducible command
 
@@ -35,6 +35,23 @@ The harness requires the repository Python virtual environment at tools/camera-p
 - The verifier decoded all 55 JPEGs from the 11 successful sessions (the separate 10-session batch plus post-contention recovery), with zero dimension mismatches.
 - Windows-only unit tests verify the diagnostic name, HRESULT code, actionable troubleshooting step, and preservation of the underlying HRESULT error.
 
+## Persistent single-process soak after native resource cleanup
+
+The earlier process-level measurements suggested native/COM resource retention during repeated camera open/close cycles. The vendored Windows camera wrapper was updated to release enumerated activation objects, temporary media-type handlers and attributes, the CoTaskMemAlloc array from MFEnumDeviceSources, and the Media Foundation/COM DLL handles in shutdown order.
+
+A 100-session run was repeated in **one persistent Go process** after these changes:
+
+- Result: 100/100 sessions passed, with zero capture/render/save failures. The verifier decoded 500 JPEGs: 300 capture frames at 1280x720, 100 rendered strips and 100 local copies at 1200x1800.
+- Session wall time: mean 800.73 ms, median 800.30 ms, p95 828.80 ms; minimum 770.63 ms and maximum 850.60 ms.
+- Go heap after GC: 255.3 KB after the first session and 301.1 KB after the 100th (45.8 KB net change); first-ten mean 267.4 KB, last-ten mean 300.3 KB. HeapSys was 19.72 MB after the first session and 23.44 MB after the last. Goroutines returned to 1 after every completed session.
+- External OS sampling at approximately 100 ms produced 813 samples over 87.39 seconds. Working set averaged 37.08 MB (p95 43.13 MB, max 44.33 MB); private bytes averaged 33.04 MB (p95 38.79 MB, max 39.94 MB). The first 10% of samples averaged 35.59 MB working set and 31.37 MB private bytes; the last 10% averaged 32.31 MB and 28.74 MB respectively. This run did not show upward OS-memory accumulation over its duration.
+- The post-change in-use Go heap profile contained runtime allocations (runtime.allocm and timers); it no longer showed windowsmf.captureWorker.run or wrapper methods among the top sampled retained allocations.
+- A separate same-process contention run passed three sessions, failed nine attempts with the expected HRESULT while OpenCV held the camera, then succeeded in an explicit recovery session after release. It verified 20 JPEGs across the four successful sessions and returned to one goroutine after recovery.
+
+A separate pre-cleanup 100-session run had substantially higher sampled OS memory (working set mean/peak 68.21/103.27 MB; private bytes mean/peak 64.44/100.22 MB). The before/after reduction is consistent with the resource-lifecycle fixes helping, but these were two separate runs and the individual fixes were not isolated experimentally. Treat this as encouraging host-specific evidence, not a universal memory bound or production certification.
+
+The persistent soak harness writes per-session Go runtime data to CSV and can emit an in-use heap profile. It does not include a production GUI, printer, image delivery, USB unplug/replug, or blocked-native-read cancellation.
+
 ## Coarse image diagnostics
 
 The capture verifier records grayscale mean luminance, grayscale standard deviation, Laplacian variance, and the percentage of near-black/near-white pixels. Across the 300 capture JPEGs in the 100-session batch:
@@ -48,13 +65,13 @@ These values are diagnostic baselines for this indoor scene only. They are not u
 
 ## What this proves and what remains open
 
-This is stronger than the earlier three-session smoke test: the adapter repeatedly opens and closes the B525, completes capture-render-save, reports a concrete failure under competing camera access, and works again in a new process after the holder exits.
+The headless runner now repeatedly opens/closes the B525, completes capture-render-save, reports a concrete failure under competing camera access, and successfully retries in the same process after the holder exits. This does not establish production UI retry behavior.
 
-It does not prove a long-duration soak, bounded peak RAM, thermal reliability, or recovery from a blocked synchronous native read. The current command-line runner exits when a session fails; the successful recovery was a fresh session process, not an in-process UI retry. Physical USB unplug/reconnect was not performed. A controlled-lighting image-quality review, built-in laptop camera, Linux camera/runtime and physical printer remain untested.
+This does not prove thermal reliability, a universal peak-RAM bound, or recovery from a blocked synchronous native read. The measured 100-session run lasted about 87 seconds; much longer soak/overnight runs remain open. The same-process recovery was a headless runner session, not an in-process UI retry. Physical USB unplug/reconnect, controlled-lighting image-quality review, laptop integrated camera, Linux camera/runtime and physical printer remain untested.
 
 ## Next reliability gate
 
-1. Exercise a persistent kiosk process for repeated sessions and sample its working set/heap over time; the 100-session batch launches a new process each time.
+1. Exercise the eventual full kiosk application (UI, preview, output and recovery) as one long-lived process. The current headless Go runner has passed 100 same-process sessions, but it is not the production kiosk process.
 2. Physically disconnect and reconnect USB, record whether the device is re-enumerated, and confirm recovery without rebooting.
 3. Review captures under controlled lighting, fixed camera distance and repeatable framing.
 4. Test cancellation while a native frame read is blocked on the selected driver.

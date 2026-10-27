@@ -1,6 +1,7 @@
 package mf
 
 import (
+	"fmt"
 	"syscall"
 	"unsafe"
 
@@ -16,30 +17,43 @@ type MfApi struct {
 }
 
 func CreateNewMfPlat() (*MfApi, error) {
-	loadRes, err := syscall.LoadDLL("Mfplat.dll")
+	dll, err := syscall.LoadDLL("Mfplat.dll")
 	if err != nil {
 		return nil, err
 	}
-	newMfApi := &MfApi{
-		mfPlatDll: loadRes,
+	newAPI := &MfApi{mfPlatDll: dll}
+	find := func(name string) (*syscall.Proc, error) {
+		proc, findErr := dll.FindProc(name)
+		if findErr != nil {
+			return nil, fmt.Errorf("find %s: %w", name, findErr)
+		}
+		return proc, nil
 	}
-
-	proc, err := newMfApi.mfPlatDll.FindProc("MFCreateAttributes")
-	if err == nil {
-		newMfApi.mfCreateAttributes = proc
+	if newAPI.mfCreateAttributes, err = find("MFCreateAttributes"); err != nil {
+		_ = dll.Release()
+		return nil, err
 	}
-
-	proc, err = newMfApi.mfPlatDll.FindProc("MFStartup")
-	if err == nil {
-		newMfApi.mFStartup = proc
+	if newAPI.mFStartup, err = find("MFStartup"); err != nil {
+		_ = dll.Release()
+		return nil, err
 	}
-
-	proc, err = newMfApi.mfPlatDll.FindProc("MFShutdown")
-	if err == nil {
-		newMfApi.mfShutdown = proc
+	if newAPI.mfShutdown, err = find("MFShutdown"); err != nil {
+		_ = dll.Release()
+		return nil, err
 	}
+	return newAPI, nil
+}
 
-	return newMfApi, nil
+func (m *MfApi) Release() error {
+	if m == nil || m.mfPlatDll == nil {
+		return nil
+	}
+	err := m.mfPlatDll.Release()
+	m.mfPlatDll = nil
+	m.mfCreateAttributes = nil
+	m.mFStartup = nil
+	m.mfShutdown = nil
+	return err
 }
 
 func (m *MfApi) MFCreateAttributes(ppMFAttributes **IMFAttributes, cInitialSize uint32) error {

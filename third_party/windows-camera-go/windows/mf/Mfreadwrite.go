@@ -1,6 +1,7 @@
 package mf
 
 import (
+	"fmt"
 	"syscall"
 	"unsafe"
 
@@ -13,20 +14,29 @@ type MfReadWrite struct {
 }
 
 func CreateNewMfReadWrite() (*MfReadWrite, error) {
-	loadRes, err := syscall.LoadDLL("Mfreadwrite.dll")
+	dll, err := syscall.LoadDLL("Mfreadwrite.dll")
 	if err != nil {
 		return nil, err
 	}
-	newMfReadWrite := &MfReadWrite{
-		mfreadwriteDll: loadRes,
+	proc, err := dll.FindProc("MFCreateSourceReaderFromMediaSource")
+	if err != nil {
+		_ = dll.Release()
+		return nil, fmt.Errorf("find MFCreateSourceReaderFromMediaSource: %w", err)
 	}
+	return &MfReadWrite{
+		mfreadwriteDll:                      dll,
+		mfCreateSourceReaderFromMediaSource: proc,
+	}, nil
+}
 
-	proc, err := newMfReadWrite.mfreadwriteDll.FindProc("MFCreateSourceReaderFromMediaSource")
-	if err == nil {
-		newMfReadWrite.mfCreateSourceReaderFromMediaSource = proc
+func (m *MfReadWrite) Release() error {
+	if m == nil || m.mfreadwriteDll == nil {
+		return nil
 	}
-
-	return newMfReadWrite, nil
+	err := m.mfreadwriteDll.Release()
+	m.mfreadwriteDll = nil
+	m.mfCreateSourceReaderFromMediaSource = nil
+	return err
 }
 
 func (m *MfReadWrite) MFCreateSourceReaderFromMediaSource(pMediaSource *IMFMediaSource, pAttributes *IMFAttributes, ppSourceReader **IMFSourceReader) error {

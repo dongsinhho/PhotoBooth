@@ -34,6 +34,7 @@ func EnumDevice() ([]*DeviceInfo, error) {
 	for i := uint32(0); i < uint32(len(list)); i++ {
 		info, err = callGetBaseInfo(list[i])
 		if err != nil {
+			_ = list[i].Release()
 			continue
 		}
 		deviceList = append(deviceList, info)
@@ -103,6 +104,7 @@ func (d *Device) getSelectedMediaType(format *CaptureFormats) (*mf.IMFMediaType,
 	if err != nil {
 		return nil, err
 	}
+	defer MediaTypeHandler.Release()
 
 	var mediaType *mf.IMFMediaType
 	err = MediaTypeHandler.GetMediaTypeByIndex(format.MediaTypeIndex, &mediaType)

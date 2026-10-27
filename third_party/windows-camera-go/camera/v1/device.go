@@ -19,36 +19,44 @@ type Device struct {
 }
 
 func OpenDevice(symbolLink string) (*Device, error) {
-
 	sources, err := callEnumDeviceSources()
 	if err != nil {
 		return nil, err
 	}
 
-	var info *DeviceInfo
+	var selectedInfo *DeviceInfo
+	var selectedSource *mf.IMFActivate
 	for _, source := range sources {
-		info, err = callGetBaseInfo(source)
-		if err != nil {
+		info, infoErr := callGetBaseInfo(source)
+		if infoErr != nil {
+			_ = source.Release()
 			continue
 		}
-		if info.SymbolLink == symbolLink {
-			device := &Device{
-				Name:          info.Name,
-				SymbolLink:    info.SymbolLink,
-				pDeviceActive: source,
-			}
-			err = device.init()
-			if err != nil {
-				return nil, err
-			}
-			return device, nil
-		} else {
-			_ = source.Release()
+		if selectedSource == nil && info.SymbolLink == symbolLink {
+			selectedInfo = info
+			selectedSource = source
+			continue
 		}
+		// Release every non-selected activation, including devices enumerated
+		// after the requested camera. Returning from inside the loop used to
+		// leave those COM references outstanding.
+		_ = source.Release()
 	}
-	return nil, utils.ErrorDeviceNotFound
-}
+	if selectedSource == nil {
+		return nil, utils.ErrorDeviceNotFound
+	}
 
+	device := &Device{
+		Name:          selectedInfo.Name,
+		SymbolLink:    selectedInfo.SymbolLink,
+		pDeviceActive: selectedSource,
+	}
+	if err := device.init(); err != nil {
+		device.CloseDevice()
+		return nil, err
+	}
+	return device, nil
+}
 func (d *Device) init() error {
 	if d.pDeviceActive == nil {
 		return utils.ErrorDeviceNotAllowedCall
