@@ -13,8 +13,9 @@ The Go package is internal/booth/output.
 - `Job` identifies the session and read-only rendered source file.
 - `Target` exposes a stable name and an `Execute` operation for one destination.
 - `Coordinator` validates the common job, rejects duplicate target names, limits configuration to four targets, starts target operations concurrently, and returns per-target results in configuration order.
-- The `LocalProvider` implements the target interface and persists the finalized image in a session-scoped folder.
-- Target results include status, elapsed duration, error text, optional local output path, and optional external job ID.
+- The `LocalProvider` implements the target interface and persists the finalized image in a session-scoped folder using a same-directory temporary file, sync/close and final rename.
+- Disk-full/quota errors are classified as `output.ErrInsufficientStorage` on Windows (`ERROR_DISK_FULL`/`ERROR_HANDLE_DISK_FULL`) and non-Windows (`ENOSPC`/`EDQUOT`). Partial temp output is removed; captures and `rendered.jpg` are retained. See [LOCAL_STORAGE_RECOVERY.md](LOCAL_STORAGE_RECOVERY.md).
+- Target results include status, elapsed duration, human-readable error text, an in-process typed cause (excluded from JSON), optional local output path, and optional external job ID.
 - The workflow records all target results and the local output path if local storage succeeded.
 
 The default CLI configures only the local-storage target. Tests use a synthetic printer target; this is not a physical printer integration.
@@ -30,7 +31,7 @@ Session outcomes:
 - `partial_success`: at least one target completed/queued, while another target failed, was cancelled, or timed out.
 - `failed`: no output target completed or accepted its job.
 
-No successful target is rolled back if a sibling target fails. The coordinator does not silently retry printing; duplicate-print policy must be designed with the actual printer/provider because retrying a spool operation can create duplicate paper output.
+No successful target is rolled back if a sibling target fails. The coordinator does not silently retry printing; duplicate-print policy must be designed with the actual printer/provider because retrying a spool operation can create duplicate paper output. For a failed local save, `go run ./apps/output-retry --config <station-config> --session-id <id>` copies the preserved `rendered.jpg` without reopening the camera; it refuses to overwrite an existing `photo.jpg`. This recovery path is separate from printer retry.
 
 ## Performance and failure behavior
 
@@ -48,3 +49,8 @@ No successful target is rolled back if a sibling target fails. The coordinator d
 3. Decide whether print state should persist across application restart and how to retry or resume pending jobs safely.
 4. Add soak/performance tests with simultaneous local storage and print queuing.
 5. Keep LAN/cloud photo delivery as a separate module; it must not become another name for local saving or printer output.
+
+
+## Hardware inventory update (2026-11-01)
+
+ShinPc currently exposes only Microsoft Print to PDF and Microsoft OneNote virtual printer queues. No physical printer model/driver is installed or available for validation. Do not describe this as physical print support. Local JPEG storage/export remains the tested output path. Select a named printer, connection and Windows driver target before implementing or claiming a physical printer adapter.

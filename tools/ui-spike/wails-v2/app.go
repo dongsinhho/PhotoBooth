@@ -13,8 +13,10 @@ import (
 	"slices"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	stationconfig "github.com/dongsinhho/PhotoBooth/internal/booth/config"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -24,15 +26,48 @@ type App struct {
 	benchmarkMode bool
 	reportPath    string
 
+	kioskMu   sync.RWMutex
+	kioskMode bool
+
 	mu      sync.Mutex
 	session DemoSession
+
+	cameraLifecycleMu sync.Mutex
+	previewMu         sync.Mutex
+	previewCancel     context.CancelFunc
+	previewDone       chan struct{}
+	previewAck        chan uint64
+	previewAckPending bool
+	previewInFlight   uint64
+	previewSequence   atomic.Uint64
+	previewStatus     CameraPreviewStatus
+	previewCloseErr   error
+
+	player          PlayerSession
+	playerCancel    context.CancelFunc
+	playerRunning   bool
+	outputRetrying  bool
+	framePath       string
+	workDir         string
+	outputDir       string
+	playerCountdown time.Duration
+	playerInterval  time.Duration
+	playerShotCount int
+
+	playerDataDir  string // injectable by tests; empty uses the OS user cache directory
+	settingsPath   string
+	stationConfig  stationconfig.StoreConfig
+	settingsError  string
+	settingsSaving bool
+	pathsMu        sync.Mutex
 }
 
 type DemoSession struct {
-	ID       string `json:"id"`
-	State    string `json:"state"`
-	Captured int    `json:"captured"`
-	Total    int    `json:"total"`
+	ID            string `json:"id"`
+	State         string `json:"state"`
+	Captured      int    `json:"captured"`
+	Total         int    `json:"total"`
+	FailureReason string `json:"failure_reason,omitempty"`
 }
 
 type BenchmarkReport struct {
@@ -50,7 +85,12 @@ type BenchmarkReport struct {
 }
 
 func NewApp() *App {
-	return &App{session: DemoSession{State: "idle", Total: 3}}
+	return &App{
+		session:         DemoSession{State: "idle", Total: 3},
+		player:          PlayerSession{State: "idle", Total: playerShotCount, Message: "Ready to take photos."},
+		playerCountdown: 3 * time.Second, playerInterval: time.Second, playerShotCount: playerShotCount,
+		stationConfig: stationconfig.Defaults(),
+	}
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -89,12 +129,72 @@ func (a *App) Ping(sequence int) int {
 func (a *App) StartDemoSession() DemoSession {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.session = newDemoSession("capturing")
+	return a.session
+}
+
+// SimulateCameraDisconnect moves the UI spike into its recoverable error state.
+// The Wails spike intentionally does not open a physical camera.
+func (a *App) SimulateCameraDisconnect(sessionID string) (DemoSession, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := a.validateDemoSession(sessionID); err != nil {
+		return a.session, err
+	}
+	if a.session.State != "capturing" {
+		return a.session, fmt.Errorf("cannot simulate camera loss while session state is %q", a.session.State)
+	}
+	a.session.State = "failed"
+	a.session.FailureReason = "The simulated camera disconnected during capture. Reconnect the camera, then continue the session or restart from the beginning."
+	return a.session, nil
+}
+
+// ContinueDemoSession resumes the simulated session at the next uncaptured shot.
+// It validates the failed session ID to prevent stale UI actions affecting a newer session.
+func (a *App) ContinueDemoSession(sessionID string) (DemoSession, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := a.validateDemoSession(sessionID); err != nil {
+		return a.session, err
+	}
+	if a.session.State != "failed" {
+		return a.session, fmt.Errorf("cannot continue a session while state is %q", a.session.State)
+	}
+	if a.session.Captured >= a.session.Total {
+		return a.session, errors.New("cannot continue because all shots are already captured")
+	}
+	a.session.State = "capturing"
+	a.session.FailureReason = ""
+	return a.session, nil
+}
+
+// RestartDemoSession discards the failed demo state and starts with a new session ID.
+func (a *App) RestartDemoSession(sessionID string) (DemoSession, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := a.validateDemoSession(sessionID); err != nil {
+		return a.session, err
+	}
+	if a.session.State != "failed" {
+		return a.session, fmt.Errorf("cannot restart from failure while session state is %q", a.session.State)
+	}
+	a.session = newDemoSession("capturing")
+	return a.session, nil
+}
+
+func newDemoSession(state string) DemoSession {
 	id := make([]byte, 12)
 	if _, err := rand.Read(id); err != nil {
 		id = []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
 	}
-	a.session = DemoSession{ID: hex.EncodeToString(id), State: "capturing", Total: 3}
-	return a.session
+	return DemoSession{ID: hex.EncodeToString(id), State: state, Total: 3}
+}
+
+func (a *App) validateDemoSession(sessionID string) error {
+	if sessionID == "" || sessionID != a.session.ID {
+		return errors.New("session ID does not match the active demo session")
+	}
+	return nil
 }
 
 func (a *App) RecordDemoShot(sessionID string) (DemoSession, error) {

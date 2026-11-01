@@ -6,8 +6,16 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/dongsinhho/PhotoBooth/internal/booth/camera"
+)
+
+const (
+	// defaultWarmupDuration lets UVC auto-exposure and white balance settle before
+	// the first guest-facing photo is captured.
+	defaultWarmupDuration = time.Second
+	maxWarmupDuration     = 3 * time.Second
 )
 
 type Options struct {
@@ -17,6 +25,15 @@ type Options struct {
 	Width    int
 	Height   int
 	FPS      float64
+
+	// WarmupDuration is how long to consume and discard stream frames after
+	// opening the camera so auto-exposure/white-balance can settle. Values <= 0
+	// use the default; the duration is capped to keep startup bounded.
+	WarmupDuration time.Duration
+
+	// SkipWarmupForDiagnostics disables frame warm-up only for a controlled
+	// diagnostic comparison. Normal booth/player paths must leave this false.
+	SkipWarmupForDiagnostics bool
 }
 
 type backend interface {
@@ -39,6 +56,16 @@ func New(options Options) *Provider {
 	}
 	if options.FPS <= 0 {
 		options.FPS = 30
+	}
+	if options.SkipWarmupForDiagnostics {
+		options.WarmupDuration = 0
+	} else {
+		if options.WarmupDuration <= 0 {
+			options.WarmupDuration = defaultWarmupDuration
+		}
+		if options.WarmupDuration > maxWarmupDuration {
+			options.WarmupDuration = maxWarmupDuration
+		}
 	}
 	options.DeviceID = strings.TrimSpace(options.DeviceID)
 	return &Provider{backend: newBackend(options)}
@@ -70,4 +97,17 @@ func (p *Provider) Capture(ctx context.Context, req camera.CaptureRequest) (came
 		return camera.CaptureResult{}, errors.New("Windows Media Foundation provider is not initialized")
 	}
 	return p.backend.Capture(ctx, req)
+}
+
+// Preview returns one validated JPEG frame from the existing Media Foundation
+// worker. It never opens another camera reader or writes a capture file.
+func (p *Provider) Preview(ctx context.Context) ([]byte, error) {
+	if p == nil || p.backend == nil {
+		return nil, errors.New("Windows Media Foundation provider is not initialized")
+	}
+	previewer, ok := p.backend.(camera.PreviewProvider)
+	if !ok {
+		return nil, errors.New("camera preview is not supported by this platform backend")
+	}
+	return previewer.Preview(ctx)
 }

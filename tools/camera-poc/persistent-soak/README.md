@@ -8,6 +8,14 @@ This tool repeatedly runs the PhotoBooth session workflow inside **one Go proces
 - Go 1.24.8 (the root module toolchain).
 - The repository Python virtual environment with OpenCV installed, for optional contention testing.
 
+## Run an endurance test in one process
+
+From repository root, use the PowerShell wrapper for a preflight, periodic Windows process-memory sampling, watchdog, session metrics, JPEG revalidation and automatic deletion of test photos while retaining reports:
+
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\tools\\camera-poc\\run-persistent-endurance.ps1 -Sessions 1000 -Shots 3 -WatchdogMinutes 60
+
+This performs 1,000 real B525 sessions (3,000 captures) and verifies 5,000 JPEG files. The report/metrics are written to a timestamped folder in `%TEMP%`; test images and the temporary executable are deleted afterward. Use `-Sessions 1` to test the wrapper on one real session before beginning a long run.
+
 ## Run 100 sessions in one process
 
 From the repository root, in PowerShell:

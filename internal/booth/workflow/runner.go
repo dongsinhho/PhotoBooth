@@ -30,6 +30,10 @@ type Config struct {
 	CaptureWidth    int
 	CaptureHeight   int
 	SessionID       string // Optional. Generated automatically when empty.
+	// ResumeCaptureCount reuses validated capture-01.jpg..capture-N.jpg from
+	// the same session directory and captures only the remaining shots. It
+	// requires an explicit SessionID and must be smaller than CaptureCount.
+	ResumeCaptureCount int
 }
 
 type Event struct {
@@ -91,6 +95,14 @@ func (r *Runner) Run(ctx context.Context, cfg Config) (result Result, runErr err
 	if cfg.CaptureCount < 1 || cfg.CaptureCount > 12 {
 		return result, errors.New("capture count must be between 1 and 12")
 	}
+	if cfg.ResumeCaptureCount < 0 || cfg.ResumeCaptureCount >= cfg.CaptureCount {
+		if cfg.ResumeCaptureCount != 0 {
+			return result, errors.New("resume capture count must be at least zero and less than capture count")
+		}
+	}
+	if cfg.ResumeCaptureCount > 0 && cfg.SessionID == "" {
+		return result, errors.New("an explicit session ID is required when resuming captures")
+	}
 	if strings.TrimSpace(cfg.WorkDir) == "" {
 		return result, errors.New("work directory is required")
 	}
@@ -130,6 +142,17 @@ func (r *Runner) Run(ctx context.Context, cfg Config) (result Result, runErr err
 	if err := os.MkdirAll(captureDir, 0o700); err != nil {
 		return r.fail(result, fmt.Errorf("create session workspace: %w", err))
 	}
+	for index := 0; index < cfg.ResumeCaptureCount; index++ {
+		expectedPath := filepath.Join(captureDir, fmt.Sprintf("capture-%02d.jpg", index+1))
+		info, statErr := os.Stat(expectedPath)
+		if statErr != nil {
+			return r.fail(result, fmt.Errorf("validate existing capture %d: %w", index+1, statErr))
+		}
+		if !info.Mode().IsRegular() || info.Size() == 0 {
+			return r.fail(result, fmt.Errorf("existing capture %d is not a non-empty regular file", index+1))
+		}
+		result.CapturePaths = append(result.CapturePaths, expectedPath)
+	}
 
 	if err := r.Camera.Open(ctx); err != nil {
 		return r.fail(result, fmt.Errorf("open camera %q: %w", r.Camera.Info().Name, err))
@@ -151,7 +174,7 @@ func (r *Runner) Run(ctx context.Context, cfg Config) (result Result, runErr err
 	if err := r.transition(&result, session.Capturing, "camera opened; begin countdown and capture"); err != nil {
 		return r.fail(result, err)
 	}
-	for shot := 1; shot <= cfg.CaptureCount; shot++ {
+	for shot := len(result.CapturePaths) + 1; shot <= cfg.CaptureCount; shot++ {
 		if err := ctx.Err(); err != nil {
 			return r.fail(result, err)
 		}
@@ -246,12 +269,21 @@ func (r *Runner) Run(ctx context.Context, cfg Config) (result Result, runErr err
 			return r.fail(result, ctxErr)
 		}
 		failures := make([]string, 0, len(dispatched.Results))
+		targetCauses := make([]error, 0, len(dispatched.Results))
 		for _, targetResult := range dispatched.Results {
-			if targetResult.Status != output.TargetSucceeded {
-				failures = append(failures, fmt.Sprintf("%s=%s", targetResult.Name, targetResult.Error))
+			if targetResult.Status == output.TargetSucceeded || targetResult.Status == output.TargetQueued {
+				continue
+			}
+			failures = append(failures, fmt.Sprintf("%s=%s", targetResult.Name, targetResult.Error))
+			if targetResult.Cause != nil {
+				targetCauses = append(targetCauses, fmt.Errorf("%s: %w", targetResult.Name, targetResult.Cause))
 			}
 		}
-		return r.fail(result, fmt.Errorf("no output target succeeded: %s", strings.Join(failures, "; ")))
+		message := strings.Join(failures, "; ")
+		if joined := errors.Join(targetCauses...); joined != nil {
+			return r.fail(result, fmt.Errorf("no output target succeeded: %s: %w", message, joined))
+		}
+		return r.fail(result, fmt.Errorf("no output target succeeded: %s", message))
 	}
 	nextState := session.Completed
 	transitionMessage := fmt.Sprintf("%d output target(s) completed or queued", successfulCount)

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "camera": {
+    "provider": "fake",
+    "width": 1280,
+    "height": 720,
+    "fps": 30
+  },
+  "capture": {
+    "shots": 3,
+    "countdown": "3s",
+    "interval": "1s"
+  },
+  "frame": {
+    "config_path": "frames/photo-strip-v1.json"
+  },
+  "storage": {
+    "sessions_dir": "../data/sessions",
+    "output_dir": "../data/output",
+    "session_retention_days": 0,
+    "output_retention_days": 0
+  },
+  "media_delivery": {
+    "mode": "local"
+  },
+  "payment": {
+    "mode": "disabled"
+  }
+}

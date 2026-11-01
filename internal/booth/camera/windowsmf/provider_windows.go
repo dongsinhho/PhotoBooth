@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"image/jpeg"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -85,16 +86,14 @@ func (b *windowsBackend) Open(ctx context.Context) error {
 		return errors.New("Windows Media Foundation worker stopped during startup")
 	case <-ctx.Done():
 		// COM initialization/open is synchronous and cannot itself be interrupted.
-		// Close the provider as soon as startup returns rather than leaking a device.
-		go func() {
-			startup := <-worker.ready
-			if startup.err == nil {
-				_ = worker.close()
-			} else {
-				<-worker.done
-			}
-			b.clearWorker(worker)
-		}()
+		// Do not return while a background cleanup still owns the camera: callers
+		// use Open's return as the ownership barrier before starting another session.
+		if cleanupErr := closeWorkerAfterCancelledStartup(worker); cleanupErr != nil {
+			// Keep b.worker set. Close can retry after the native startup/read returns,
+			// and another Open must not create a competing Media Foundation worker.
+			return errors.Join(ctx.Err(), fmt.Errorf("close camera after cancelled startup: %w", cleanupErr))
+		}
+		b.clearWorker(worker)
 		return ctx.Err()
 	}
 }
@@ -137,42 +136,79 @@ func (b *windowsBackend) Capture(ctx context.Context, req camera.CaptureRequest)
 		return camera.CaptureResult{}, errors.New("capture output path is required")
 	}
 
-	b.mu.RLock()
-	worker := b.worker
-	b.mu.RUnlock()
-	if worker == nil {
-		return camera.CaptureResult{}, errors.New("Windows Media Foundation camera is not open")
-	}
-
-	data, err := worker.nextFrame(ctx)
+	data, width, height, err := b.readValidatedFrame(ctx)
 	if err != nil {
-		return camera.CaptureResult{}, fmt.Errorf("read frame from Windows Media Foundation: %w", diagnoseCaptureError(err))
-	}
-	data, err = normalizeMJPEG(data)
-	if err != nil {
-		return camera.CaptureResult{}, fmt.Errorf("normalize camera MJPEG frame: %w", err)
-	}
-	if err := ctx.Err(); err != nil {
 		return camera.CaptureResult{}, err
-	}
-	if len(data) == 0 || len(data) > maxJPEGFrameSize {
-		return camera.CaptureResult{}, fmt.Errorf("JPEG frame size %d is outside allowed limits", len(data))
-	}
-	header, err := jpeg.DecodeConfig(bytes.NewReader(data))
-	if err != nil {
-		return camera.CaptureResult{}, fmt.Errorf("Media Foundation stream did not yield a valid MJPEG frame: %w", err)
-	}
-	if header.Width != b.options.Width || header.Height != b.options.Height {
-		return camera.CaptureResult{}, fmt.Errorf(
-			"actual frame is %dx%d; configured stream expects %dx%d",
-			header.Width, header.Height, b.options.Width, b.options.Height)
 	}
 	if err := writeJPEGAtomically(ctx, req.OutputPath, data); err != nil {
 		return camera.CaptureResult{}, err
 	}
 	return camera.CaptureResult{
-		Sequence: req.Sequence, Path: req.OutputPath, Width: header.Width, Height: header.Height,
+		Sequence: req.Sequence, Path: req.OutputPath, Width: width, Height: height,
 	}, nil
+}
+
+// Preview reads one frame from the same worker used by Capture. opMu ensures
+// only one caller can issue a native frame-read command at a time.
+func (b *windowsBackend) Preview(ctx context.Context) ([]byte, error) {
+	b.opMu.Lock()
+	defer b.opMu.Unlock()
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	data, _, _, err := b.readValidatedFrame(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// readValidatedFrame is the only path to the active Media Foundation worker.
+// It validates the compressed frame before either preview or capture can use it.
+func (b *windowsBackend) readValidatedFrame(ctx context.Context) ([]byte, int, int, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, 0, 0, err
+	}
+	b.mu.RLock()
+	worker := b.worker
+	b.mu.RUnlock()
+	if worker == nil {
+		return nil, 0, 0, errors.New("Windows Media Foundation camera is not open")
+	}
+
+	data, err := worker.nextFrame(ctx)
+	if err != nil {
+		diagnostic := diagnoseCaptureError(err)
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, 0, 0, fmt.Errorf("read frame from Windows Media Foundation: %w", diagnostic)
+		}
+		// A failed native frame read means this stream session is no longer
+		// trustworthy (for example, a USB disconnect can surface as
+		// MF_E_VIDEO_RECORDING_DEVICE_INVALIDATED). Let the recovery decorator
+		// tear down this worker and start a fresh Media Foundation session.
+		return nil, 0, 0, fmt.Errorf("%w: read frame from Windows Media Foundation: %w", camera.ErrStreamUnavailable, diagnostic)
+	}
+	data, err = normalizeMJPEG(data)
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("normalize camera MJPEG frame: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, 0, 0, err
+	}
+	if len(data) == 0 || len(data) > maxJPEGFrameSize {
+		return nil, 0, 0, fmt.Errorf("JPEG frame size %d is outside allowed limits", len(data))
+	}
+	header, err := jpeg.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("Media Foundation stream did not yield a valid MJPEG frame: %w", err)
+	}
+	if header.Width != b.options.Width || header.Height != b.options.Height {
+		return nil, 0, 0, fmt.Errorf(
+			"actual frame is %dx%d; configured stream expects %dx%d",
+			header.Width, header.Height, b.options.Width, b.options.Height)
+	}
+	return data, header.Width, header.Height, nil
 }
 
 func (b *windowsBackend) clearWorker(worker *captureWorker) {
@@ -218,9 +254,10 @@ func writeJPEGAtomically(ctx context.Context, target string, data []byte) error 
 }
 
 type captureWorker struct {
-	commands chan workerCommand
-	ready    chan startupResult
-	done     chan struct{}
+	commands        chan workerCommand
+	ready           chan startupResult
+	done            chan struct{}
+	shutdownTimeout time.Duration
 }
 
 type workerCommand struct {
@@ -245,9 +282,10 @@ type openedCamera struct {
 
 func newCaptureWorker(options Options) *captureWorker {
 	worker := &captureWorker{
-		commands: make(chan workerCommand),
-		ready:    make(chan startupResult, 1),
-		done:     make(chan struct{}),
+		commands:        make(chan workerCommand),
+		ready:           make(chan startupResult, 1),
+		done:            make(chan struct{}),
+		shutdownTimeout: closeTimeout,
 	}
 	go worker.run(options)
 	return worker
@@ -319,24 +357,35 @@ func (w *captureWorker) run(options Options) {
 		return
 	}
 	opened.capture = capture
+
+	// Read and discard a bounded stream warm-up so UVC auto-exposure and white
+	// balance can settle before the first guest photo. The skip option exists
+	// only for controlled diagnostic A/B comparisons; normal player paths keep
+	// the warm-up enabled.
+	if !options.SkipWarmupForDiagnostics {
+		warmupCount := warmupFrameCount(format.Fps, options.WarmupDuration)
+		if err := discardWarmupFrames(warmupCount, func() error {
+			_, err := readMJPEGFrame(opened)
+			return err
+		}); err != nil {
+			w.ready <- startupResult{err: fmt.Errorf("warm up camera stream (%d discarded frame(s)): %w", warmupCount, err)}
+			return
+		}
+	}
+
 	info := camera.Info{
 		ID: selectedDevice.SymbolLink, Name: selectedDevice.Name, OS: runtime.GOOS, Backend: "media-foundation",
 		Capabilities: camera.Capabilities{
+			Preview:                true,
 			FrameCaptureFromStream: true,
 			Resolution:             resolutions,
 		},
 	}
 	w.ready <- startupResult{info: info}
 
-	for {
-		command := <-w.commands
-		if command.close {
-			command.reply <- workerResult{}
-			return
-		}
-		data, err := readMJPEGFrame(opened)
-		command.reply <- workerResult{data: data, err: err}
-	}
+	serveCaptureCommands(w.commands, func() ([]byte, error) {
+		return readMJPEGFrame(opened)
+	})
 }
 
 func (w *captureWorker) nextFrame(ctx context.Context) ([]byte, error) {
@@ -367,7 +416,11 @@ func (w *captureWorker) nextFrame(ctx context.Context) ([]byte, error) {
 
 func (w *captureWorker) close() error {
 	command := workerCommand{close: true, reply: make(chan workerResult, 1)}
-	ctx, cancel := context.WithTimeout(context.Background(), closeTimeout)
+	timeout := w.shutdownTimeout
+	if timeout <= 0 {
+		timeout = closeTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	select {
@@ -375,7 +428,7 @@ func (w *captureWorker) close() error {
 		return nil
 	case w.commands <- command:
 	case <-ctx.Done():
-		return fmt.Errorf("timed out waiting to shut down Media Foundation camera after %s", closeTimeout)
+		return fmt.Errorf("timed out waiting to shut down Media Foundation camera after %s", timeout)
 	}
 	select {
 	case result := <-command.reply:
@@ -386,12 +439,31 @@ func (w *captureWorker) close() error {
 		case <-w.done:
 			return nil
 		case <-ctx.Done():
-			return fmt.Errorf("timed out releasing Media Foundation resources after %s", closeTimeout)
+			return fmt.Errorf("timed out releasing Media Foundation resources after %s", timeout)
 		}
 	case <-w.done:
 		return nil
 	case <-ctx.Done():
-		return fmt.Errorf("timed out closing Media Foundation camera after %s", closeTimeout)
+		return fmt.Errorf("timed out closing Media Foundation camera after %s", timeout)
+	}
+}
+
+// serveCaptureCommands owns the worker command loop. The reply channel for
+// each command is buffered so a caller whose context expired during a native
+// synchronous ReadSample can leave without blocking this worker when the read
+// eventually returns.
+func serveCaptureCommands(commands <-chan workerCommand, readFrame func() ([]byte, error)) {
+	for {
+		command, ok := <-commands
+		if !ok {
+			return
+		}
+		if command.close {
+			command.reply <- workerResult{}
+			return
+		}
+		data, err := readFrame()
+		command.reply <- workerResult{data: data, err: err}
 	}
 }
 
@@ -401,6 +473,12 @@ func (w *captureWorker) close() error {
 // the camera or when the device/driver cannot allocate streaming resources.
 func diagnoseCaptureError(err error) error {
 	var hresult mfconsts.HResultError
+	if errors.As(err, &hresult) && uint32(hresult.Code) == 0xC00D3EA2 {
+		return fmt.Errorf(
+			"Media Foundation camera device was invalidated (MF_E_VIDEO_RECORDING_DEVICE_INVALIDATED, HRESULT 0x%08X); the camera may have been disconnected. Reconnect it and reopen the camera provider: %w",
+			uint32(hresult.Code), err,
+		)
+	}
 	if errors.As(err, &hresult) && uint32(hresult.Code) == 0xC00D3704 {
 		return fmt.Errorf(
 			"Media Foundation could not start the camera stream (MF_E_HW_MFT_FAILED_START_STREAMING, HRESULT 0x%08X); the camera may be in use by another application or the driver may lack streaming resources. Close other camera apps, wait for the device to be released, then start a new session: %w",
@@ -408,6 +486,44 @@ func diagnoseCaptureError(err error) error {
 		)
 	}
 	return err
+}
+
+const maxWarmupFrames = 120
+
+// warmupFrameCount converts the target stream rate and warm-up duration into a
+// bounded number of frames. It deliberately never returns zero.
+func warmupFrameCount(fps float64, duration time.Duration) int {
+	if fps <= 0 {
+		fps = 30
+	}
+	if duration <= 0 {
+		duration = defaultWarmupDuration
+	}
+	frames := int(math.Ceil(fps * duration.Seconds()))
+	if frames < 1 {
+		return 1
+	}
+	if frames > maxWarmupFrames {
+		return maxWarmupFrames
+	}
+	return frames
+}
+
+// discardWarmupFrames consumes frames without saving them as photo captures.
+// The callback keeps this policy testable without requiring a physical webcam.
+func discardWarmupFrames(frameCount int, readFrame func() error) error {
+	if frameCount < 1 {
+		return errors.New("warm-up frame count must be positive")
+	}
+	if readFrame == nil {
+		return errors.New("warm-up frame reader is required")
+	}
+	for frame := 1; frame <= frameCount; frame++ {
+		if err := readFrame(); err != nil {
+			return fmt.Errorf("discard warm-up frame %d/%d: %w", frame, frameCount, err)
+		}
+	}
+	return nil
 }
 
 func readMJPEGFrame(opened *openedCamera) ([]byte, error) {
@@ -488,4 +604,17 @@ func selectMJPEGFormat(formats []*mf.CaptureFormats, width, height int, fps floa
 func isMJPEG(format *mf.CaptureFormats) bool {
 	return format != nil && format.SubType != nil &&
 		strings.Contains(strings.ToLower(fmt.Sprint(format.SubType)), mjpgSubtypeToken)
+}
+
+// closeWorkerAfterCancelledStartup waits until the worker reports whether native
+// startup succeeded, then closes it synchronously when needed. Its return is an
+// ownership barrier: callers must not open another camera while this worker may
+// still own Media Foundation resources.
+func closeWorkerAfterCancelledStartup(worker *captureWorker) error {
+	startup := <-worker.ready
+	if startup.err != nil {
+		<-worker.done
+		return nil
+	}
+	return worker.close()
 }

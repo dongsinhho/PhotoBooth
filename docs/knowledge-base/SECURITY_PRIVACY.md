@@ -16,6 +16,12 @@ Controls:
 - Stage and validate before activation; preserve a known-good version.
 - Review media parsers, dependencies, and licenses.
 
+### Implemented local frame-package controls (2026-10-29)
+
+The first .pbframe implementation is a strict, allowlisted subset rather than a general package/plugin system. The ZIP reader limits archive and per-entry sizes/count, rejects path traversal, duplicate/unknown entries, symlinks and unsupported compression, verifies declared payload sizes and SHA-256 digests, validates optional preview image content/dimensions, and validates definition.json with the production schema-v1 renderer. Installation stages files and writes immutable ID/version directories; activation keeps a digest-verified rollback copy. Full details and limits are in [FRAME_PACKAGE_FORMAT.md](FRAME_PACKAGE_FORMAT.md).
+
+SHA-256 is an integrity control, not a signature: package v1 does not authenticate authors, verify license rights, use publisher signatures, moderate creator content or fetch any network content. Treat packages from unknown sources as untrusted and review the declared license before distributing them.
+
 ## Hardware and local availability
 Camera/printer disconnections, blocked I/O, full disk, driver crashes, and partial output can disrupt sessions.
 
@@ -45,7 +51,7 @@ Controls:
 ## Guest-photo privacy
 Default policy:
 - Photos remain local unless the operator explicitly enables another delivery mode.
-- Document retention and provide configurable cleanup.
+- Document retention and provide configurable cleanup. The implemented local cleanup is opt-in, dry-run by default, requires a reviewed plan digest plus `--apply`, and only targets recognized finalized PhotoBooth layouts. It is not run at player startup; see [LOCAL_DATA_RETENTION.md](LOCAL_DATA_RETENTION.md).
 - Do not place photos, faces, QR tokens, or guest identifiers in logs/analytics by default.
 - For cloud delivery, define who can access content, token expiry, deletion behavior, storage region, and retention before implementation.
 - Collect only minimum required data.

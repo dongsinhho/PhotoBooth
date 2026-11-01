@@ -13,7 +13,7 @@ The Wails v2.17.0 CLI reports that its module requires Go 1.25.0 or newer. The d
 
 1. Create an isolated Wails v2.17.0 shell under `tools/ui-spike/wails-v2` with its own Go module, frontend dependencies and local build instructions.
 2. Do not add Wails dependencies to the root `go.mod`, do not change the core Go 1.24.8 baseline, and do not make this shell the production player yet.
-3. Keep the prototype intentionally narrow: idle, simulated three-shot session, and result screen. The physical camera, production renderer, output coordinator and printer are not wired to it.
+3. Keep the shell isolated from the root module/toolchain decision, but allow it to call the root Go contracts for an end-to-end Windows capture proof. The Windows UI now supports real webcam capture → frame render → local save, plus synthetic-camera mode, progress, bounded recovery, resume of existing capture files, fresh-session restart, and result preview. The production UI framework decision remains open; printer, payment and cloud services are not wired to it.
 4. Add a hidden benchmark mode that verifies 100 sequential JavaScript-to-Go round trips and reports p50/p95 plus backend-startup-to-frontend-ready time. Use an external process sampler to observe working set/private bytes separately.
 5. Require explicit Linux validation on a selected distribution before making a cross-platform support claim.
 
@@ -26,6 +26,7 @@ The Wails v2.17.0 CLI reports that its module requires Go 1.25.0 or newer. The d
 - Average backend-startup-to-frontend-ready: 92.1 ms.
 - Highest observed sample in the three process runs: 24.92 MB working set and 18.53 MB private bytes. Sampling is approximate and does not establish peak RSS/heap or behavior during real camera/render workloads.
 - The resulting Windows executable is approximately 11 MB.
+- Follow-up on 2026-10-28 added simulation-only camera-error UX and Go state-transition tests for continuing the active session, restarting under a new ID, and returning to idle. Vite production build, isolated Go tests/vet, and Wails Windows build passed. The shell remains intentionally disconnected from the real camera and main runner.
 
 ## Consequences
 

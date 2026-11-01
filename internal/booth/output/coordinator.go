@@ -57,6 +57,9 @@ type TargetResult struct {
 	JobID      string
 	Duration   time.Duration
 	Error      string
+	// Cause preserves the target's typed error for programmatic recovery and
+	// classification. Error remains the human-readable diagnostic.
+	Cause error `json:"-"`
 }
 
 type DispatchResult struct {
@@ -144,6 +147,7 @@ func (c *Coordinator) Dispatch(ctx context.Context, job Job) (DispatchResult, er
 				OutputPath: outputData.OutputPath,
 				JobID:      outputData.JobID,
 				Duration:   time.Since(started),
+				Cause:      runErr,
 			}
 			switch {
 			case runErr == nil && (outputData.Status == "" || outputData.Status == TargetSucceeded):

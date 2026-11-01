@@ -1,7 +1,7 @@
 # Self-Service Adoption and Hypothesis Log
 
 **Status:** Initial tracking document
-**Last updated:** 2026-10-25
+**Last updated:** 2026-10-30
 
 ## Strategy
 
@@ -12,7 +12,7 @@ The primary audience is people setting up new booths and self-builders using equ
 | ID | Hypothesis | Observable evidence | Positive evidence | Counter-evidence | Confidence | Next action |
 |---|---|---|---|---|---|---|
 | H1 | New booth builders value free commercial-use software enough to try it before buying a bundle. | First-install reports and completed capture-to-output demos. | Not collected | Not collected | Low / untested | Publish a transparent alpha when usable. |
-| H2 | Users can self-install with clear documentation. | Install success, setup time, issues needing direct intervention. | Not collected | Not collected | Low / untested | Write quickstart alongside alpha. |
+| H2 | Users can self-install with clear documentation. | Install success, setup time, issues needing direct intervention. | Documentation and maintainer-run synthetic smoke now exist; no independent first-install report yet. | Not collected | Low / untested | Collect an independent self-install report; do not infer adoption from maintainer tests. |
 | H3 | Selected used camera/PC/printer setups can satisfy requirements. | Exact hardware details and repeatable tests. | Not collected | Not collected | Low / untested | Create tested compatibility matrix. |
 | H4 | Supported application settings cover most desired changes. | Configuration usage, requests, and support issues. | Not collected | Not collected | Low / untested | Define config schema and sample file. |
 | H5 | Optional paid support is viable without forcing it on users. | Real requests for specific tasks, time spent, repeat demand. | Not collected | Not collected | Low / untested | Track support requests when users appear. |
@@ -44,3 +44,9 @@ Formal interviews are optional. If a user offers feedback, use DISCOVERY_INTERVI
 - Decision:
 - Counter-evidence:
 - Follow-up:
+
+## Self-service documentation update (2026-10-30)
+
+Published a Windows-first development quickstart, symptom-based troubleshooting guide, read-only environment inspector, compatibility report template, and GitHub compatibility/bug/feature issue forms. The quickstart distinguishes the recorded B525/Windows 11 reference from untested integrated cameras, printers, Linux and unimplemented LAN/cloud/payment. The inspector passed on the development PC for Go 1.24.8, sample schema-v1 config, matching 3-shot/3-slot frame, and B525 PnP name enumeration; it did not open the camera or modify/create storage. The synthetic capture-render-local-output path passed in a unique TEMP directory and the generated files were removed.
+
+This is evidence that repository self-service material exists and its commands were exercised by the maintainer. It is **not** evidence that an independent new builder can install or operate the app without help. No independent self-install/adoption report has been collected; H2 remains unvalidated. The Windows quickstart is for a self-built development checkout, not a signed installer. Linux distro, physical printer target, production UI, update package and final user-facing license remain unresolved.

@@ -1,7 +1,6 @@
 package mf
 
 import (
-	"fmt"
 	"syscall"
 	"unsafe"
 
@@ -24,7 +23,6 @@ type IAMCameraControlRange struct {
 }
 
 func (i *IAMCameraControl) GetRange(property consts.CameraControlProperty) (*IAMCameraControlRange, error) {
-	fmt.Println(i.S, property)
 	var pMin, pMax, pSteppingDelta, pDefault, pCapsFlags int32
 
 	r1, _, _ := syscall.SyscallN(i.S.GetRange, uintptr(unsafe.Pointer(i)), uintptr(property),
@@ -47,11 +45,7 @@ func (i *IAMCameraControl) GetRange(property consts.CameraControlProperty) (*IAM
 func (i *IAMCameraControl) Set(Property consts.CameraControlProperty, lValue int32, Flags consts.CameraControlFlags) error {
 	r1, _, _ := syscall.SyscallN(i.S.Set, uintptr(unsafe.Pointer(i)),
 		uintptr(Property), uintptr(lValue), uintptr(Flags))
-	if r1 != consts.S_OK && r1 != consts.ERROR_NOT_FOUND {
-		return consts.HResultError{Code: r1}
-	}
-
-	return nil
+	return controlSetResultError(r1)
 }
 
 func (i *IAMCameraControl) Get(Property consts.CameraControlProperty) (value int32, flags consts.CameraControlFlags, err error) {

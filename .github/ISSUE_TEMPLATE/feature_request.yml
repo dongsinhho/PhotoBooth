@@ -1,0 +1,37 @@
+name: Feature request
+description: Suggest a user-facing improvement with the booth workflow it helps.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the booth/operator/guest task rather than prescribing an implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Current workflow and desired outcome
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: How often does this matter?
+      options:
+        - Every session
+        - Several times a day
+        - Occasionally
+        - One-time setup
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Relevant hardware/software context
+      description: Exact camera, PC, OS, printer or workflow details where relevant.
+    validations:
+      required: false

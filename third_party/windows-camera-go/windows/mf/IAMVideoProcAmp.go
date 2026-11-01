@@ -45,11 +45,7 @@ func (i *IAMVideoProcAmp) GetRange(property consts.VideoProcAmpProperty) (*IAMVi
 func (i *IAMVideoProcAmp) Set(Property consts.VideoProcAmpProperty, lValue int32, Flags consts.VideoProcAmpFlags) error {
 	r1, _, _ := syscall.SyscallN(i.S.Set, uintptr(unsafe.Pointer(i)),
 		uintptr(Property), uintptr(lValue), uintptr(Flags))
-	if r1 != consts.S_OK && r1 != consts.ERROR_NOT_FOUND {
-		return consts.HResultError{Code: r1}
-	}
-
-	return nil
+	return controlSetResultError(r1)
 }
 
 func (i *IAMVideoProcAmp) Get(Property consts.VideoProcAmpProperty) (value int32, flags consts.VideoProcAmpFlags, err error) {

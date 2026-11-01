@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/dongsinhho/PhotoBooth/internal/booth/camera"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/camera/fake"
+	"github.com/dongsinhho/PhotoBooth/internal/booth/camera/recovery"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/output"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/render"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/session"
@@ -404,5 +406,204 @@ func TestDeadlineDuringCaptureClosesCameraAndTimesOutSession(t *testing.T) {
 	}
 	if len(result.CapturePaths) != 0 {
 		t.Fatalf("captured %d frames even though capture was cancelled", len(result.CapturePaths))
+	}
+}
+
+type streamUnavailableProvider struct {
+	camera.Provider
+}
+
+func (p *streamUnavailableProvider) Capture(ctx context.Context, req camera.CaptureRequest) (camera.CaptureResult, error) {
+	if err := ctx.Err(); err != nil {
+		return camera.CaptureResult{}, err
+	}
+	return camera.CaptureResult{}, camera.ErrStreamUnavailable
+}
+
+func TestRunCompletesCaptureRenderSaveAfterCameraRecovery(t *testing.T) {
+	root := t.TempDir()
+	workDir := filepath.Join(root, "sessions")
+	outputDir := filepath.Join(root, "output")
+	factoryCalls := 0
+	var recoveryEvents []recovery.Event
+	recoveredCamera := recovery.New(func() camera.Provider {
+		factoryCalls++
+		if factoryCalls == 1 {
+			return &streamUnavailableProvider{Provider: fake.New()}
+		}
+		return fake.New()
+	}, recovery.Options{
+		OpenAttempts:     1,
+		RecoveryAttempts: 1,
+		Sleep:            func(ctx context.Context, _ time.Duration) error { return ctx.Err() },
+		OnEvent:          func(event recovery.Event) { recoveryEvents = append(recoveryEvents, event) },
+	})
+	runner := &Runner{
+		Camera: recoveredCamera, Renderer: render.New(), Output: output.NewLocal(outputDir),
+		Sleep: func(ctx context.Context, _ time.Duration) error { return ctx.Err() },
+	}
+	cfg := Config{
+		FrameConfigPath: testFrameConfig(t),
+		WorkDir:         workDir,
+		CaptureCount:    3,
+		CaptureWidth:    640,
+		CaptureHeight:   480,
+		SessionID:       "fedcba9876543210fedcba9876543210",
+	}
+
+	result, err := runner.Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("Run after camera recovery: %v", err)
+	}
+	if result.State != session.Completed {
+		t.Fatalf("session state=%s, want completed", result.State)
+	}
+	if len(result.CapturePaths) != 3 {
+		t.Fatalf("captures=%d, want 3", len(result.CapturePaths))
+	}
+	if _, err := os.Stat(result.OutputPath); err != nil {
+		t.Fatalf("final output missing after camera recovery: %v", err)
+	}
+	if factoryCalls != 2 {
+		t.Fatalf("camera factory calls=%d, want original and replacement providers", factoryCalls)
+	}
+	recovered := false
+	for _, event := range recoveryEvents {
+		if event.Type == "recovery_succeeded" {
+			recovered = true
+			break
+		}
+	}
+	if !recovered {
+		t.Fatalf("recovery success event not observed: %+v", recoveryEvents)
+	}
+}
+
+func TestRunResumesExistingCapturesWithoutOverwritingThem(t *testing.T) {
+	cfgPath := testFrameConfig(t)
+	tmp := t.TempDir()
+	workDir := filepath.Join(tmp, "sessions")
+	outputDir := filepath.Join(tmp, "output")
+	sessionID := "abcdef0123456789abcdef0123456789"
+	captureDir := filepath.Join(workDir, sessionID, "captures")
+	if err := os.MkdirAll(captureDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	firstPath := filepath.Join(captureDir, "capture-01.jpg")
+	firstCamera := fake.New()
+	if err := firstCamera.Open(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := firstCamera.Capture(context.Background(), camera.CaptureRequest{
+		Sequence: 1, Width: 640, Height: 480, OutputPath: firstPath,
+	}); err != nil {
+		t.Fatalf("prepare prior capture: %v", err)
+	}
+	if err := firstCamera.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(firstPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cam := fake.New()
+	runner := &Runner{
+		Camera: cam, Renderer: render.New(), Output: output.NewLocal(outputDir),
+		Sleep: func(ctx context.Context, _ time.Duration) error { return ctx.Err() },
+	}
+	result, err := runner.Run(context.Background(), Config{
+		FrameConfigPath: cfgPath, WorkDir: workDir, CaptureCount: 3,
+		Countdown: 0, Interval: 0, CaptureWidth: 640, CaptureHeight: 480,
+		SessionID: sessionID, ResumeCaptureCount: 1,
+	})
+	if err != nil {
+		t.Fatalf("Run resumed session: %v", err)
+	}
+	if result.State != session.Completed {
+		t.Fatalf("state=%s, want completed", result.State)
+	}
+	if len(result.CapturePaths) != 3 || len(result.CaptureDurations) != 2 {
+		t.Fatalf("captures=%d durations=%d; want 3 paths with only 2 new capture durations", len(result.CapturePaths), len(result.CaptureDurations))
+	}
+	if result.CapturePaths[0] != firstPath {
+		t.Fatalf("first capture path=%q, want preserved path %q", result.CapturePaths[0], firstPath)
+	}
+	after, err := os.ReadFile(firstPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatal("resume overwrote the already completed first capture")
+	}
+	for _, name := range []string{"capture-02.jpg", "capture-03.jpg"} {
+		path := filepath.Join(captureDir, name)
+		info, err := os.Stat(path)
+		if err != nil || info.Size() == 0 {
+			t.Fatalf("missing resumed capture %s: info=%v err=%v", name, info, err)
+		}
+	}
+	if _, err := os.Stat(result.OutputPath); err != nil {
+		t.Fatalf("final output missing after resume: %v", err)
+	}
+}
+
+type insufficientStorageOutput struct{}
+
+func (insufficientStorageOutput) Name() string { return output.TargetLocalStorage }
+func (insufficientStorageOutput) Execute(context.Context, output.Job) (output.TargetOutput, error) {
+	return output.TargetOutput{}, fmt.Errorf("%w: simulated disk full; free disk space and retry. Captures and the rendered session file are preserved.", output.ErrInsufficientStorage)
+}
+
+func TestDiskFullOutputFailurePreservesCapturesAndRenderedSession(t *testing.T) {
+	cam := fake.New()
+	var failedEvent Event
+	runner, cfg, workDir, _ := newTestRunner(t, cam, testFrameConfig(t), func(event Event) {
+		if event.Type == "failed" {
+			failedEvent = event
+		}
+	})
+	runner.Output = output.NewCoordinator(insufficientStorageOutput{})
+
+	result, err := runner.Run(context.Background(), cfg)
+	if err == nil {
+		t.Fatal("Run unexpectedly succeeded with simulated insufficient storage")
+	}
+	if !errors.Is(err, output.ErrInsufficientStorage) {
+		t.Fatalf("Run error %v must preserve ErrInsufficientStorage", err)
+	}
+	if result.State != session.Failed {
+		t.Fatalf("session state=%s, want failed", result.State)
+	}
+	if len(result.CapturePaths) != cfg.CaptureCount {
+		t.Fatalf("capture count=%d, want %d", len(result.CapturePaths), cfg.CaptureCount)
+	}
+	for i, capturePath := range result.CapturePaths {
+		info, statErr := os.Stat(capturePath)
+		if statErr != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+			t.Fatalf("capture %d not preserved: path=%s err=%v", i+1, capturePath, statErr)
+		}
+	}
+	if result.RenderedPath == "" {
+		t.Fatal("rendered source path is empty after output failure")
+	}
+	renderedInfo, statErr := os.Stat(result.RenderedPath)
+	if statErr != nil || !renderedInfo.Mode().IsRegular() || renderedInfo.Size() == 0 {
+		t.Fatalf("rendered session file not preserved: path=%s err=%v", result.RenderedPath, statErr)
+	}
+	if result.OutputPath != "" {
+		t.Fatalf("failed local output must not publish a path: %q", result.OutputPath)
+	}
+	if len(result.OutputResults) != 1 || result.OutputResults[0].Status != output.TargetFailed {
+		t.Fatalf("unexpected output results: %+v", result.OutputResults)
+	}
+	if !strings.Contains(result.OutputResults[0].Error, "insufficient storage") {
+		t.Fatalf("target error lacks disk-full classification: %+v", result.OutputResults[0])
+	}
+	if failedEvent.Type != "failed" || !strings.Contains(failedEvent.Message, "free disk space") {
+		t.Fatalf("operator failure event lacks actionable storage guidance: %+v", failedEvent)
+	}
+	if _, err := os.Stat(filepath.Join(workDir, result.SessionID, "captures", "capture-03.jpg")); err != nil {
+		t.Fatalf("third source capture was removed: %v", err)
 	}
 }

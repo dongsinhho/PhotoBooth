@@ -1,0 +1,68 @@
+name: Bug report
+description: Report a reproducible bug with environment and redacted logs.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        First check the Windows troubleshooting guide. Do not attach guest photos, webcam frames, rendered strips, credentials, payment screenshots or unredacted personal paths.
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS and exact version/build
+    validations:
+      required: true
+  - type: dropdown
+    id: camera_mode
+    attributes:
+      label: Workflow
+      options:
+        - Synthetic camera
+        - Real camera
+        - Settings / frame packages
+        - Local storage / retention
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and redacted error
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant text logs only
+      description: Remove user names, personal paths, serial numbers, tokens and other private identifiers. Do not upload image artifacts.
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I have removed personal data and have not attached guest photos, webcam frames, credentials or payment information.
+          required: true

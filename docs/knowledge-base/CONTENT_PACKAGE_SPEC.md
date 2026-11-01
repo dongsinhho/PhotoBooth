@@ -1,6 +1,6 @@
 ﻿# Theme and Frame Package Specification
 
-**Status:** Proposed draft; review schema before implementation
+**Status:** Proposed for the broader theme/catalog format. The local frame-only schema-v1 subset is implemented; see [FRAME_PACKAGE_FORMAT.md](FRAME_PACKAGE_FORMAT.md). The broader concepts below remain proposals, not implemented capabilities.
 
 ## Purpose
 Define a versioned, validated content format installable by the Windows player without executing arbitrary code. Themes affect the player UI; frames define photo composition.
@@ -19,7 +19,7 @@ example-package/
 └── LICENSE.txt
 ~~~
 
-Names are illustrative, not a final compatibility contract.
+Names are illustrative, not a final compatibility contract. The currently implemented .pbframe archive is intentionally narrower: manifest.json, definition.json, one optional preview PNG/JPEG and optional LICENSE.txt. Its exact paths, manifest fields, limits and activation/rollback lifecycle are defined in [FRAME_PACKAGE_FORMAT.md](FRAME_PACKAGE_FORMAT.md). Do not treat this illustrative layout as the installed package schema.
 
 ## Manifest fields to define
 - packageId: stable unique ID.
