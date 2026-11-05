@@ -1,15 +1,21 @@
 [CmdletBinding()]
 param(
     [ValidateRange(15,60)][int]$StartupTimeoutSeconds = 30,
-    [ValidateRange(5,45)][int]$SettingsTimeoutSeconds = 20
+    [ValidateRange(5,45)][int]$SettingsTimeoutSeconds = 20,
+    [string]$ExecutablePath
 )
 
 $ErrorActionPreference = 'Stop'
 $moduleRoot = $PSScriptRoot
-$exe = Join-Path $moduleRoot 'build\bin\PhotoBooth.exe'
-if (!(Test-Path -LiteralPath $exe -PathType Leaf)) {
-    throw "Current PhotoBooth.exe not found: $exe"
+if ([string]::IsNullOrWhiteSpace($ExecutablePath)) {
+    $exe = Join-Path $moduleRoot 'build\bin\PhotoBooth.exe'
+} else {
+    $exe = (Resolve-Path -LiteralPath $ExecutablePath -ErrorAction Stop).Path
 }
+if (!(Test-Path -LiteralPath $exe -PathType Leaf)) {
+    throw "PhotoBooth executable was not found: $exe"
+}
+$exeWorkingDirectory = Split-Path -Parent $exe
 
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
@@ -122,7 +128,7 @@ function Set-Value([string]$Id,[string]$Value) {
 }
 
 function Start-PhotoBooth {
-    $script:app = Start-Process -FilePath $exe -WorkingDirectory $moduleRoot -PassThru
+    $script:app = Start-Process -FilePath $exe -WorkingDirectory $exeWorkingDirectory -PassThru
     $deadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
         if (Get-Window) {

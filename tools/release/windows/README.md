@@ -99,6 +99,7 @@ It verifies:
 - Real-binary update from version 1 to version 2 and rollback to version 1; both immutable release folders remain.
 - Active pointer, PE header, size and SHA-256 after rollback.
 - Kiosk startup fullscreen, Esc to windowed, F11 to fullscreen and Esc back to windowed.
-- No photo capture/session is started. The UI smoke uses a disposable PHOTOBOOTH_DATA_DIR; package, install and temporary player data are removed after graceful app exit. Only the JSON kiosk report is retained in TEMP.
+- Settings persistence on the installed executable: save 3 shots / 4s countdown / 750ms interval, close the first process, launch a second process against the same disposable profile, and verify the values reload.
+- No photo capture/session is started. The UI smokes use disposable PHOTOBOOTH_DATA_DIR roots; package, install and temporary player data are removed after graceful app exit. The kiosk and settings JSON reports are retained in TEMP.
 
 This is a Windows Preview deployment/kiosk functional smoke, not physical camera image-quality acceptance, a printer test, recovery test, long-run soak, signed release, Windows shell lockdown, or production certification.

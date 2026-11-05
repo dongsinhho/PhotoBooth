@@ -2,7 +2,8 @@
 param(
     [switch]$SkipBuild,
     [ValidateRange(15,60)][int]$StartupTimeoutSeconds = 30,
-    [ValidateRange(5,30)][int]$TransitionTimeoutSeconds = 12
+    [ValidateRange(5,30)][int]$TransitionTimeoutSeconds = 12,
+    [ValidateRange(5,45)][int]$SettingsTimeoutSeconds = 20
 )
 
 $ErrorActionPreference = 'Stop'
@@ -13,9 +14,13 @@ $buildScript = Join-Path $PSScriptRoot 'New-PhotoBoothWindowsPackage.ps1'
 $installScript = Join-Path $PSScriptRoot 'Install-PhotoBoothWindowsPackage.ps1'
 $startScript = Join-Path $PSScriptRoot 'Start-PhotoBooth.ps1'
 $kioskSmoke = Join-Path $repoRoot 'tools\ui-spike\wails-v2\ui-kiosk-mode-smoke.ps1'
+$settingsSmoke = Join-Path $repoRoot 'tools\ui-spike\wails-v2\ui-settings-persist-restart-smoke.ps1'
 
 if (!(Test-Path -LiteralPath $kioskSmoke -PathType Leaf)) {
     throw "Kiosk UI smoke script is missing: $kioskSmoke"
+}
+if (!(Test-Path -LiteralPath $settingsSmoke -PathType Leaf)) {
+    throw "Settings persistence smoke script is missing: $settingsSmoke"
 }
 
 $runId = [guid]::NewGuid().ToString('N')
@@ -24,9 +29,12 @@ $packageDirectory = Join-Path $temporaryRoot 'packages'
 $installRoot = Join-Path $temporaryRoot 'install'
 $stdoutPath = Join-Path $temporaryRoot 'kiosk-smoke.stdout.log'
 $stderrPath = Join-Path $temporaryRoot 'kiosk-smoke.stderr.log'
+$settingsStdoutPath = Join-Path $temporaryRoot 'settings-smoke.stdout.log'
+$settingsStderrPath = Join-Path $temporaryRoot 'settings-smoke.stderr.log'
 $version = '0.0.0-smoke.' + (Get-Date -Format 'yyyyMMdd.HHmmss')
 $smokeProcess = $null
 $smokeReportPath = $null
+$settingsReportPath = $null
 $status = 'FAIL'
 $failure = $null
 $tempCleaned = $false
@@ -143,12 +151,56 @@ try {
         $checks.Add("installed executable: $name") | Out-Null
     }
 
+    Write-Host 'STEP=installed-settings-save-and-process-restart'
+    $settingsArguments = @(
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', ('"' + $settingsSmoke + '"'),
+        '-ExecutablePath', ('"' + $release.Executable + '"'),
+        '-StartupTimeoutSeconds', [string]$StartupTimeoutSeconds,
+        '-SettingsTimeoutSeconds', [string]$SettingsTimeoutSeconds
+    )
+    $settingsProcess = Start-Process -FilePath $powershellPath -ArgumentList $settingsArguments -PassThru -Wait -WindowStyle Hidden -RedirectStandardOutput $settingsStdoutPath -RedirectStandardError $settingsStderrPath
+
+    if (Test-Path -LiteralPath $settingsStdoutPath -PathType Leaf) {
+        Get-Content -LiteralPath $settingsStdoutPath | ForEach-Object { Write-Host $_ }
+    }
+    if (Test-Path -LiteralPath $settingsStderrPath -PathType Leaf) {
+        $settingsStderr = Get-Content -LiteralPath $settingsStderrPath -Raw
+        if (![string]::IsNullOrWhiteSpace($settingsStderr)) {
+            Write-Warning $settingsStderr
+        }
+    }
+    if ($settingsProcess.ExitCode -ne 0) {
+        throw "Installed executable settings persistence smoke failed with exit code $($settingsProcess.ExitCode)."
+    }
+
+    $settingsReportLine = Get-Content -LiteralPath $settingsStdoutPath | Where-Object { $_ -match '^TEST_REPORT=' } | Select-Object -Last 1
+    if (!$settingsReportLine) {
+        throw 'Settings persistence smoke did not report its JSON result path.'
+    }
+    $settingsReportPath = $settingsReportLine.Substring('TEST_REPORT='.Length).Trim()
+    if (!(Test-Path -LiteralPath $settingsReportPath -PathType Leaf)) {
+        throw "Settings persistence JSON report is missing: $settingsReportPath"
+    }
+    $settingsReport = Get-Content -LiteralPath $settingsReportPath -Raw | ConvertFrom-Json
+    if ($settingsReport.status -ne 'PASS' -or
+        !$settingsReport.temporary_profile_cleaned -or
+        !$settingsReport.no_photo_session_created -or
+        $settingsReport.forced_stop) {
+        throw 'Settings persistence smoke did not pass cleanly or did not remove its isolated profile.'
+    }
+    foreach ($check in $settingsReport.checks) {
+        $checks.Add("installed executable settings: $check") | Out-Null
+    }
+
     $status = 'PASS'
     Write-Host "PHOTOBOOTH_INSTALLED_PACKAGE_KIOSK_SMOKE=$status"
     Write-Host "PACKAGE_VERSION=$version"
     Write-Host "INSTALLED_EXECUTABLE=$($release.Executable)"
     Write-Host "EXECUTABLE_SHA256=$($release.Sha256)"
     Write-Host "KIOSK_REPORT=$smokeReportPath"
+    Write-Host "SETTINGS_REPORT=$settingsReportPath"
     foreach ($check in $checks) { Write-Host "CHECK=$check" }
 }
 catch {
