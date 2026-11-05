@@ -74,6 +74,7 @@ Never turn a proposal into an asserted fact.
 61. [../adr/0020-idle-only-camera-preview.md](../adr/0020-idle-only-camera-preview.md) - shared-worker, idle-only preview and bounded backpressure decision.
 62. [../adr/0023-preview-renderer-and-soak-diagnostics.md](../adr/0023-preview-renderer-and-soak-diagnostics.md) - canvas/ImageBitmap lifecycle, persistent shared-read diagnostics and exact kiosk soak audit.
 63. [../../tools/ui-spike/wails-v2/ui-preview-kiosk-soak.ps1](../../tools/ui-spike/wails-v2/ui-preview-kiosk-soak.ps1) - reproducible 10-minute B525 idle-preview/kiosk resource and lifecycle soak with exact JSONL event reconciliation.
+64. [../QUICKSTART_LINUX_EVALUATION.md](../QUICKSTART_LINUX_EVALUATION.md) - preparation and evidence checklist for a basic Wails v2.17.0 UI build/launch on Ubuntu 26.04.1 LTS; not yet validated.
 
 ## Current status as of 2026-11-05
 
@@ -95,7 +96,8 @@ Never turn a proposal into an asserted fact.
 ## Open questions
 - Which camera models, firmware, and connection methods should be added after UVC?
 - Which printer/output path should be the first render-to-output target?
-- Which UI framework and Linux distribution should be supported first?
+- Which production UI framework should be selected after the Windows/Linux evaluation?
+- Which Linux camera provider and printer integration should be implemented and validated after the UI shell evaluation?
 - Which payment provider and workflow will be used, if any?
 - What LAN access, retention, and deletion policy is required?
 - What exact end-user license and frame/theme creator terms will be adopted?
@@ -108,3 +110,9 @@ Never turn a proposal into an asserted fact.
 
 - Internal Windows Preview release tooling now builds a three-file ZIP with a versioned manifest and SHA-256 metadata, installs verified immutable versions side-by-side, switches the active pointer atomically, and supports local rollback. Synthetic lifecycle smoke and a disposable install of the current real Windows binary passed. This is not a signed installer, automatic updater or public distribution; legal terms and production UI selection remain open.
 - The 2026-11-05 real B525 Wails quality batch completed capture/render/local-save for 9/9 shots but failed the existing gross-darkness gate: session mean luminance 2.504–2.530/255. First-shot drops remained below 0.3%. The near-black captures and report were retained for visual review; representative fixed-lighting portrait/framing remains open.
+
+
+### Additional update (2026-11-05)
+
+- The Windows Preview package workflow has now passed an installed-binary end-to-end smoke: build ZIP → install first version → update to a second version label → rollback → verify active executable/hash → launch installed executable → fullscreen/Esc/F11/Esc checks. No photo capture was started; package/install/player test data was cleaned after graceful exit. This is internal unsigned deployment evidence only.
+- Linux evaluation target selected: Ubuntu 26.04.1 LTS x86_64 with Wails v2.17.0 / GTK3 + WebKit2GTK 4.1 (webkit2_41). The target is not yet built or runtime-tested because no accessible Linux environment was available from ShinPc.

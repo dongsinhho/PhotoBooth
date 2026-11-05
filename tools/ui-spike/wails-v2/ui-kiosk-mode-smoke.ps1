@@ -1,13 +1,19 @@
 [CmdletBinding()]
 param(
     [ValidateRange(15,60)][int]$StartupTimeoutSeconds = 30,
-    [ValidateRange(5,30)][int]$TransitionTimeoutSeconds = 12
+    [ValidateRange(5,30)][int]$TransitionTimeoutSeconds = 12,
+    [string]$ExecutablePath
 )
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
-$exe = Join-Path $PSScriptRoot 'build\bin\PhotoBooth.exe'
-if (!(Test-Path $exe)) { throw "Build the Windows UI candidate first: $exe" }
+if ([string]::IsNullOrWhiteSpace($ExecutablePath)) {
+    $exe = Join-Path $PSScriptRoot 'build\bin\PhotoBooth.exe'
+} else {
+    $exe = (Resolve-Path -LiteralPath $ExecutablePath -ErrorAction Stop).Path
+}
+if (!(Test-Path -LiteralPath $exe -PathType Leaf)) { throw "PhotoBooth executable was not found: $exe" }
+$exeWorkingDirectory = Split-Path -Parent $exe
 
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
@@ -187,7 +193,7 @@ try {
     [Environment]::SetEnvironmentVariable('PHOTOBOOTH_DATA_DIR', $dataRoot, 'Process')
     [Environment]::SetEnvironmentVariable('PHOTOBOOTH_KIOSK', '1', 'Process')
 
-    $app = Start-Process -FilePath $exe -WorkingDirectory $repoRoot -PassThru
+    $app = Start-Process -FilePath $exe -WorkingDirectory $exeWorkingDirectory -PassThru
     $window = Wait-Window $StartupTimeoutSeconds
     Wait-Text 'KIOSK MODE | ESC TO EXIT | F11 TO TOGGLE' $true $StartupTimeoutSeconds
     Wait-Text 'Start with webcam' $true $StartupTimeoutSeconds

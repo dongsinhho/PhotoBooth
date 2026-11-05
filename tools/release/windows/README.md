@@ -82,3 +82,23 @@ This creates synthetic tiny MZ-header fixtures in a unique TEMP folder, builds t
 - Database/config migration and rollback policy for future schema changes.
 - Windows auto-start, kiosk shell lockdown and production support commitments.
 - Linux package/install/update path.
+
+
+## Installed package update / rollback / kiosk smoke
+
+From the repository root:
+
+~~~powershell
+.\tools\release\windows\installed-package-kiosk-smoke.ps1
+~~~
+
+The wrapper builds the current Windows Preview, creates a versioned ZIP, installs it under a unique TEMP root, creates a second package label from the same executable, updates the active pointer, rolls back to the first version, verifies the restored binary/hash, then launches the installed executable through the kiosk UI smoke. The UI smoke accepts -ExecutablePath so it tests the installed release rather than the build-tree copy.
+
+It verifies:
+- Package creation and installation in a disposable root.
+- Real-binary update from version 1 to version 2 and rollback to version 1; both immutable release folders remain.
+- Active pointer, PE header, size and SHA-256 after rollback.
+- Kiosk startup fullscreen, Esc to windowed, F11 to fullscreen and Esc back to windowed.
+- No photo capture/session is started. The UI smoke uses a disposable PHOTOBOOTH_DATA_DIR; package, install and temporary player data are removed after graceful app exit. Only the JSON kiosk report is retained in TEMP.
+
+This is a Windows Preview deployment/kiosk functional smoke, not physical camera image-quality acceptance, a printer test, recovery test, long-run soak, signed release, Windows shell lockdown, or production certification.
