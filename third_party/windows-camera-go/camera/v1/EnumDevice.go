@@ -1,6 +1,7 @@
 package camera
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/Kirizu-Official/windows-camera-go/utils"
@@ -30,17 +31,37 @@ func EnumDevice() ([]*DeviceInfo, error) {
 		return nil, err
 	}
 	var deviceList []*DeviceInfo
-	var info *DeviceInfo
-	for i := uint32(0); i < uint32(len(list)); i++ {
-		info, err = callGetBaseInfo(list[i])
-		if err != nil {
-			_ = list[i].Release()
+	var metadataErrors []error
+	for i, source := range list {
+		info, infoErr := callGetBaseInfo(source)
+		if infoErr != nil {
+			metadataErrors = append(metadataErrors, fmt.Errorf("camera source %d: %w", i, infoErr))
+			_ = source.Release()
 			continue
 		}
 		deviceList = append(deviceList, info)
-		_ = list[i].Release()
+		_ = source.Release()
+	}
+	if len(deviceList) == 0 {
+		if err := allCameraSourceMetadataFailed(len(list), metadataErrors); err != nil {
+			return nil, err
+		}
 	}
 	return deviceList, nil
+}
+
+// allCameraSourceMetadataFailed distinguishes an empty native enumeration
+// from activation sources that exist but cannot be converted into camera
+// metadata. The latter must not silently look like "no camera devices".
+func allCameraSourceMetadataFailed(sourceCount int, metadataErrors []error) error {
+	if sourceCount == 0 || len(metadataErrors) == 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"Media Foundation returned %d camera source(s), but metadata lookup failed for all: %w",
+		sourceCount,
+		errors.Join(metadataErrors...),
+	)
 }
 
 func (d *Device) EnumerateCaptureFormats() ([]*CaptureFormats, error) {

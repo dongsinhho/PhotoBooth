@@ -23,6 +23,26 @@ type Provider interface {
 // compressed frame from their active stream without writing a capture artifact.
 // Preview and Capture must share the provider's stream/worker; implementations
 // must serialize access so callers never create a second native reader.
+// RetryableOpenProvider marks providers whose failed Open leaves only retry-safe, thread-affine state.
+// Recovery may reuse the same provider for the next Open attempt instead of closing it,
+// allowing the implementation to move the retry onto a fresh OS thread.
+type RetryableOpenProvider interface {
+	RetryOpenAfterFailure() bool
+}
+
+// RecoveryCloseProvider lets a provider release a failed active stream while
+// preserving thread-affine state needed to reopen on a different OS thread.
+// Ordinary Close must still release every retained resource.
+type RecoveryCloseProvider interface {
+	CloseForRecovery() error
+}
+
+// RecoveryProbeProvider exposes an opt-in diagnostic that runs after bounded
+// recovery attempts are exhausted, while the provider still owns its retained
+// thread-affine state. It must not open a capture stream or mutate device state.
+type RecoveryProbeProvider interface {
+	ProbeAfterRecoveryFailure() (string, error)
+}
 type PreviewProvider interface {
 	Preview(ctx context.Context) ([]byte, error)
 }

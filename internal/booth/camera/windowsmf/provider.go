@@ -46,6 +46,9 @@ type backend interface {
 type Provider struct{ backend backend }
 
 var _ camera.Provider = (*Provider)(nil)
+var _ camera.RetryableOpenProvider = (*Provider)(nil)
+var _ camera.RecoveryCloseProvider = (*Provider)(nil)
+var _ camera.RecoveryProbeProvider = (*Provider)(nil)
 
 func New(options Options) *Provider {
 	if options.Width == 0 {
@@ -71,6 +74,11 @@ func New(options Options) *Provider {
 	return &Provider{backend: newBackend(options)}
 }
 
+// RetryOpenAfterFailure keeps the backend available for another Open after a startup failure.
+// The Windows backend releases native MF resources on the failed worker's locked OS
+// thread, then retains failed threads until a replacement startup succeeds or Close runs.
+func (p *Provider) RetryOpenAfterFailure() bool { return true }
+
 func (p *Provider) Info() camera.Info {
 	if p == nil || p.backend == nil {
 		return camera.Info{Name: "Windows Media Foundation camera", Backend: "media-foundation"}
@@ -90,6 +98,32 @@ func (p *Provider) Close() error {
 		return nil
 	}
 	return p.backend.Close()
+}
+
+// CloseForRecovery releases the active stream while allowing the Windows
+// backend to retain its failed OS thread until a replacement MF worker starts.
+func (p *Provider) CloseForRecovery() error {
+	if p == nil || p.backend == nil {
+		return nil
+	}
+	closer, ok := p.backend.(interface{ CloseForRecovery() error })
+	if !ok {
+		return p.backend.Close()
+	}
+	return closer.CloseForRecovery()
+}
+
+// ProbeAfterRecoveryFailure performs a read-only MF enumeration after the
+// bounded retry window. It is invoked only when PHOTOBOOTH_MF_POST_RECOVERY_PROBE=1.
+func (p *Provider) ProbeAfterRecoveryFailure() (string, error) {
+	if p == nil || p.backend == nil {
+		return "", errors.New("Windows Media Foundation provider is not initialized")
+	}
+	probe, ok := p.backend.(interface{ ProbeRecoveryEnumeration() (string, error) })
+	if !ok {
+		return "", errors.New("Media Foundation recovery probe is not supported by this platform backend")
+	}
+	return probe.ProbeRecoveryEnumeration()
 }
 
 func (p *Provider) Capture(ctx context.Context, req camera.CaptureRequest) (camera.CaptureResult, error) {

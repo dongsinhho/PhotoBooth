@@ -18,6 +18,7 @@ type Event struct {
 	Type    string
 	Attempt int
 	Total   int
+	Message string
 	Err     error
 }
 
@@ -140,7 +141,7 @@ func (p *Provider) Capture(ctx context.Context, req camera.CaptureRequest) (came
 	originalErr := err
 	p.emit(Event{Type: "recovery_started", Err: originalErr})
 	old := p.active
-	if closeErr := old.Close(); closeErr != nil {
+	if closeErr := closeProviderForRecovery(old); closeErr != nil {
 		return camera.CaptureResult{}, errors.Join(
 			fmt.Errorf("capture failed: %w", originalErr),
 			fmt.Errorf("close failed provider before recovery: %w", closeErr),
@@ -159,7 +160,7 @@ func (p *Provider) Capture(ctx context.Context, req camera.CaptureRequest) (came
 		}
 	}
 
-	if reopenErr := p.openFresh(ctx, true); reopenErr != nil {
+	if reopenErr := p.openFreshWithCandidate(ctx, true, old); reopenErr != nil {
 		recoveryErr := fmt.Errorf("reopen camera after stream failure: %w", reopenErr)
 		p.emit(Event{Type: "recovery_failed", Err: recoveryErr})
 		return camera.CaptureResult{}, errors.Join(
@@ -220,14 +221,14 @@ func (p *Provider) Preview(ctx context.Context) ([]byte, error) {
 	originalErr := err
 	p.emit(Event{Type: "recovery_started", Err: originalErr})
 	old := p.active
-	if closeErr := old.Close(); closeErr != nil {
+	if closeErr := closeProviderForRecovery(old); closeErr != nil {
 		return nil, errors.Join(
 			fmt.Errorf("preview failed: %w", originalErr),
 			fmt.Errorf("close failed provider before preview recovery: %w", closeErr),
 		)
 	}
 	p.active = nil
-	if reopenErr := p.openFresh(ctx, true); reopenErr != nil {
+	if reopenErr := p.openFreshWithCandidate(ctx, true, old); reopenErr != nil {
 		recoveryErr := fmt.Errorf("reopen camera after preview stream failure: %w", reopenErr)
 		p.emit(Event{Type: "recovery_failed", Err: recoveryErr})
 		return nil, errors.Join(fmt.Errorf("initial preview failed: %w", originalErr), recoveryErr)
@@ -253,7 +254,21 @@ func (p *Provider) Preview(ctx context.Context) ([]byte, error) {
 	return nil, errors.Join(fmt.Errorf("initial preview failed: %w", originalErr), recoveryErr)
 }
 
+func closeProviderForRecovery(provider camera.Provider) error {
+	if closer, ok := provider.(camera.RecoveryCloseProvider); ok {
+		return closer.CloseForRecovery()
+	}
+	return provider.Close()
+}
+
 func (p *Provider) openFresh(ctx context.Context, recovering bool) error {
+	return p.openFreshWithCandidate(ctx, recovering, nil)
+}
+
+// openFreshWithCandidate can seed a recovery sequence with the provider whose
+// stream was just closed. Thread-affine providers need to carry their retained
+// OS-thread state into the replacement Open and release it only after startup.
+func (p *Provider) openFreshWithCandidate(ctx context.Context, recovering bool, initialCandidate camera.Provider) error {
 	if p.factory == nil {
 		return errors.New("camera recovery provider has no factory")
 	}
@@ -262,11 +277,26 @@ func (p *Provider) openFresh(ctx context.Context, recovering bool) error {
 		attemptLimit = p.options.RecoveryAttempts
 	}
 	var lastErr error
+	var retryableCandidate camera.Provider
+	if initialCandidate != nil {
+		if reusable, ok := initialCandidate.(camera.RetryableOpenProvider); ok && reusable.RetryOpenAfterFailure() {
+			retryableCandidate = initialCandidate
+		}
+	}
+
 	for attempt := 1; attempt <= attemptLimit; attempt++ {
 		if err := ctx.Err(); err != nil {
-			return err
+			return p.closeRetryableCandidate(
+				retryableCandidate,
+				err,
+				"close retryable camera provider after context cancellation",
+			)
 		}
-		candidate := p.factory()
+
+		candidate := retryableCandidate
+		if candidate == nil {
+			candidate = p.factory()
+		}
 		if candidate == nil {
 			lastErr = errors.New("camera factory returned a nil provider")
 		} else {
@@ -283,19 +313,42 @@ func (p *Provider) openFresh(ctx context.Context, recovering bool) error {
 				}
 				return nil
 			}
-			closeErr := candidate.Close()
-			lastErr = errors.Join(openErr, closeErr)
-			if closeErr != nil {
-				// Do not create another provider while this candidate may still
-				// own native resources.
-				p.active = candidate
-				return fmt.Errorf("camera open attempt %d failed and cleanup failed: %w", attempt, lastErr)
+
+			lastErr = openErr
+			if reusable, ok := candidate.(camera.RetryableOpenProvider); ok && reusable.RetryOpenAfterFailure() {
+				// The provider guarantees that a failed Open has already released native
+				// resources and can be reopened on a fresh OS thread. Keep the same
+				// provider instance so its thread-affine retry state is preserved.
+				retryableCandidate = candidate
+			} else {
+				closeErr := candidate.Close()
+				lastErr = errors.Join(openErr, closeErr)
+				if closeErr != nil {
+					// Do not create another provider while this candidate may still
+					// own native resources.
+					p.active = candidate
+					return fmt.Errorf("camera open attempt %d failed and cleanup failed: %w", attempt, lastErr)
+				}
+				retryableCandidate = nil
 			}
 		}
+
 		if recovering {
 			p.emit(Event{Type: "recovery_open_attempt_failed", Attempt: attempt, Total: attemptLimit, Err: lastErr})
 		}
 		if attempt == attemptLimit {
+			if recovering && retryableCandidate != nil && os.Getenv("PHOTOBOOTH_MF_POST_RECOVERY_PROBE") == "1" {
+				if probe, ok := retryableCandidate.(camera.RecoveryProbeProvider); ok {
+					message, probeErr := probe.ProbeAfterRecoveryFailure()
+					p.emit(Event{Type: "recovery_post_failure_probe", Message: message, Err: probeErr})
+				}
+			}
+			lastErr = p.closeRetryableCandidate(
+				retryableCandidate,
+				lastErr,
+				"close retryable camera provider after open retries were exhausted",
+			)
+			retryableCandidate = nil
 			break
 		}
 		// Linear backoff capped at 2s prevents a fast spin without making the
@@ -305,10 +358,28 @@ func (p *Provider) openFresh(ctx context.Context, recovering bool) error {
 			delay = 2 * time.Second
 		}
 		if err := p.sleep(ctx, delay); err != nil {
-			return errors.Join(lastErr, err)
+			return p.closeRetryableCandidate(
+				retryableCandidate,
+				errors.Join(lastErr, err),
+				"close retryable camera provider after retry wait was cancelled",
+			)
 		}
 	}
 	return fmt.Errorf("camera open failed after %d attempt(s): %w", attemptLimit, lastErr)
+}
+
+// closeRetryableCandidate preserves the provider reference when cleanup fails.
+// A later caller can retry Close rather than losing a worker that may still own
+// a thread-affine native resource.
+func (p *Provider) closeRetryableCandidate(candidate camera.Provider, cause error, action string) error {
+	if candidate == nil {
+		return cause
+	}
+	if err := candidate.Close(); err != nil {
+		p.active = candidate
+		return errors.Join(cause, fmt.Errorf("%s: %w", action, err))
+	}
+	return cause
 }
 
 func (p *Provider) sleep(ctx context.Context, delay time.Duration) error {

@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	mf "github.com/Kirizu-Official/windows-camera-go/camera/v1"
@@ -29,11 +30,12 @@ const (
 )
 
 type windowsBackend struct {
-	options Options
-	opMu    sync.Mutex
-	mu      sync.RWMutex
-	worker  *captureWorker
-	info    camera.Info
+	options         Options
+	opMu            sync.Mutex
+	mu              sync.RWMutex
+	worker          *captureWorker
+	retainedThreads []*captureWorker
+	info            camera.Info
 }
 
 func newBackend(options Options) backend {
@@ -74,16 +76,32 @@ func (b *windowsBackend) Open(ctx context.Context) error {
 	case startup := <-worker.ready:
 		if startup.err != nil {
 			<-worker.done
+			b.retainFailedThread(worker)
 			b.clearWorker(worker)
-			return startup.err
+			return fmt.Errorf("Media Foundation worker OS thread %d: %w", worker.threadID.Load(), startup.err)
 		}
+		// Failed workers remain pinned across the complete retry sequence. Only
+		// release them after a replacement has completed MF startup successfully.
+		b.releaseRetainedThreads()
 		b.mu.Lock()
 		b.info = startup.info
 		b.mu.Unlock()
 		return nil
 	case <-worker.done:
+		// A failed worker closes done immediately after buffering its startup
+		// result. Prefer that result so its retained OS thread is not orphaned.
+		select {
+		case startup := <-worker.ready:
+			if startup.err != nil {
+				b.retainFailedThread(worker)
+				b.clearWorker(worker)
+				return fmt.Errorf("Media Foundation worker OS thread %d: %w", worker.threadID.Load(), startup.err)
+			}
+		default:
+		}
+		b.retainFailedThread(worker)
 		b.clearWorker(worker)
-		return errors.New("Windows Media Foundation worker stopped during startup")
+		return fmt.Errorf("Windows Media Foundation worker OS thread %d stopped during startup", worker.threadID.Load())
 	case <-ctx.Done():
 		// COM initialization/open is synchronous and cannot itself be interrupted.
 		// Do not return while a background cleanup still owns the camera: callers
@@ -93,6 +111,7 @@ func (b *windowsBackend) Open(ctx context.Context) error {
 			// and another Open must not create a competing Media Foundation worker.
 			return errors.Join(ctx.Err(), fmt.Errorf("close camera after cancelled startup: %w", cleanupErr))
 		}
+		b.releaseRetainedThreads()
 		b.clearWorker(worker)
 		return ctx.Err()
 	}
@@ -106,6 +125,7 @@ func (b *windowsBackend) Close() error {
 	worker := b.worker
 	b.mu.RUnlock()
 	if worker == nil {
+		b.releaseRetainedThreads()
 		return nil
 	}
 	if err := worker.close(); err != nil {
@@ -114,7 +134,100 @@ func (b *windowsBackend) Close() error {
 		return err
 	}
 	b.clearWorker(worker)
+	b.releaseRetainedThreads()
 	return nil
+}
+
+// CloseForRecovery shuts down the old camera stream on its owning OS thread,
+// but keeps that thread unavailable to the Go scheduler while recovery tries
+// replacement workers. Final Close still releases every retained thread.
+func (b *windowsBackend) CloseForRecovery() error {
+	b.opMu.Lock()
+	defer b.opMu.Unlock()
+
+	b.mu.RLock()
+	worker := b.worker
+	b.mu.RUnlock()
+	if worker == nil {
+		return nil
+	}
+	if err := worker.closeForRecovery(); err != nil {
+		// Keep b.worker so a later ordinary Close can retry cleanup.
+		return err
+	}
+	b.retainFailedThread(worker)
+	b.clearWorker(worker)
+	return nil
+}
+
+// ProbeRecoveryEnumeration runs a read-only MF enumeration on a new locked OS
+// thread while all failed workers remain pinned. This diagnostic is intentionally
+// opt-in at the recovery decorator; it helps distinguish worker-thread state
+// from state shared by the long-lived PhotoBooth process.
+func (b *windowsBackend) ProbeRecoveryEnumeration() (string, error) {
+	b.opMu.Lock()
+	defer b.opMu.Unlock()
+
+	b.mu.RLock()
+	worker := b.worker
+	retained := append([]*captureWorker(nil), b.retainedThreads...)
+	b.mu.RUnlock()
+	if worker != nil {
+		return "", errors.New("cannot probe MF enumeration while a capture worker is active")
+	}
+	if len(retained) == 0 {
+		return "", errors.New("cannot probe MF enumeration because no failed worker threads are retained")
+	}
+
+	retainedIDs := make([]string, 0, len(retained))
+	for _, item := range retained {
+		retainedIDs = append(retainedIDs, fmt.Sprint(item.threadID.Load()))
+	}
+	sort.Strings(retainedIDs)
+
+	threadID, result, probeErr := runOnLockedOSThread(func() (string, error) {
+		if err := mf.Init(); err != nil {
+			return "status=init_error", err
+		}
+		defer mf.Shutdown()
+
+		devices, err := mf.EnumDevice()
+		if err != nil {
+			return "status=enumeration_error", err
+		}
+		if len(devices) == 0 {
+			return "status=zero_sources devices=0", nil
+		}
+		return fmt.Sprintf("status=camera_found devices=%d first_device=%q", len(devices), devices[0].Name), nil
+	})
+	for _, item := range retained {
+		if item.threadID.Load() == threadID {
+			return "", fmt.Errorf("probe reused retained OS thread %d", threadID)
+		}
+	}
+	return fmt.Sprintf(
+		"os_thread_id=%d retained_threads=%d retained_thread_ids=%s %s",
+		threadID, len(retained), strings.Join(retainedIDs, ","), result,
+	), probeErr
+}
+
+// runOnLockedOSThread executes one probe on a dedicated locked OS thread and
+// returns that thread's Windows ID with the probe result.
+func runOnLockedOSThread(probe func() (string, error)) (uint32, string, error) {
+	type result struct {
+		threadID uint32
+		message  string
+		err      error
+	}
+	complete := make(chan result, 1)
+	go func() {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		message, err := probe()
+		complete <- result{threadID: currentOSThreadID(), message: message, err: err}
+	}()
+	value := <-complete
+	return value.threadID, value.message, value.err
 }
 
 func (b *windowsBackend) Capture(ctx context.Context, req camera.CaptureRequest) (camera.CaptureResult, error) {
@@ -187,7 +300,7 @@ func (b *windowsBackend) readValidatedFrame(ctx context.Context) ([]byte, int, i
 		// trustworthy (for example, a USB disconnect can surface as
 		// MF_E_VIDEO_RECORDING_DEVICE_INVALIDATED). Let the recovery decorator
 		// tear down this worker and start a fresh Media Foundation session.
-		return nil, 0, 0, fmt.Errorf("%w: read frame from Windows Media Foundation: %w", camera.ErrStreamUnavailable, diagnostic)
+		return nil, 0, 0, fmt.Errorf("%w: read frame from Windows Media Foundation worker OS thread %d: %w", camera.ErrStreamUnavailable, worker.threadID.Load(), diagnostic)
 	}
 	data, err = normalizeMJPEG(data)
 	if err != nil {
@@ -258,6 +371,10 @@ type captureWorker struct {
 	ready           chan startupResult
 	done            chan struct{}
 	shutdownTimeout time.Duration
+	threadID        atomic.Uint32
+	retainOnExit    atomic.Bool
+	releaseThread   chan struct{}
+	releaseOnce     sync.Once
 }
 
 type workerCommand struct {
@@ -286,7 +403,9 @@ func newCaptureWorker(options Options) *captureWorker {
 		ready:           make(chan startupResult, 1),
 		done:            make(chan struct{}),
 		shutdownTimeout: closeTimeout,
+		releaseThread:   make(chan struct{}),
 	}
+	worker.retainOnExit.Store(true)
 	go worker.run(options)
 	return worker
 }
@@ -294,17 +413,23 @@ func newCaptureWorker(options Options) *captureWorker {
 func (w *captureWorker) run(options Options) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
+	w.threadID.Store(currentOSThreadID())
 
 	initialized := false
 	var opened *openedCamera
 	defer func() {
 		if opened != nil && opened.device != nil {
-			opened.device.CloseDevice()
+			if err := opened.device.CloseDeviceWithError(); err != nil {
+				fmt.Printf("[WARN] PhotoBooth: close Windows Media Foundation camera source: %v\n", err)
+			}
 		}
 		if initialized {
 			mf.Shutdown()
 		}
 		close(w.done)
+		if w.retainOnExit.Load() {
+			<-w.releaseThread
+		}
 	}()
 
 	if err := mf.Init(); err != nil {
@@ -318,7 +443,7 @@ func (w *captureWorker) run(options Options) {
 		return
 	}
 	if len(devices) == 0 {
-		w.ready <- startupResult{err: errors.New("Windows Media Foundation found no camera devices")}
+		w.ready <- startupResult{err: errors.New("Media Foundation MFEnumDeviceSources returned zero video capture sources")}
 		return
 	}
 
@@ -388,6 +513,40 @@ func (w *captureWorker) run(options Options) {
 	})
 }
 
+func (b *windowsBackend) retainFailedThread(worker *captureWorker) {
+	if worker == nil || !worker.retainOnExit.Load() {
+		return
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, retained := range b.retainedThreads {
+		if retained == worker {
+			return
+		}
+	}
+	b.retainedThreads = append(b.retainedThreads, worker)
+}
+
+// releaseRetainedThreads releases all failed worker threads after a replacement
+// has initialized successfully, recovery is cancelled, or the provider closes.
+// Keeping the entire failed set pinned prevents a later retry from reusing any
+// OS thread that has already observed the stale Media Foundation state.
+func (b *windowsBackend) releaseRetainedThreads() {
+	b.mu.Lock()
+	retained := b.retainedThreads
+	b.retainedThreads = nil
+	b.mu.Unlock()
+
+	for _, worker := range retained {
+		worker.release()
+	}
+}
+
+func (w *captureWorker) release() {
+	w.releaseOnce.Do(func() { close(w.releaseThread) })
+}
+
 func (w *captureWorker) nextFrame(ctx context.Context) ([]byte, error) {
 	command := workerCommand{reply: make(chan workerResult, 1)}
 	select {
@@ -415,6 +574,15 @@ func (w *captureWorker) nextFrame(ctx context.Context) ([]byte, error) {
 }
 
 func (w *captureWorker) close() error {
+	return w.closeWithRetention(false)
+}
+
+func (w *captureWorker) closeForRecovery() error {
+	return w.closeWithRetention(true)
+}
+
+func (w *captureWorker) closeWithRetention(retainThread bool) error {
+	w.retainOnExit.Store(retainThread)
 	command := workerCommand{close: true, reply: make(chan workerResult, 1)}
 	timeout := w.shutdownTimeout
 	if timeout <= 0 {
@@ -611,9 +779,14 @@ func isMJPEG(format *mf.CaptureFormats) bool {
 // ownership barrier: callers must not open another camera while this worker may
 // still own Media Foundation resources.
 func closeWorkerAfterCancelledStartup(worker *captureWorker) error {
+	worker.retainOnExit.Store(false)
 	startup := <-worker.ready
 	if startup.err != nil {
 		<-worker.done
+		// The worker may already have observed retainOnExit=true and be blocked
+		// while keeping its locked OS thread alive. Release is idempotent and
+		// covers that race as well as the normal pre-check cancellation path.
+		worker.release()
 		return nil
 	}
 	return worker.close()

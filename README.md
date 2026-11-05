@@ -6,7 +6,7 @@ Status: A Windows MVP UI candidate is runnable for local evaluation; production 
 
 ## Current engineering handoff
 
-The latest implementation state, verified test results, environment constraints and next acceptance gates are tracked in [HANDOFF_2026-11-01.md](HANDOFF_2026-11-01.md). It supersedes the 2026-10-31 handoff for current status.
+The latest implementation state, verified test results, environment constraints and next acceptance gates are tracked in [HANDOFF_2026-11-02.md](HANDOFF_2026-11-02.md). It supersedes the 2026-11-01 handoff for current status.
 
 ## Self-service setup and support
 

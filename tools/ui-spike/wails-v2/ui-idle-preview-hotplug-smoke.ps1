@@ -3,7 +3,7 @@ param(
     [string]$Device = 'B525 HD Webcam',
     [ValidateRange(15,60)][int]$StartupTimeoutSeconds = 30,
     [ValidateRange(15,90)][int]$PreviewReadyTimeoutSeconds = 35,
-    [ValidateRange(10,90)][int]$UnplugObservationTimeoutSeconds = 45,
+    [ValidateRange(10,180)][int]$UnplugObservationTimeoutSeconds = 45,
     [ValidateRange(5,45)][int]$RecoveryStateTimeoutSeconds = 20,
     [ValidateRange(15,120)][int]$ReconnectTimeoutSeconds = 60,
     [ValidateRange(15,120)][int]$PreviewResumeTimeoutSeconds = 45,
@@ -16,6 +16,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ($RequireDifferentPort -and $RequireSamePortOnReconnect) {
+    throw '-RequireDifferentPort and -RequireSamePortOnReconnect are mutually exclusive.'
+}
 $moduleRoot = $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($ExecutablePath)) {
     $candidate = Join-Path $moduleRoot 'build\bin\PhotoBooth.exe'
@@ -241,6 +244,57 @@ function Get-PreviewEventAudit([string]$Path) {
             if ($statusEvents[$i].state -eq 'ready') { $readyAfterReconnect = $true; break }
         }
     }
+
+    # A later "ready" is not proof of automatic recovery: the operator may have
+    # used Retry Connect after the 30-attempt recovery loop had already failed.
+    $firstRecoveryFailureIndex = -1
+    $firstRecoverySuccessIndex = -1
+    $recoveryAttemptFailures = @($events | Where-Object { $_.event -eq 'recovery_open_attempt_failed' })
+    $recoveryFailures = @($events | Where-Object { $_.event -eq 'recovery_failed' })
+    $recoverySuccesses = @($events | Where-Object { $_.event -eq 'recovery_succeeded' })
+    $recoveryStarted = @($events | Where-Object { $_.event -eq 'recovery_started' })
+    if ($reconnectingIndexes.Count -gt 0) {
+        $firstReconnectEventIndex = -1
+        for ($i = 0; $i -lt $events.Count; $i++) {
+            if ($events[$i].event -eq 'preview_status' -and $events[$i].state -eq 'reconnecting') {
+                $firstReconnectEventIndex = $i
+                break
+            }
+        }
+        for ($i = $firstReconnectEventIndex + 1; $i -lt $events.Count; $i++) {
+            if ($events[$i].event -eq 'recovery_failed' -and $firstRecoveryFailureIndex -lt 0) {
+                $firstRecoveryFailureIndex = $i
+            }
+            if ($events[$i].event -eq 'recovery_succeeded' -and $firstRecoverySuccessIndex -lt 0) {
+                $firstRecoverySuccessIndex = $i
+            }
+        }
+    }
+    $automaticRecoverySucceeded = (
+        $firstRecoverySuccessIndex -ge 0 -and
+        ($firstRecoveryFailureIndex -lt 0 -or $firstRecoverySuccessIndex -lt $firstRecoveryFailureIndex)
+    )
+    $automaticRecoveryStatus = 'NOT_CONFIRMED'
+    if ($automaticRecoverySucceeded) {
+        $automaticRecoveryStatus = 'PASS'
+    } elseif ($firstRecoveryFailureIndex -ge 0) {
+        $automaticRecoveryStatus = 'FAIL'
+    }
+
+    $previewRestartedAfterRecoveryFailure = $false
+    $readyAfterRecoveryFailure = $false
+    if ($firstRecoveryFailureIndex -ge 0) {
+        for ($i = $firstRecoveryFailureIndex + 1; $i -lt $events.Count; $i++) {
+            if ($events[$i].event -eq 'preview_status' -and $events[$i].state -eq 'starting') {
+                $previewRestartedAfterRecoveryFailure = $true
+            }
+            if ($previewRestartedAfterRecoveryFailure -and $events[$i].event -eq 'preview_status' -and $events[$i].state -eq 'ready') {
+                $readyAfterRecoveryFailure = $true
+                break
+            }
+        }
+    }
+
     return [pscustomobject]@{
         event_count = $events.Count
         invalid_json_lines = $invalidLines
@@ -255,6 +309,13 @@ function Get-PreviewEventAudit([string]$Path) {
         orphan_terminal_sequences = $orphanTerminals.Count
         reconnecting_status_events = $reconnectingIndexes.Count
         ready_after_reconnecting = $readyAfterReconnect
+        recovery_started = $recoveryStarted.Count
+        recovery_open_attempt_failures = $recoveryAttemptFailures.Count
+        recovery_failures = $recoveryFailures.Count
+        recovery_successes = $recoverySuccesses.Count
+        automatic_recovery_status = $automaticRecoveryStatus
+        preview_restarted_after_recovery_failure = $previewRestartedAfterRecoveryFailure
+        ready_after_recovery_failure = $readyAfterRecoveryFailure
         all_published_have_one_terminal = ($unmatched.Count -eq 0 -and $orphanTerminals.Count -eq 0)
     }
 }
@@ -489,7 +550,23 @@ try {
         throw 'A photo session directory appeared during an idle-preview-only test; refusing to classify this as idle-only.'
     }
     $checks.Add('no photo session was started') | Out-Null
-    $status = 'PASS'
+
+    $recoveryAudit = Get-PreviewEventAudit $diagnosticsPath
+    Write-Host "AUTOMATIC_RECOVERY_STATUS=$($recoveryAudit.automatic_recovery_status)"
+    Write-Host "PREVIEW_RESTARTED_AFTER_RECOVERY_FAILURE=$($recoveryAudit.preview_restarted_after_recovery_failure)"
+    if ($recoveryAudit.automatic_recovery_status -eq 'PASS') {
+        $status = 'PASS'
+    } elseif ($recoveryAudit.automatic_recovery_status -eq 'FAIL' -and $recoveryAudit.ready_after_recovery_failure) {
+        # Keep the diagnostic result useful while refusing to count a user-assisted
+        # Retry Connect as automatic hotplug recovery.
+        $status = 'PARTIAL'
+        $failure = 'Automatic hotplug recovery failed; preview became ready only after a later restart/retry.'
+        Write-Host 'AUTOMATIC_HOTPLUG_RECOVERY=FAIL'
+        Write-Host 'PREVIEW_RESTART_AFTER_FAILURE=PASS'
+    } else {
+        $status = 'FAIL'
+        $failure = 'Automatic hotplug recovery was not confirmed by recovery_succeeded telemetry.'
+    }
 } catch {
     $failure = $_.Exception.Message
     Write-Host 'WAILS_IDLE_PREVIEW_HOTPLUG=FAIL'
@@ -510,7 +587,7 @@ try {
     [Environment]::SetEnvironmentVariable('PHOTOBOOTH_PREVIEW_METRICS_PATH', $previousDiagnosticsPath, 'Process')
 
     $sessionDirectories = @(Get-ChildItem -LiteralPath $sessionsRoot -Directory -ErrorAction SilentlyContinue)
-    if ($sessionDirectories.Count -gt 0 -and $status -eq 'PASS') {
+    if ($sessionDirectories.Count -gt 0 -and $status -in @('PASS', 'PARTIAL')) {
         $status = 'FAIL'
         $failure = 'A photo session directory was created during an idle-preview-only test.'
     }
@@ -519,7 +596,7 @@ try {
     }
     $dataCleaned = !(Test-Path -LiteralPath $dataRoot)
     $audit = Get-PreviewEventAudit $diagnosticsPath
-    if ($status -eq 'PASS' -and (
+    if ($status -in @('PASS', 'PARTIAL') -and (
         $forcedStop -or
         $audit.invalid_json_lines -gt 0 -or
         !$audit.all_published_have_one_terminal -or
@@ -550,6 +627,9 @@ try {
         physical_replug_observed = $replugObserved
         reconnecting_status_observed = $reconnectingStatusObserved
         ready_status_after_reconnecting_observed = $recoveryReadyObserved
+        automatic_recovery_status = $audit.automatic_recovery_status
+        preview_restarted_after_recovery_failure = $audit.preview_restarted_after_recovery_failure
+        ready_after_recovery_failure = $audit.ready_after_recovery_failure
         preview_initial = $initialMetrics
         preview_before_unplug = $metricsBeforeUnplug
         preview_after_reconnect = $metricsAfterReconnect

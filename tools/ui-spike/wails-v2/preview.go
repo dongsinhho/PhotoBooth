@@ -50,6 +50,8 @@ type cameraPreviewDiagnosticRecord struct {
 	Event        string    `json:"event"`
 	State        string    `json:"state,omitempty"`
 	Sequence     uint64    `json:"sequence,omitempty"`
+	Attempt      int       `json:"attempt,omitempty"`
+	Total        int       `json:"total,omitempty"`
 	LatencyMS    float64   `json:"latency_ms,omitempty"`
 	FrameBytes   int       `json:"frame_bytes,omitempty"`
 	Message      string    `json:"message,omitempty"`
@@ -474,6 +476,26 @@ func (a *App) emitCameraPreviewStatus(status CameraPreviewStatus) {
 }
 
 func (a *App) handlePreviewRecoveryEvent(event recovery.Event) {
+	switch event.Type {
+	case "recovery_started", "recovery_open_attempt_failed", "recovery_provider_opened", "recovery_succeeded", "recovery_failed", "recovery_post_failure_probe":
+		record := cameraPreviewDiagnosticRecord{
+			TimestampUTC: time.Now().UTC(),
+			Event:        event.Type,
+			Attempt:      event.Attempt,
+			Total:        event.Total,
+			Message:      event.Message,
+		}
+		if event.Err != nil {
+			if record.Message != "" {
+				record.Message += " "
+			}
+			record.Message += event.Err.Error()
+		}
+		recordCameraPreviewDiagnostic(record)
+	default:
+		return
+	}
+
 	switch event.Type {
 	case "recovery_started", "recovery_open_attempt_failed":
 		message := "Webcam connection changed. Reconnecting preview…"

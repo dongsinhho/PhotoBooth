@@ -83,6 +83,121 @@ func (s *stubProvider) Capture(ctx context.Context, req camera.CaptureRequest) (
 
 func noWait(ctx context.Context, _ time.Duration) error { return ctx.Err() }
 
+type retryableStubProvider struct{ *stubProvider }
+
+func (s *retryableStubProvider) RetryOpenAfterFailure() bool { return true }
+
+type recoveryCloseStubProvider struct {
+	*stubProvider
+	recoveryCloseCalls int
+}
+
+func (s *recoveryCloseStubProvider) RetryOpenAfterFailure() bool { return true }
+
+func (s *recoveryCloseStubProvider) CloseForRecovery() error {
+	s.recoveryCloseCalls++
+	return s.stubProvider.Close()
+}
+
+func (s *recoveryCloseStubProvider) Preview(ctx context.Context) ([]byte, error) {
+	s.previewCalls++
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if !s.opened {
+		return nil, errors.New("not open")
+	}
+	if s.previewCalls == 1 {
+		return nil, camera.ErrStreamUnavailable
+	}
+	return []byte("fresh-preview"), nil
+}
+
+type recoveryProbeStubProvider struct {
+	*stubProvider
+	recoveryCloseCalls int
+	probeCalls         int
+	closeCallsAtProbe  int
+}
+
+func (s *recoveryProbeStubProvider) RetryOpenAfterFailure() bool { return true }
+
+func (s *recoveryProbeStubProvider) Open(ctx context.Context) error {
+	s.openCalls++
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if s.openCalls == 1 {
+		s.opened = true
+		return nil
+	}
+	return errors.New("synthetic retry open failure")
+}
+
+func (s *recoveryProbeStubProvider) Preview(ctx context.Context) ([]byte, error) {
+	s.previewCalls++
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if s.previewCalls == 1 {
+		return nil, camera.ErrStreamUnavailable
+	}
+	return []byte("unexpected preview"), nil
+}
+
+func (s *recoveryProbeStubProvider) CloseForRecovery() error {
+	s.recoveryCloseCalls++
+	return s.stubProvider.Close()
+}
+
+func (s *recoveryProbeStubProvider) ProbeAfterRecoveryFailure() (string, error) {
+	s.probeCalls++
+	s.closeCallsAtProbe = s.closeCalls
+	return "status=camera_found devices=1", nil
+}
+
+func TestPreviewRecoveryProbeRunsBeforeRetryableProviderCleanup(t *testing.T) {
+	t.Setenv("PHOTOBOOTH_MF_POST_RECOVERY_PROBE", "1")
+	provider := &recoveryProbeStubProvider{stubProvider: &stubProvider{name: "probe camera"}}
+	factoryCalls := 0
+	var events []Event
+	p := New(func() camera.Provider {
+		factoryCalls++
+		return provider
+	}, Options{
+		OpenAttempts: 1, RecoveryAttempts: 2, Sleep: noWait,
+		OnEvent: func(event Event) { events = append(events, event) },
+	})
+
+	if err := p.Open(context.Background()); err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if _, err := p.Preview(context.Background()); err == nil {
+		t.Fatal("expected preview recovery to fail after synthetic Open failures")
+	}
+	if factoryCalls != 1 || provider.openCalls != 3 {
+		t.Fatalf("factory=%d opens=%d, want one provider and initial + two recovery opens", factoryCalls, provider.openCalls)
+	}
+	if provider.recoveryCloseCalls != 1 || provider.probeCalls != 1 {
+		t.Fatalf("recovery close calls=%d probe calls=%d, want one each", provider.recoveryCloseCalls, provider.probeCalls)
+	}
+	if provider.closeCallsAtProbe != 1 || provider.closeCalls != 2 {
+		t.Fatalf("close calls at probe=%d final close calls=%d, want probe before exhaustion cleanup", provider.closeCallsAtProbe, provider.closeCalls)
+	}
+	foundProbeEvent := false
+	for _, event := range events {
+		if event.Type == "recovery_post_failure_probe" {
+			foundProbeEvent = true
+			if event.Message != "status=camera_found devices=1" {
+				t.Fatalf("probe event message=%q", event.Message)
+			}
+		}
+	}
+	if !foundProbeEvent {
+		t.Fatalf("recovery events did not contain post-failure probe: %+v", events)
+	}
+}
+
 func TestCaptureReopensAndRetriesOnStreamUnavailable(t *testing.T) {
 	oldProvider := &stubProvider{name: "old camera", captureErr: camera.ErrStreamUnavailable}
 	newProvider := &stubProvider{name: "new camera"}
@@ -130,16 +245,12 @@ func TestCaptureReopensAndRetriesOnStreamUnavailable(t *testing.T) {
 }
 
 func TestPreviewReopensAndRetriesOnStreamUnavailable(t *testing.T) {
-	oldProvider := &stubProvider{name: "old camera", previewErr: camera.ErrStreamUnavailable}
-	newProvider := &stubProvider{name: "new camera", previewFrame: []byte("fresh-preview")}
+	oldProvider := &recoveryCloseStubProvider{stubProvider: &stubProvider{name: "old camera"}}
 	factoryCalls := 0
 	var events []Event
 	p := New(func() camera.Provider {
 		factoryCalls++
-		if factoryCalls == 1 {
-			return oldProvider
-		}
-		return newProvider
+		return oldProvider
 	}, Options{
 		OpenAttempts: 2, RecoveryAttempts: 3, Sleep: noWait,
 		OnEvent: func(event Event) { events = append(events, event) },
@@ -154,8 +265,8 @@ func TestPreviewReopensAndRetriesOnStreamUnavailable(t *testing.T) {
 	if string(got) != "fresh-preview" {
 		t.Fatalf("preview=%q, want fresh frame", got)
 	}
-	if factoryCalls != 2 || oldProvider.closeCalls != 1 || newProvider.previewCalls != 1 {
-		t.Fatalf("factory=%d old close=%d new preview=%d", factoryCalls, oldProvider.closeCalls, newProvider.previewCalls)
+	if factoryCalls != 1 || oldProvider.openCalls != 2 || oldProvider.closeCalls != 1 || oldProvider.recoveryCloseCalls != 1 || oldProvider.previewCalls != 2 {
+		t.Fatalf("factory=%d old opens=%d close=%d recovery close=%d preview=%d", factoryCalls, oldProvider.openCalls, oldProvider.closeCalls, oldProvider.recoveryCloseCalls, oldProvider.previewCalls)
 	}
 	if len(events) < 3 || events[0].Type != "recovery_started" || events[len(events)-1].Type != "recovery_succeeded" {
 		t.Fatalf("preview recovery events=%+v", events)
@@ -336,5 +447,61 @@ func TestRecoveryUsesLargerReconnectBudgetThanInitialOpen(t *testing.T) {
 		if event.Attempt != i+1 || event.Total != 4 {
 			t.Fatalf("failed-open event %d=%+v, want attempt %d of 4", i, event, i+1)
 		}
+	}
+}
+
+func TestOpenRetriesReuseRetryableProviderAndReleaseItAfterExhaustion(t *testing.T) {
+	provider := &retryableStubProvider{stubProvider: &stubProvider{
+		name:    "thread-affine camera",
+		openErr: errors.New("device sources unavailable"),
+	}}
+	factoryCalls := 0
+	p := New(func() camera.Provider {
+		factoryCalls++
+		return provider
+	}, Options{OpenAttempts: 3, Sleep: noWait})
+
+	err := p.Open(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "camera open failed after 3 attempt(s)") {
+		t.Fatalf("Open error=%v, want bounded retry failure", err)
+	}
+	if factoryCalls != 1 {
+		t.Fatalf("factory calls=%d, want one provider reused across retry attempts", factoryCalls)
+	}
+	if provider.openCalls != 3 {
+		t.Fatalf("open calls=%d, want three Open calls on the same provider", provider.openCalls)
+	}
+	if provider.closeCalls != 1 {
+		t.Fatalf("close calls=%d, want one final cleanup after retries are exhausted", provider.closeCalls)
+	}
+}
+
+func TestRetryableOpenCleanupFailurePreservesProviderForCloseRetry(t *testing.T) {
+	openErr := errors.New("device sources unavailable")
+	closeErr := errors.New("synthetic retained-thread release failure")
+	provider := &retryableStubProvider{stubProvider: &stubProvider{
+		name:     "thread-affine camera",
+		openErr:  openErr,
+		closeErr: closeErr,
+	}}
+	p := New(func() camera.Provider { return provider }, Options{
+		OpenAttempts: 1,
+		Sleep:        noWait,
+	})
+
+	err := p.Open(context.Background())
+	if !errors.Is(err, openErr) || !errors.Is(err, closeErr) {
+		t.Fatalf("Open error=%v, want both startup and cleanup errors", err)
+	}
+	if p.active != provider {
+		t.Fatal("provider reference was lost after retryable cleanup failed")
+	}
+
+	provider.closeErr = nil
+	if err := p.Close(); err != nil {
+		t.Fatalf("Close retry after transient cleanup failure: %v", err)
+	}
+	if p.active != nil || provider.closeCalls != 2 {
+		t.Fatalf("active=%T closeCalls=%d, want nil and two Close calls", p.active, provider.closeCalls)
 	}
 }

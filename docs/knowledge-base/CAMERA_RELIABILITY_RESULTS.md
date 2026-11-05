@@ -297,3 +297,22 @@ Report: `%TEMP%\photobooth-wails-quality-92009cc35d5444d29f236fa624a50ed9.json`.
 ## Physical printer inventory on ShinPc (2026-11-01)
 
 Windows reports only Microsoft Print to PDF and two Microsoft OneNote virtual queues. No physical printer model/driver/USB or network printer queue is installed. Therefore no physical print test or model-specific Windows printer adapter can be validated on this host. Local JPEG export remains the currently tested output path; a physical printer adapter should wait until the target model, connection and supported OS/driver are selected.
+
+
+## Wails current-scene quality batch (2026-11-05)
+
+Harness: tools/ui-spike/wails-v2/ui-camera-quality-smoke.ps1, using the current PhotoBooth.exe and real Logitech B525 / Windows Media Foundation through the Wails UI. Three sessions of three captures each were completed with the existing 3-second countdown and 1-second interval. The harness used an isolated temporary profile and retained its data root only because -KeepArtifacts was supplied.
+
+**Capture workflow: PASS; image-quality gate: FAIL**
+- 3/3 sessions completed; 9/9 captures were 1280x720.
+- All 3 sessions rendered and produced a local output.
+- Session mean luminance: 2.520, 2.530 and 2.504 (0-255 scale).
+- First-shot relative drops: 0.040%, 0.296% and 0.000%.
+- Every capture was below the existing 20/255 gross-darkness threshold; the inspected capture image was nearly black.
+- Thresholds were not relaxed. The first-shot consistency signal remained small (under 0.3%) and did not reproduce a material first-shot-darkness difference in this batch.
+
+Report: %TEMP%\photobooth-wails-quality-cb632a1a1cd94153b78e20c2c946a07e.json.
+
+Retained artifacts root: %TEMP%\photobooth-wails-quality-cb632a1a1cd94153b78e20c2c946a07e. It contains real camera captures, rendered photos and local outputs; treat it as private photo data. The operator should remove it manually after review when no longer needed.
+
+**Interpretation and limits:** this is a failed current-scene darkness gate, not a portrait/framing acceptance. Lighting and scene exposure were not instrument-controlled, so the result does not isolate a camera-driver/provider defect. Do not change the one-second warm-up or exposure policy based on this batch. Repeat the short quality review only after arranging a representative fixed-lighting scene and intended camera framing. No USB recovery or long-run test was performed in this continuation.

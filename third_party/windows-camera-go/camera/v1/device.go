@@ -1,6 +1,9 @@
 package camera
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/Kirizu-Official/windows-camera-go/utils"
 	"github.com/Kirizu-Official/windows-camera-go/windows/consts"
 	"github.com/Kirizu-Official/windows-camera-go/windows/mf"
@@ -52,7 +55,9 @@ func OpenDevice(symbolLink string) (*Device, error) {
 		pDeviceActive: selectedSource,
 	}
 	if err := device.init(); err != nil {
-		device.CloseDevice()
+		if cleanupErr := device.CloseDeviceWithError(); cleanupErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("close partially initialized camera: %w", cleanupErr))
+		}
 		return nil, err
 	}
 	return device, nil
@@ -432,22 +437,67 @@ func (d *Device) getConfig() (*ConfigParameter, error) {
 
 }
 
+// CloseDevice releases all resources owned by the camera device. Callers that
+// need cleanup diagnostics should use CloseDeviceWithError.
 func (d *Device) CloseDevice() {
+	if err := d.CloseDeviceWithError(); err != nil {
+		fmt.Printf("[WARN] GoCamera: close camera device: %v\n", err)
+	}
+}
+
+// CloseDeviceWithError releases the source reader and descriptors, explicitly
+// shuts down the activated IMFMediaSource, and then releases its COM references.
+// Media Foundation requires capture sources to be shut down before Release;
+// otherwise the system may retain source resources until process exit.
+func (d *Device) CloseDeviceWithError() error {
+	if d == nil {
+		return nil
+	}
+
+	var cleanupErrors []error
 	if d.pSourceReader != nil {
-		d.pSourceReader.Release()
+		if err := d.pSourceReader.Release(); err != nil {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("release source reader: %w", err))
+		}
+		d.pSourceReader = nil
 	}
 	if d.pMediaType != nil {
-		d.pMediaType.Release()
+		if err := d.pMediaType.Release(); err != nil {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("release media type: %w", err))
+		}
+		d.pMediaType = nil
 	}
-
 	if d.pDevPresent != nil {
-		d.pDevPresent.Release()
+		if err := d.pDevPresent.Release(); err != nil {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("release presentation descriptor: %w", err))
+		}
+		d.pDevPresent = nil
 	}
 	if d.pDeviceSource != nil {
-		d.pDeviceSource.Release()
+		if err := shutdownAndReleaseMediaSource(d.pDeviceSource.Shutdown, d.pDeviceSource.Release); err != nil {
+			cleanupErrors = append(cleanupErrors, err)
+		}
+		d.pDeviceSource = nil
 	}
 	if d.pDeviceActive != nil {
-		d.pDeviceActive.Release()
+		if err := d.pDeviceActive.Release(); err != nil {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("release activation object: %w", err))
+		}
+		d.pDeviceActive = nil
 	}
 
+	return errors.Join(cleanupErrors...)
+}
+
+// shutdownAndReleaseMediaSource always releases the COM source reference, even
+// when Shutdown reports an error (for example, after physical device removal).
+func shutdownAndReleaseMediaSource(shutdown, release func() error) error {
+	var cleanupErrors []error
+	if err := shutdown(); err != nil {
+		cleanupErrors = append(cleanupErrors, fmt.Errorf("shutdown media source: %w", err))
+	}
+	if err := release(); err != nil {
+		cleanupErrors = append(cleanupErrors, fmt.Errorf("release media source: %w", err))
+	}
+	return errors.Join(cleanupErrors...)
 }

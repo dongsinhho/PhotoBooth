@@ -9,7 +9,53 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/dongsinhho/PhotoBooth/internal/booth/camera/recovery"
 )
+
+func TestHandlePreviewRecoveryEventRecordsAttemptErrorDetails(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "preview-recovery.jsonl")
+	t.Setenv(cameraPreviewDiagnosticsEnv, path)
+	t.Cleanup(func() {
+		if err := closeCameraPreviewDiagnostics(); err != nil {
+			t.Errorf("close preview diagnostics: %v", err)
+		}
+	})
+
+	app := NewApp()
+	wantErr := errors.New("Windows Media Foundation found no camera devices")
+	app.handlePreviewRecoveryEvent(recovery.Event{
+		Type:    "recovery_open_attempt_failed",
+		Attempt: 7,
+		Total:   30,
+		Err:     wantErr,
+	})
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read preview recovery diagnostics: %v", err)
+	}
+	lines := bytes.Split(bytes.TrimSpace(raw), []byte{byte(10)})
+	if len(lines) != 2 {
+		t.Fatalf("diagnostic records=%d, want recovery event plus preview status; content=%q", len(lines), raw)
+	}
+
+	var event cameraPreviewDiagnosticRecord
+	if err := json.Unmarshal(lines[0], &event); err != nil {
+		t.Fatalf("decode recovery event: %v", err)
+	}
+	if event.Event != "recovery_open_attempt_failed" || event.Attempt != 7 || event.Total != 30 || event.Message != wantErr.Error() {
+		t.Fatalf("recovery diagnostic=%+v, want attempt 7/30 and full open error", event)
+	}
+
+	var status cameraPreviewDiagnosticRecord
+	if err := json.Unmarshal(lines[1], &status); err != nil {
+		t.Fatalf("decode preview status: %v", err)
+	}
+	if status.Event != "preview_status" || status.State != "reconnecting" {
+		t.Fatalf("preview status=%+v, want reconnecting", status)
+	}
+}
 
 func TestRecordCameraPreviewDiagnosticWritesAppendOnlyJSONL(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "preview-events.jsonl")

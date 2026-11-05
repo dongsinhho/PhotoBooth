@@ -75,7 +75,7 @@ Never turn a proposal into an asserted fact.
 62. [../adr/0023-preview-renderer-and-soak-diagnostics.md](../adr/0023-preview-renderer-and-soak-diagnostics.md) - canvas/ImageBitmap lifecycle, persistent shared-read diagnostics and exact kiosk soak audit.
 63. [../../tools/ui-spike/wails-v2/ui-preview-kiosk-soak.ps1](../../tools/ui-spike/wails-v2/ui-preview-kiosk-soak.ps1) - reproducible 10-minute B525 idle-preview/kiosk resource and lifecycle soak with exact JSONL event reconciliation.
 
-## Current status as of 2026-11-01
+## Current status as of 2026-11-05
 
 - Logitech B525 was detected by Windows 11 Pro 64-bit.
 - A disposable OpenCV POC read 50/50 frames at 1280x720 through DirectShow and Media Foundation, wrote temporary JPEGs, and rendered a 1200x1800 sample layout JPEG. All temporary image files were deleted.
@@ -99,3 +99,12 @@ Never turn a proposal into an asserted fact.
 - Which payment provider and workflow will be used, if any?
 - What LAN access, retention, and deletion policy is required?
 - What exact end-user license and frame/theme creator terms will be adopted?
+
+
+## Windows Preview release tooling
+[tools/release/windows/README.md](../../tools/release/windows/README.md) documents the internal unsigned ZIP package, local immutable-version install, active pointer, launch verification and rollback tooling. This is not a public release.
+
+### Additional update (2026-11-05)
+
+- Internal Windows Preview release tooling now builds a three-file ZIP with a versioned manifest and SHA-256 metadata, installs verified immutable versions side-by-side, switches the active pointer atomically, and supports local rollback. Synthetic lifecycle smoke and a disposable install of the current real Windows binary passed. This is not a signed installer, automatic updater or public distribution; legal terms and production UI selection remain open.
+- The 2026-11-05 real B525 Wails quality batch completed capture/render/local-save for 9/9 shots but failed the existing gross-darkness gate: session mean luminance 2.504–2.530/255. First-shot drops remained below 0.3%. The near-black captures and report were retained for visual review; representative fixed-lighting portrait/framing remains open.

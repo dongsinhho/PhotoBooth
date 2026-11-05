@@ -5,6 +5,7 @@ package windowsmf
 import (
 	"context"
 	"errors"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,195 @@ import (
 	"github.com/dongsinhho/PhotoBooth/internal/booth/camera"
 )
 
+func TestCloseForRecoveryRetainsOriginalPreviewThreadUntilReplacementStarts(t *testing.T) {
+	backend := &windowsBackend{}
+	worker := &captureWorker{
+		commands:        make(chan workerCommand),
+		done:            make(chan struct{}),
+		shutdownTimeout: time.Second,
+		releaseThread:   make(chan struct{}),
+	}
+	worker.retainOnExit.Store(false)
+	backend.worker = worker
+
+	threadIDReady := make(chan uint32, 1)
+	workerExited := make(chan struct{})
+	go func(worker *captureWorker, threadIDReady chan<- uint32, workerExited chan<- struct{}) {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		threadIDReady <- currentOSThreadID()
+		command := <-worker.commands
+		command.reply <- workerResult{}
+		close(worker.done)
+		if worker.retainOnExit.Load() {
+			<-worker.releaseThread
+		}
+		close(workerExited)
+	}(worker, threadIDReady, workerExited)
+
+	originalThreadID := <-threadIDReady
+	if err := backend.CloseForRecovery(); err != nil {
+		t.Fatalf("CloseForRecovery: %v", err)
+	}
+	if backend.worker != nil {
+		t.Fatal("worker should be detached after its stream is closed")
+	}
+	if len(backend.retainedThreads) != 1 || backend.retainedThreads[0] != worker {
+		t.Fatalf("retained workers=%d, want the original preview worker", len(backend.retainedThreads))
+	}
+
+	replacementThreadIDReady := make(chan uint32, 1)
+	go func() {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		replacementThreadIDReady <- currentOSThreadID()
+	}()
+	replacementThreadID := <-replacementThreadIDReady
+	if replacementThreadID == originalThreadID {
+		t.Fatalf("replacement worker reused original preview OS thread %d", originalThreadID)
+	}
+
+	backend.releaseRetainedThreads()
+	select {
+	case <-workerExited:
+	case <-time.After(time.Second):
+		t.Fatal("original preview worker thread was not released after replacement startup")
+	}
+}
+
+func TestRunOnLockedOSThreadDoesNotReuseRetainedWorkerThreads(t *testing.T) {
+	backend := &windowsBackend{}
+	const retainedCount = 4
+	threadIDs := make(map[uint32]struct{}, retainedCount)
+	workerExits := make([]<-chan struct{}, 0, retainedCount)
+	t.Cleanup(backend.releaseRetainedThreads)
+
+	for index := 0; index < retainedCount; index++ {
+		worker := &captureWorker{
+			done:          make(chan struct{}),
+			releaseThread: make(chan struct{}),
+		}
+		worker.retainOnExit.Store(true)
+		threadReady := make(chan uint32, 1)
+		exited := make(chan struct{})
+		go func(worker *captureWorker, threadReady chan<- uint32, exited chan<- struct{}) {
+			runtime.LockOSThread()
+			defer runtime.UnlockOSThread()
+			threadReady <- currentOSThreadID()
+			close(worker.done)
+			if worker.retainOnExit.Load() {
+				<-worker.releaseThread
+			}
+			close(exited)
+		}(worker, threadReady, exited)
+
+		threadID := <-threadReady
+		if _, duplicate := threadIDs[threadID]; duplicate {
+			t.Fatalf("retained fixture workers reused OS thread %d", threadID)
+		}
+		threadIDs[threadID] = struct{}{}
+		workerExits = append(workerExits, exited)
+		backend.retainFailedThread(worker)
+	}
+
+	probeThreadID, message, err := runOnLockedOSThread(func() (string, error) {
+		return "probe-ran", nil
+	})
+	if err != nil {
+		t.Fatalf("runOnLockedOSThread: %v", err)
+	}
+	if message != "probe-ran" {
+		t.Fatalf("probe message=%q", message)
+	}
+	if _, reused := threadIDs[probeThreadID]; reused {
+		t.Fatalf("diagnostic probe reused retained worker OS thread %d", probeThreadID)
+	}
+
+	backend.releaseRetainedThreads()
+	for _, exited := range workerExits {
+		select {
+		case <-exited:
+		case <-time.After(time.Second):
+			t.Fatal("retained worker did not exit after release")
+		}
+	}
+}
+
+func TestFailedRetryThreadsRemainPinnedUntilSuccessfulReplacement(t *testing.T) {
+	backend := &windowsBackend{}
+	const failedAttempts = 5
+	failedThreadIDs := make([]uint32, 0, failedAttempts)
+	failedWorkers := make([]*captureWorker, 0, failedAttempts)
+	workerExits := make([]<-chan struct{}, 0, failedAttempts)
+
+	t.Cleanup(backend.releaseRetainedThreads)
+
+	for attempt := 0; attempt < failedAttempts; attempt++ {
+		worker := &captureWorker{
+			done:          make(chan struct{}),
+			releaseThread: make(chan struct{}),
+		}
+		worker.retainOnExit.Store(true)
+
+		threadIDReady := make(chan uint32, 1)
+		exited := make(chan struct{})
+		go func(worker *captureWorker, threadIDReady chan<- uint32, exited chan<- struct{}) {
+			runtime.LockOSThread()
+			defer runtime.UnlockOSThread()
+			threadIDReady <- currentOSThreadID()
+			close(worker.done)
+			if worker.retainOnExit.Load() {
+				<-worker.releaseThread
+			}
+			close(exited)
+		}(worker, threadIDReady, exited)
+
+		failedThreadIDs = append(failedThreadIDs, <-threadIDReady)
+		failedWorkers = append(failedWorkers, worker)
+		workerExits = append(workerExits, exited)
+		backend.retainFailedThread(worker)
+	}
+
+	// A successful replacement must also use a thread that has not seen any of
+	// the failed MF startup attempts. All failed threads remain locked meanwhile.
+	replacementThreadIDReady := make(chan uint32, 1)
+	go func() {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		replacementThreadIDReady <- currentOSThreadID()
+	}()
+	replacementThreadID := <-replacementThreadIDReady
+
+	backend.releaseRetainedThreads()
+	for _, exited := range workerExits {
+		select {
+		case <-exited:
+		case <-time.After(time.Second):
+			t.Fatal("failed worker did not exit after retained threads were released")
+		}
+	}
+
+	seenFailedThreadIDs := make(map[uint32]struct{}, failedAttempts)
+	for attempt, failedThreadID := range failedThreadIDs {
+		if _, duplicate := seenFailedThreadIDs[failedThreadID]; duplicate {
+			t.Fatalf("failed attempts reused OS thread %d before replacement (attempt %d)", failedThreadID, attempt+1)
+		}
+		seenFailedThreadIDs[failedThreadID] = struct{}{}
+		if failedThreadID == replacementThreadID {
+			t.Fatalf("replacement reused failed worker OS thread %d from attempt %d", failedThreadID, attempt+1)
+		}
+	}
+	if len(backend.retainedThreads) != 0 {
+		t.Fatalf("retained thread list has %d entries after successful replacement", len(backend.retainedThreads))
+	}
+	for _, worker := range failedWorkers {
+		select {
+		case <-worker.done:
+		default:
+			t.Fatal("failed worker did not report completion")
+		}
+	}
+}
 func TestDiagnoseCaptureErrorExplainsBusyOrResourceLimitedCamera(t *testing.T) {
 	original := mfconsts.HResultError{Code: 0xC00D3704}
 	got := diagnoseCaptureError(original)
@@ -360,6 +550,7 @@ func TestCancelledStartupWithOpenFailureWaitsForWorkerExit(t *testing.T) {
 		ready:           make(chan startupResult, 1),
 		done:            make(chan struct{}),
 		shutdownTimeout: time.Second,
+		releaseThread:   make(chan struct{}),
 	}
 	go func() {
 		<-releaseExit
@@ -381,5 +572,36 @@ func TestCancelledStartupWithOpenFailureWaitsForWorkerExit(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("cleanup did not wait for failed worker exit")
+	}
+}
+
+func TestCancelledStartupFailureReleasesAlreadyRetainedOSThread(t *testing.T) {
+	worker := &captureWorker{
+		ready:         make(chan startupResult, 1),
+		done:          make(chan struct{}),
+		releaseThread: make(chan struct{}),
+	}
+	worker.retainOnExit.Store(true)
+	worker.ready <- startupResult{err: errors.New("synthetic startup failure")}
+	close(worker.done)
+
+	retaining := make(chan struct{})
+	workerExited := make(chan struct{})
+	go func() {
+		if worker.retainOnExit.Load() {
+			close(retaining)
+			<-worker.releaseThread
+		}
+		close(workerExited)
+	}()
+	<-retaining // The worker has already taken the retain-on-exit branch.
+
+	if err := closeWorkerAfterCancelledStartup(worker); err != nil {
+		t.Fatalf("cancelled startup cleanup: %v", err)
+	}
+	select {
+	case <-workerExited:
+	case <-time.After(time.Second):
+		t.Fatal("cancelled startup cleanup left the locked worker thread retained")
 	}
 }

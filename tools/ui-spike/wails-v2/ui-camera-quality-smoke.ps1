@@ -5,12 +5,17 @@ param(
     [ValidateRange(30,120)][int]$SessionTimeoutSeconds = 70,
     [string]$Device = 'B525 HD Webcam',
     [ValidateRange(0,255)][double]$MinMeanLuma = 20,
-    [ValidateRange(0,100)][double]$MaxFirstShotDropPct = 10
+    [ValidateRange(0,100)][double]$MaxFirstShotDropPct = 10,
+    [switch]$KeepArtifacts
 )
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
-$exe = Join-Path $PSScriptRoot 'build\bin\wails-v2.exe'
+$exe = Join-Path $PSScriptRoot 'build\bin\PhotoBooth.exe'
+if (!(Test-Path -LiteralPath $exe -PathType Leaf)) {
+    # Keep compatibility with older local builds, but prefer the launcher's current output.
+    $exe = Join-Path $PSScriptRoot 'build\bin\wails-v2.exe'
+}
 $python = Join-Path $repoRoot 'tools\camera-poc\.venv\Scripts\python.exe'
 $qualityScript = Join-Path $repoRoot 'tools\camera-poc\python\validate_capture_quality.py'
 foreach ($required in @($exe, $python, $qualityScript)) { if (!(Test-Path $required)) { throw "Required file not found: $required" } }
@@ -169,7 +174,16 @@ try {
         if (!(Test-Path $rendered -PathType Leaf)) { throw "Session $index missing rendered.jpg." }
         if (!(Test-Path $output -PathType Leaf)) { throw "Session $index missing photo.jpg." }
         foreach ($file in $captures) { if ($file.Length -le 0) { throw "Session $index has an empty capture: $($file.Name)" } }
-        $completed.Add([ordered]@{ session_id = $sessionId; capture_count = $captures.Count; rendered = $true; local_output = $true }) | Out-Null
+        $completed.Add([ordered]@{
+            session_id = $sessionId
+            session_dir = $sessionDir
+            capture_count = $captures.Count
+            capture_paths = @($captures | ForEach-Object { $_.FullName })
+            rendered = $true
+            rendered_path = $rendered
+            local_output = $true
+            local_output_path = $output
+        }) | Out-Null
         $checks.Add("session $index completed capture/render/local-save through Wails") | Out-Null
         Write-Host "SESSION_$index=PASS captures=3 rendered=True output=True"
     }
@@ -185,7 +199,8 @@ try {
         note = 'Diagnostic only. Exposure/lighting/scene are not controlled by this script; it does not certify portrait quality.'
     }) -Force
     $metrics | Add-Member -NotePropertyName ui_workflow -NotePropertyValue ([ordered]@{ completed_sessions = @($completed); status = if ($qualityExit -eq 0) { 'PASS' } else { 'QUALITY_GATE_FAIL' } }) -Force
-    $metrics | ConvertTo-Json -Depth 14 | Set-Content -Path $reportPath -Encoding utf8
+    $metrics | Add-Member -NotePropertyName executable -NotePropertyValue $exe -Force
+    $metrics | ConvertTo-Json -Depth 16 | Set-Content -Path $reportPath -Encoding utf8
     if ($qualityExit -ne 0) {
         Write-Host "WAILS_IMAGE_QUALITY_GATE=FAIL (report retained at $reportPath)"
         $status = 'QUALITY_GATE_FAIL'
@@ -205,17 +220,78 @@ try {
         if ($process) { [void]$process.CloseMainWindow(); if (!$process.WaitForExit(3000)) { Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue } }
     }
     [Environment]::SetEnvironmentVariable('PHOTOBOOTH_DATA_DIR', $previousDataRoot, 'Process')
-    $cleaned = $false
-    if (Test-Path $dataRoot) { Remove-Item $dataRoot -Recurse -Force -ErrorAction SilentlyContinue }
-    $cleaned = !(Test-Path $dataRoot)
-    if (Test-Path $reportPath) {
-        $metrics = Get-Content $reportPath -Raw | ConvertFrom-Json
-        $metrics | Add-Member -NotePropertyName temp_data_cleaned -NotePropertyValue $cleaned -Force
-        $metrics | ConvertTo-Json -Depth 14 | Set-Content -Path $reportPath -Encoding utf8
+
+    $artifactSessions = @()
+    if (Test-Path -LiteralPath $sessionsRoot -PathType Container) {
+        $artifactSessions = @(Get-ChildItem -LiteralPath $sessionsRoot -Directory | Sort-Object Name | ForEach-Object {
+            $sessionDir = $_.FullName
+            $captureDir = Join-Path $sessionDir 'captures'
+            $sessionOutput = Join-Path (Join-Path $outputRoot $_.Name) 'photo.jpg'
+            $capturePaths = @()
+            if (Test-Path -LiteralPath $captureDir -PathType Container) {
+                $capturePaths = @(Get-ChildItem -LiteralPath $captureDir -File -Filter 'capture-*.jpg' | Sort-Object Name | ForEach-Object { $_.FullName })
+            }
+            [ordered]@{
+                session_id = $_.Name
+                session_dir = $sessionDir
+                capture_paths = $capturePaths
+                rendered_path = if (Test-Path -LiteralPath (Join-Path $sessionDir 'rendered.jpg') -PathType Leaf) { Join-Path $sessionDir 'rendered.jpg' } else { $null }
+                local_output_path = if (Test-Path -LiteralPath $sessionOutput -PathType Leaf) { $sessionOutput } else { $null }
+            }
+        })
     }
+
+    $cleaned = $false
+    $artifactsRetained = $false
+    if ($KeepArtifacts) {
+        $artifactsRetained = Test-Path -LiteralPath $dataRoot -PathType Container
+    } else {
+        if (Test-Path -LiteralPath $dataRoot) {
+            Remove-Item -LiteralPath $dataRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        $cleaned = !(Test-Path -LiteralPath $dataRoot)
+    }
+    if (Test-Path -LiteralPath $reportPath -PathType Leaf) {
+        $metrics = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+    } else {
+        $metrics = [ordered]@{
+            status = $status
+            failure = $failure
+            test_setup = [ordered]@{
+                camera = $Device
+                capture_mode = 'Wails UI / Windows Media Foundation'
+                sessions_requested = $Sessions
+                started_utc = [DateTime]::UtcNow.ToString('o')
+                executable = $exe
+            }
+            ui_workflow = [ordered]@{
+                completed_sessions = @($completed)
+                status = $status
+            }
+        }
+    }
+    $metrics | Add-Member -NotePropertyName artifact_manifest -NotePropertyValue ([ordered]@{
+        keep_artifacts_requested = [bool]$KeepArtifacts
+        retained = $artifactsRetained
+        cleaned = $cleaned
+        root = $dataRoot
+        sessions_root = $sessionsRoot
+        output_root = $outputRoot
+        sessions = $artifactSessions
+    }) -Force
+    $metrics | Add-Member -NotePropertyName temp_data_cleaned -NotePropertyValue $cleaned -Force
+    $metrics | Add-Member -NotePropertyName temp_data_retained -NotePropertyValue $artifactsRetained -Force
+    $metrics | ConvertTo-Json -Depth 16 | Set-Content -Path $reportPath -Encoding utf8
+
     Remove-Item $stdoutPath -Force -ErrorAction SilentlyContinue
     Write-Host "TEMP_TEST_DATA_CLEANED=$cleaned"
-    if (Test-Path $reportPath) { Write-Host "REPORT_RETAINED=$reportPath" }
+    Write-Host "TEMP_TEST_DATA_RETAINED=$artifactsRetained"
+    if ($artifactsRetained) {
+        Write-Host "ARTIFACT_ROOT=$dataRoot"
+        Write-Host "SESSION_ARTIFACTS=$sessionsRoot"
+        Write-Host "LOCAL_OUTPUT_ARTIFACTS=$outputRoot"
+    }
+    if (Test-Path -LiteralPath $reportPath) { Write-Host "REPORT_RETAINED=$reportPath" }
 }
 
 if ($status -ne 'PASS') { exit 1 }

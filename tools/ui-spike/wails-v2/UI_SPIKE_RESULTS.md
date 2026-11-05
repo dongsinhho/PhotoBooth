@@ -421,3 +421,210 @@ A temporary `.pbframe` fixture was generated from `examples/frames/photo-strip-v
 Added `ui-settings-persist-restart-smoke.ps1`. It uses a temporary `PHOTOBOOTH_DATA_DIR`, changes countdown to 4s and interval to 750ms (three shots), saves the schema-v1 station config, closes the first `PhotoBooth.exe` gracefully, starts a second process with the same profile, opens Settings and confirms the values were reloaded. Result PASS: shot count 3 / countdown 4s / interval 750ms; both processes exited gracefully; no photo session was created; temporary profile removed. Metrics/report: `%TEMP%\photobooth-settings-restart-6d4b3d0f640f448aa8ec9345a4194462.json`.
 
 This validates local configuration persistence across an application process restart in the experimental Wails player. It does not test installer upgrades, migration between schema versions, Windows login auto-start or a production kiosk deployment.
+
+## Portrait-quality harness artifact retention (2026-11-02)
+
+The Wails real-camera quality harness `ui-camera-quality-smoke.ps1` now supports an explicit `-KeepArtifacts` switch for the pending representative portrait/framing review.
+
+Run from `tools/ui-spike/wails-v2` after arranging the intended booth lighting, camera distance and framing:
+
+~~~powershell
+.\ui-camera-quality-smoke.ps1 -KeepArtifacts
+~~~
+
+Behavior:
+- The harness prefers the current launcher output `build/bin/PhotoBooth.exe`; it falls back to `wails-v2.exe` only when the current output is absent.
+- Without `-KeepArtifacts`, the isolated TEMP profile is removed as before.
+- With `-KeepArtifacts`, the isolated data root is preserved after the app exits. It contains the captured source JPEGs, rendered strip, local output and disposable station config.
+- The JSON report includes an artifact manifest with the root/session/output directories and paths for captures, rendered images and local outputs. The inventory also includes partial sessions when a run stops before completing.
+- The console prints `ARTIFACT_ROOT`, `SESSION_ARTIFACTS`, `LOCAL_OUTPUT_ARTIFACTS` and the report path when data is retained. Remove the printed artifact root manually after visual review.
+
+Validation on 2026-11-02:
+- PowerShell AST parser: PASS; `KeepArtifacts` is present in the parsed parameter block.
+- Report metadata serialization: PASS, including the early-failure ordered-dictionary report path.
+- Isolated retention simulation: PASS for preserved data when requested and deletion when not requested.
+- Artifact inventory simulation: PASS for both completed and partial session directories.
+- `git diff --check`: PASS.
+
+No physical-camera quality batch was run as part of this tooling change. The portrait/framing acceptance gate remains **open** until a controlled real B525 capture batch is visually inspected. Passing the numeric validator alone is not portrait certification.
+
+
+## Alternate XHC1 idle-preview physical recovery (2026-11-02)
+
+A physical same-port unplug/replug cycle was finally observed on the alternate XHC1 path. This run started with the B525 on XHC1 (`PCI(0801)#PCI(0004)#...`), verified that it differed from the ADR 0026 XHC0 reference (`PCI(0801)#PCI(0003)#...`), and required the camera to return to the exact same XHC1 path.
+
+**Physical actions and PnP: PASS.** Initial idle preview reached 6 frames / 5 ACKs (11/11 immediately before unplug). Windows observed physical removal, Wails emitted `reconnecting`, and Windows then observed the same B525 instance returning on the same XHC1 location-path set (`USB_SAME_PORT_RECONNECT=True`).
+
+**Preview recovery: FAIL.** The preview did not return to `ready`. Windows Media Foundation reopen exhausted 30 attempts with `Windows Media Foundation found no camera devices`, then emitted `unavailable`. The event log recorded 31 reconnecting events and no ready-after-reconnecting event. `preview_after_reconnect` is null. Harness exit code was 1.
+
+**Event audit:** 374 JSONL events; 169 published frames = 169 ACKs; zero cancellations, ACK timeouts, decode failures, duplicate publishes/terminal sequences, unmatched published sequences, orphan terminal sequences or invalid JSON lines. This validates ACK accounting only; it does not offset the failed preview recovery.
+
+No photo session was started, the application was not force-stopped, and the disposable TEMP profile was cleaned. No app code was changed as part of this physical test.
+
+Report: `%TEMP%\photobooth-idle-preview-hotplug-35f48692d9e549f38eca89b68d54219d.json`.
+
+Diagnostics: `%TEMP%\photobooth-idle-preview-hotplug-35f48692d9e549f38eca89b68d54219d.jsonl`.
+
+The outcome is specific to one B525 / one Windows 11 host / one XHC1 path / one physical cycle. It does not establish an XHC1 hardware defect or broad camera incompatibility. Compare the Media Foundation provider reopen lifecycle against the passing XHC0 reference run before changing retry policy or claiming a port-level cause.
+
+
+## Per-attempt preview recovery diagnostics (2026-11-02)
+
+The XHC1 failure showed that the opt-in preview JSONL captured generic `reconnecting` status messages and the final failure string, but dropped the `Err` carried by each `recovery_open_attempt_failed` event. As a result, the previous physical run cannot establish whether all 30 attempts failed identically or whether the failure mode changed during retries.
+
+Updated `cameraPreviewDiagnosticRecord` and `handlePreviewRecoveryEvent`:
+- Recovery events (`recovery_started`, `recovery_open_attempt_failed`, `recovery_provider_opened`, `recovery_succeeded`, `recovery_failed`) are now written as explicit JSONL records.
+- Each record preserves `attempt`, `total` and the full event error text when provided.
+- Existing preview status events and UI messages are unchanged. Logging remains opt-in through `PHOTOBOOTH_PREVIEW_METRICS_PATH`; no normal guest-session log is created by default.
+- Retry count/delay, provider open/close behavior, capture warm-up and frame/ACK flow are unchanged.
+
+Validation: `gofmt` completed; `go test ./...` passed from the Wails submodule; root `go test` for `internal/booth/camera/recovery` and `internal/booth/camera/windowsmf` passed; `go vet ./...` passed from the Wails submodule. The new unit test verifies that attempt 7/30 and its exact error are written before the unchanged `preview_status` event.
+
+The instrumented Windows executable has not yet been rebuilt or run through another physical cycle. The next hardware run must use a freshly built `PhotoBooth.exe` and inspect all per-attempt error records before proposing a provider behavior change.
+
+
+## Media Foundation enumeration diagnostics after XHC1 recovery failures (2026-11-02)
+
+A further observer/control run did not observe physical B525 removal within 90 seconds, so it did **not** exercise the recovery path. While the B525 stayed connected, the independent observer successfully enumerated exactly one `B525 HD Webcam` in all 151 samples (500 ms interval); the Wails preview stayed `ready` with 444 received/decoded frames and 444 ACKs. The app exited normally and its disposable profile was cleaned. Report: `%TEMP%\photobooth-idle-preview-hotplug-f31d4b6a61ca4ab7a0b22cb8ee8437fc.json`.
+
+Additional non-hotplug controls after the XHC1 failure:
+- A standalone Media Foundation init/enumeration found one B525 while Windows PnP reported `Status=OK`.
+- A second standalone enumeration found one B525 while `PhotoBooth.exe` was actively holding the normal idle preview.
+- Twelve consecutive `MF.Init → MF.EnumDevice → MF.Shutdown` cycles on one locked OS thread all found one B525.
+- Twelve more cycles, each run on a newly locked worker OS thread, all found one B525.
+
+Code inspection found that the vendored `camera/v1.EnumDevice` released and skipped any activation source when `callGetBaseInfo` failed. If every source failed metadata extraction, it returned an empty list with no error, indistinguishable from a native enumeration that returned zero sources. Implemented a diagnostic distinction:
+- `EnumDevice` now returns a contextual joined error when one or more activation sources were returned but metadata extraction failed for every source. The error preserves the failed source index and underlying metadata error.
+- A genuine empty result remains an empty list; the Windows Media Foundation provider now reports this explicitly as `MFEnumDeviceSources returned zero video capture sources`.
+- Added unit tests for the all-metadata-failed case and for preserving a true empty enumeration.
+- Updated `third_party/windows-camera-go/README.PHOTOBOOTH-PATCH.md` to document the local compatibility patch.
+
+Validation after the code change: vendored `go test ./camera/v1 ./windows/mf` PASS; root `go test ./...` PASS; root `go vet ./...` PASS; Wails submodule `go test ./...` and `go vet ./...` PASS. A fresh Wails Windows/amd64 production build via `run-photobooth.ps1 -NoLaunch` also PASS; it regenerated bindings and compiled `build/bin/PhotoBooth.exe`. No app was launched by the build.
+
+**Not yet physically validated:** the new classification has not yet been exercised during an XHC1 unplug/replug. The next physical same-port run must use this freshly built executable and inspect whether the retry error is `MFEnumDeviceSources returned zero video capture sources` or a contextual metadata-extraction error. Do not change retry timing or claim an XHC1 hardware/driver cause until this result is known.
+
+
+**Post-change connected-camera smoke (2026-11-02):** after rebuilding the Wails executable, a standalone Go probe compiled against the updated vendored `camera/v1.EnumDevice` returned `MF_ENUM_COUNT=1`, `MF_DEVICE_0_NAME=B525 HD Webcam` and a non-empty symbolic link while the B525 was attached on XHC1. This confirms the improved error handling preserves normal connected-device enumeration; it does not exercise hotplug recovery.
+
+
+## Third instrumented XHC1 idle-preview cycle: automatic recovery vs. Retry Connect (2026-11-02)
+
+A third physical same-port unplug/replug cycle on alternate XHC1 was run with the freshly rebuilt PhotoBooth.exe containing per-attempt telemetry and the updated vendored Media Foundation enumeration classification.
+
+**PnP and port identity: PASS.** Windows observed removal and reappearance of the same B525 instance. Both LocationPaths before and after were identical, and the path remained distinct from the XHC0 reference baseline.
+
+**Automatic preview recovery: FAIL.** The initial preview reached 5 frames / 5 ACKs and had reached 10/10 immediately before unplug. The first post-unplug read returned MF_E_VIDEO_RECORDING_DEVICE_INVALIDATED (0xC00D3EA2), entering reconnecting. All 30 automatic reopen attempts then returned the explicit message: Media Foundation MFEnumDeviceSources returned zero video capture sources. The backend emitted recovery_failed and moved to unavailable. This confirms the native zero-source enumeration branch, not the all-activation-metadata-failed branch.
+
+**Manual Retry Connect: PASS.** The operator clicked Retry Connect after automatic recovery had failed. A new preview start appeared at 16:26:34.102 UTC; ready followed at 16:26:36.305 UTC (about 2.2 seconds). Preview resumed with 16 received/decoded frames and 16 ACKs at 5.15 FPS. This proves the manual retry path can restore preview after the automatic recovery window, but it does not satisfy the automatic hotplug-recovery gate. The final automatic attempt was around 16:26:01 UTC, so the manual retry occurred roughly 33 seconds later. This timing motivates a concurrent external enumeration observer; it does not yet prove that extending the retry budget is the right fix.
+
+**Event audit and cleanup: PASS.** The corrected report records 228 JSONL events, zero invalid lines, 79 published frames = 79 ACKs, and zero cancellations, ACK timeouts, decode failures, duplicate publishes/terminal sequences, unmatched published sequences or orphan terminals. No photo session was started, the app was not force-stopped, and the temporary profile was cleaned.
+
+Report: %TEMP%\photobooth-idle-preview-hotplug-02a775bf7a90498798f83990dd6292c6.json (status PARTIAL: automatic recovery failed, operator Retry Connect restored preview).
+
+Diagnostics: %TEMP%\photobooth-idle-preview-hotplug-02a775bf7a90498798f83990dd6292c6.jsonl.
+
+The original harness incorrectly treated any ready event after reconnecting as an automatic-recovery pass. Its JSON report was corrected to PARTIAL. The harness audit now records recovery_started, recovery_open_attempt_failures, recovery_failed, recovery_succeeded, automatic_recovery_status, preview_restarted_after_recovery_failure and ready_after_recovery_failure. It classifies a later restart/ready after recovery_failed as PARTIAL rather than PASS. Existing ACK audit remains mandatory for both PASS and PARTIAL. PowerShell AST parsing, audit against this actual JSONL and a synthetic automatic-recovery-success case passed. The retry policy and camera provider lifecycle were not changed.
+
+**Next diagnostic:** run a separate timestamped Media Foundation enumeration observer using the vendored camera/v1.EnumDevice code at a fixed interval (about 500 ms) concurrently with one more controlled XHC1 cycle. Correlate when the external process first sees the B525 with each in-process reopen attempt. Keep manual Retry Connect untouched until the observer has recorded the transition. If the external process sees the device only after the 30-attempt window, assess a bounded retry adjustment; if it sees the device while PhotoBooth still sees zero sources, investigate per-process/native worker lifecycle and COM/thread ownership. Do not change retry timing before this evidence is available.
+
+
+## Standalone Media Foundation enumeration observer (2026-11-02)
+
+Added a separate Windows Go diagnostic under tools/diagnostics/mf-enumeration-observer. It polls the vendored windows-camera-go camera/v1 API in an independent process. Each sample performs Init → EnumDevice → Shutdown on a single locked OS thread; it does not open a capture stream or create a PhotoBooth session. JSONL records UTC timestamps, elapsed time, Init/enumeration/sample durations, status, device count, friendly name, symbolic link and distinct initialization/enumeration errors. It defaults to 500 ms, flushes each line, and refuses to overwrite an existing output file.
+
+Validation: go test ./..., go vet ./... and Windows/amd64 build passed; unit cases cover zero-source vs. one/multiple-device status classification. A 5-second connected-camera control on the B525 produced 11/11 camera_found samples, each containing exactly one B525. Mean sample spacing was 500.1 ms; sample work took 2.2–9.2 ms. Report: %TEMP%\photobooth-mf-enumeration-control-20261102-234251.jsonl. This is a stationary-camera control and does not yet establish when Media Foundation enumeration returns after a physical disconnect/reconnect.
+
+Next use: start the observer for 3 minutes before the next physical XHC1 hotplug run, then correlate its timestamped native enumeration samples with the in-process 30 reopen attempts. Do not manually click Retry Connect until the external observer has had time to record the first non-zero result.
+
+
+## Long-lived observer zero-source state vs. fresh process after XHC1 replug (2026-11-02)
+
+A further physical XHC1 unplug/replug was attempted with the standalone observer running concurrently. The Wails harness started on XHC1 and idle preview reached 6 frames / 5 ACKs, but Windows did not report the B525 instance disappearing within the harness's 90-second unplug-observation window. The harness therefore ended at its unplug precondition (exit code 1), cleaned its disposable profile, and did not exercise PhotoBooth recovery. This must not be counted as another hotplug-recovery failure.
+
+The independent observer continued to run across the physical removal and return:
+- It recorded 253 consecutive camera_found samples (one B525) before the first zero_sources sample at 2026-11-02T16:48:11.256Z (sample 254; observer elapsed 126.5 s).
+- It then recorded 348 consecutive zero_sources samples through the end of its 5-minute run at 2026-11-02T16:51:04.756Z. Enumeration calls completed in roughly 1.5–7.3 ms; this was not an enumeration timeout.
+- After the operator reconnected the same cable, Windows PnP reported the exact MI_02 B525 instance Present=True, Status=OK, Problem=CM_PROB_NONE, with the original XHC1 location paths.
+- The long-lived observer process continued to report zero sources after PnP returned. A brand-new observer process started after reconnect immediately found one B525 in all 21/21 samples over 10 seconds. This is strong evidence that the stale enumeration state belongs to the long-lived process/runtime (or its original thread), rather than the camera simply remaining absent at the OS PnP layer. It does not yet distinguish process-scoped state from thread-scoped COM/MF state.
+
+Fresh-process report: %TEMP%\photobooth-mf-enumeration-fresh-process-20261102-235210.jsonl.
+
+The observer has now been extended with an optional -thread-probe-trigger-file mode. While the primary observer goroutine remains locked to its original OS thread and continues sampling, creating the configured trigger file causes one serialized sample to run on a second, distinct locked OS thread in the same process. The JSONL records thread_role=primary_locked_thread or secondary_locked_thread. The sample is serialized against the primary loop because the vendored camera library keeps process-global MF/COM handles. The connected-camera trigger control passed: 17 primary samples and exactly one secondary sample all found one B525. Go tests, vet and Windows build passed.
+
+**Next diagnostic:** repeat one controlled XHC1 hotplug with this two-thread observer active. After reconnect and PnP Present=True, wait for the primary thread to return zero_sources, then create the trigger file. If the secondary thread finds the B525 while the primary remains at zero, the evidence points to thread-scoped state. If both threads remain zero but a fresh process succeeds, the evidence points to state retained at the long-lived process/runtime level. Do not change retry timing or production lifecycle until this comparison is observed.
+
+
+## 2026-11-03 - Same-process thread comparison and recovery lifecycle fix (physical validation pending)
+
+The enhanced observer completed the primary-vs-secondary thread comparison on one long-lived process. After the exact Logitech B525 MI_02 instance returned to PnP Present=True / Status=OK, the primary locked OS thread remained at zero_sources while one serialized enumeration on a distinct secondary locked OS thread in the same process found one B525 (`camera_found`, sample timestamp `2026-11-03T14:10:21.6721024Z`). This strongly supports thread-scoped COM/Media Foundation state rather than process-wide state or a missing PnP device. The simultaneous Wails harness run did not produce valid recovery telemetry because it stopped on the configured port-identity precondition; it is not counted as another recovery failure.
+
+A narrow Windows MF retry lifecycle implementation now:
+- reuses a provider instance across retryable failed Open calls;
+- finishes native cleanup on the failed worker, then keeps that worker locked to its OS thread so the next recovery attempt runs on another OS thread;
+- releases the previous retained worker only after the replacement worker completes MF startup, or on cancellation/exhaustion/final Close;
+- uses atomic retain state and idempotent thread release to avoid cancellation/Close races;
+- preserves a provider reference if its final cleanup fails so Close can be retried safely.
+
+The recovery retry count/delay, port validation, and XHC0 behavior were not changed. Tests cover provider reuse, exhaustion cleanup, cleanup retry, thread retention and cancelled startup. Root, vendored camera and Wails test suites and root/Wails vet all pass. The final Windows Wails build was produced with `run-photobooth.ps1 -NoLaunch` using Wails CLI v2.17.0 and Go 1.25.0; output `build/bin/PhotoBooth.exe` is a valid 13,024,768-byte Windows PE executable.
+
+**Not yet physically validated:** the B525 remains disconnected at the latest checkpoint. Reconnect it to the same alternate XHC1 socket, confirm exact PnP identity and LocationPath, preflight the freshly built executable, then run a same-port idle-preview physical cycle. Do not count the prior malformed Wails launch (which failed before preview or unplug) as a recovery failure. Three actual automatic XHC1 recovery failures remain confirmed; the fix must pass a physical cycle before the gate can be marked complete.
+
+**Implementation/validation note (2026-11-03, recovery thread lifecycle follow-up):** the fifth confirmed XHC1 same-port physical cycle still failed automatic preview recovery after PnP returned the exact B525 MI_02 instance on the same XHC1 LocationPaths. All 30 reopen attempts returned MFEnumDeviceSources returned zero video capture sources; the UI entered unavailable. The audit retained 125 received/decoded frames and 125 ACKs with no frame pipeline errors; no photo session started and the app exited gracefully. Reviewing the failure path showed that the recovery decorator closed the original active preview worker via ordinary Close() before retry; that path released the thread, while the prior implementation only retained threads belonging to failed Open() attempts. Added optional RecoveryCloseProvider.CloseForRecovery(); the Windows MF backend now releases native stream resources on the original thread but retains that thread while replacement Open attempts use different OS threads. Retained threads are released on replacement startup success, exhaustion, cancellation or final Close. The recovery decorator falls back to ordinary Close for providers without the optional interface. No retry timing/budget or XHC0 behavior changed. Focused and full Go tests, vendored MF tests, Wails tests, root/Wails vet and git diff --check passed. New binary build hash: 58EEA311A7297B5371C2ED490BD2D6FAD90F1FCD026187B36F193816D9CF3B4B. A new same-port physical cycle is running; keep the result pending until automatic recovery telemetry and resumed frames/ACKs prove it.
+
+### Addendum - 2026-11-03: preserve provider instance across the first recovery Open
+
+- Reviewing the new recovery-close implementation exposed an ownership gap: after CloseForRecovery, the decorator cleared p.active and called openFresh with no candidate, so its first recovery attempt could create a fresh provider instance. That would strand the original provider's retained OS-thread list and prevent that same backend from releasing the original preview thread after a replacement succeeded.
+- Added openFreshWithCandidate(ctx, recovering, initialCandidate). Capture and Preview recovery seed it with the provider whose active stream was closed. When that provider implements RetryableOpenProvider, it is reused for the first replacement Open and for subsequent failed-open retries. Context cancellation or exhaustion invokes ordinary Close on that same candidate, releasing retained threads; successful startup releases the retained threads from inside the Windows backend.
+- The recovery test now verifies the same provider is reopened (factory called once, provider Open called twice) after CloseForRecovery and returns a fresh preview frame. Windows thread-retention and focused tests pass.
+- A pending harness using the previous binary was deliberately stopped before any USB unplug was observed; PhotoBooth was closed with WM_CLOSE and its disposable temp profile was manually cleaned. This is not a physical recovery attempt and does not change the five confirmed failure count.
+- Latest full root/vendored/Wails tests, root and Wails vet all pass (CHECKS_FAILED=0). Latest Wails build is 13,029,888 bytes, PE header MZ, SHA-256 BF6B34306D10D70D9C8C414CBB79A994EAA558CF1E8FF6B670110F4E3DB744BB. Preflight passes with B525 MI_02 Status=OK on XHC1, distinct from the XHC0 baseline. No new physical cycle has started yet; camera remains connected.
+
+
+## Checkpoint - 2026-11-04: close activated Media Foundation source correctly; XHC1 reconnect window inconclusive
+
+### Implementation: explicit IMFMediaSource shutdown
+
+- Investigation after the in-process post-failure probe found that the vendored `Device.CloseDevice()` released `IMFSourceReader`, media type, presentation descriptor and `IMFMediaSource`, but never invoked `IMFMediaSource::Shutdown()` on the activated source.
+- Added `Device.CloseDeviceWithError()`: release source reader/media type/presentation descriptor first, call `IMFMediaSource.Shutdown()`, then release the source COM reference and activation reference. Cleanup continues to Release even if Shutdown reports an error; all cleanup errors are preserved with `errors.Join`. Existing `CloseDevice()` remains source-compatible and logs cleanup errors. Partially initialized `OpenDevice()` failures now use the same cleanup path.
+- The Windows MF capture worker calls `CloseDeviceWithError()` on its owning locked OS thread before `mf.Shutdown()`; source cleanup errors are logged. Added unit tests proving Shutdown precedes Release and Release still runs when Shutdown fails.
+- Important: this is a native lifecycle correction supported by API contract/code inspection, but its physical hotplug benefit is **not yet validated**.
+
+### Production build and test status
+
+- Root `go test -count=1 ./...`: PASS.
+- Vendored camera module `go test -count=1 ./camera/v1 ./windows/mf`: PASS.
+- Wails submodule `go test -count=1 ./...`: PASS.
+- Root and Wails `go vet ./...`: PASS. Direct vendored-module vet still emits five existing `unsafe.Pointer` warnings in `windows/mf/IMFMediaBuffer.go`, `windows/mf/mf.go`, and `camera/v1/IMFSourceReaderCallback.go`; these are outside the lifecycle change.
+- `git diff --check`: PASS (Git only warns about its configured LF-to-CRLF conversion).
+- Rebuilt using `run-photobooth.ps1 -NoLaunch`, Wails CLI 2.17.0 / Go 1.25.0. Binary: `tools/ui-spike/wails-v2/build/bin/PhotoBooth.exe`, 13,046,784 bytes, PE header `4D-5A-90-00`, SHA-256 `213FD95900E8BF83A974E399BD3EE399C659394953A99574026029DB17E00E02`. Build-only; app not started by build.
+- Added an early harness guard that rejects the mutually exclusive flags `-RequireDifferentPort` and `-RequireSamePortOnReconnect`. The guard's explicit negative test passed. A prior mistaken invocation with both flags was stopped before any unplug; PhotoBooth closed gracefully and its temporary profile/log/report were cleaned. It is not a physical test.
+
+### Physical XHC1 cycle after source-shutdown change
+
+- Correct harness invocation used the baseline XHC0 LocationPath plus `-RequireSamePortOnReconnect` only (not `-RequireDifferentPort`). Preflight passed: exact B525 MI_02 was healthy on the alternate XHC1 path, distinct from the XHC0 baseline; preflight did not start the app or open the camera.
+- Wails idle preview reached 5 frames / 5 ACKs at 5.95 FPS; before unplug it reached 10 / 10 ACKs at 5.33 FPS. No ACK or decode failures occurred.
+- Windows PnP removal was observed, and the backend emitted `reconnecting`. All 30 automatic reopen attempts returned `MFEnumDeviceSources returned zero video capture sources`. The post-failure probe ran on OS thread 5736, different from all 31 retained preview/retry worker threads, and returned `zero_sources devices=0`. Backend entered `unavailable`.
+- Harness then waited 60 seconds for PnP to report a healthy B525 but timed out: report fields `physical_replug_observed=false`, `camera_instance_id_after=null`, `camera_topology_after=null`, `same_port_reconnect_verified=false`. Thus the test did **not** establish when the camera reappeared relative to the 30 retries or within that 60-second replug-observation window. Treat this as an inconclusive replug gate, not as a confirmed post-reconnect automatic-recovery failure. No photo session started, app was not force-stopped, and temporary profile was cleaned. The frame audit remained consistent: 114 published = 114 ACKs, zero ACK timeout/decode failures/duplicates/orphans.
+- After the harness ended, a fresh PnP query found the exact B525 MI_02 instance `Status=OK`; its current LocationPaths still matched the same XHC1 socket recorded before unplug (`PCI(0004)...USB(4)#USB(3)...` and the ACPI XHC1 path). A fresh standalone Media Foundation observer then found `B525 HD Webcam` in 21/21 samples over 10 seconds (first sample 7.4 ms; subsequent samples roughly 1.6–3.0 ms). This proves the camera was available to PnP and a new MF process after the harness window, but not that it was available during the automatic retry window.
+- Report: `%TEMP%\\photobooth-idle-preview-hotplug-224f91e3673c4e7f886c61a19ffd2a0f.json`; JSONL: `%TEMP%\\photobooth-idle-preview-hotplug-224f91e3673c4e7f886c61a19ffd2a0f.jsonl`. Independent observer: `%TEMP%\\photobooth-mf-fresh-after-shutdown-fix-20261104.jsonl`.
+
+### Next diagnostic gate
+
+- Do not claim the source-shutdown fix passed physical hotplug, and do not count this cycle as a confirmed same-port post-reconnect failure: PnP did not return within the harness's 60-second window.
+- Camera is currently connected and healthy on the same XHC1 path. Before another unplug, inspect the recorded cleanup warning output if available and verify a fresh Wails process can open the now-present camera. For the next controlled cycle, run an independent MF observer concurrently before unplug and extend the harness reconnect observation to `-ReconnectTimeoutSeconds 120`; correlate the observer's first `camera_found` timestamp with all 30 in-process retries. Keep recovery budget/timing unchanged until this timing is measured.
+- All changes remain uncommitted/unpushed. No user changes were reset or discarded.
+
+
+### Follow-up smoke after the delayed PnP return (2026-11-04)
+
+- After the preceding harness had timed out waiting for reconnect, Windows PnP reported the same exact B525 MI_02 healthy on the XHC1 LocationPaths. A new standalone MF observer found the camera in 21/21 samples.
+- A separate fresh PhotoBooth Wails process was then launched against an isolated disposable profile while that same B525 remained on XHC1. It reached `FRESH_PROCESS_PREVIEW_READY=True` with 30 frames / 30 decoded / 30 ACK, 4.99 FPS, zero ACK failures and zero decode failures. No photo session directory was created. The app closed gracefully and the temporary profile was cleaned; smoke process exit code 0.
+- This confirms a fresh PhotoBooth process can open a capture stream after the delayed device return. It does not prove the original long-lived process could have recovered automatically, and it does not establish whether the camera returned just after or later than the harness's 60-second replug observation limit.
+- The remaining discriminating experiment is one controlled physical cycle with a standalone MF observer started before unplug, recording the first post-return `camera_found` timestamp, and a longer 120-second harness reconnect-observation window. Keep the 30-attempt policy unchanged until the correlated timeline is available.
+
+
+## Windows Preview packaging and current-scene quality continuation (2026-11-05)
+
+The separate internal release tooling now lives under tools/release/windows; see its README for the package/install/rollback commands. The scripts produce an unsigned Windows x64 ZIP with a manifest and checksum, verify package contents and executable integrity, install immutable version directories, switch the active pointer atomically, and preserve the previous version for rollback. Lifecycle coverage uses synthetic MZ-header fixtures and never launches PhotoBooth. It passed initial install, update, rollback, active version/hash verification, corrupted manifest-binary hash rejection, checksum sidecar rejection, and protected user-data path rejection. A package made from the current real PhotoBooth.exe also passed install/hash verification in a disposable TEMP root without launching the app. This does not constitute a signed installer, public distribution, automatic updates, or production deployment approval.
+
+The 2026-11-05 B525 UI quality smoke completed three sessions / nine captures, render and local output in every session. The unchanged quality validator failed all nine captures for gross darkness (session mean luminance 2.504–2.530/255 against 20/255 minimum). Relative first-shot drops were 0.000–0.296%; this run did not reproduce a material first-shot difference. The inspected first capture was nearly black and all real-photo artifacts were retained under %TEMP%\photobooth-wails-quality-cb632a1a1cd94153b78e20c2c946a07e. This is not portrait/framing acceptance because the scene lighting was not controlled. Do not alter the one-second warm-up based on this result. No recovery or long-run tests were run in this continuation.
