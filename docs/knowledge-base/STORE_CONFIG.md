@@ -34,7 +34,7 @@ The example at `examples/store-config-v1.json` is the canonical sample. Schema v
 | `payment` | `mode` | Only `disabled` is implemented; this is the free/no-payment path |
 | root | `schema_version` | Required integer; currently must equal `1` |
 
-Relative paths are resolved from the directory containing the config file. Absolute paths are preserved. This resolution is convenience only, not a filesystem sandbox.
+Relative paths are resolved from the directory containing the config file. Absolute paths are preserved. On Windows, local mode rejects UNC paths and mapped network drives for both session and output roots during validation, load-after-resolution and save-before-write. This is a guard against accidental network storage, not a filesystem sandbox: reparse-point/junction targets and network mounts on Linux/macOS are not yet classified by this check.
 
 ## Defaults and validation
 
@@ -64,3 +64,9 @@ Not implemented yet: file-watcher/hot-reload, automatic migration from older sch
 ## Restart persistence smoke (2026-11-01)
 
 A new isolated Wails UI smoke, `tools/ui-spike/wails-v2/ui-settings-persist-restart-smoke.ps1`, verifies persistence across two separate PhotoBooth.exe processes. It uses a disposable `PHOTOBOOTH_DATA_DIR`, saves shot count 3, countdown 4s and interval 750ms, closes the first process gracefully, starts a second process against the same local profile, opens Settings, and verifies all three values are reloaded. The smoke passed on 2026-11-01: both processes started and exited normally, the second process showed shot count 3 / countdown 4s / interval 750ms, no photo session or capture was created, and the temporary profile was removed. Report: `%TEMP%\photobooth-settings-restart-6d4b3d0f640f448aa8ec9345a4194462.json`. This validates the schema-v1 settings screen persistence path in the experimental Wails player; it is not a production-install/update test.
+
+## Local-mode network path guard (2026-11-06)
+
+On Windows, local mode rejects UNC session/output roots and mapped network drive volumes. Validation occurs in StoreConfig.Validate, after relative paths are resolved by Load, and before Save writes the config. This also catches relative roots when the station config itself resides on a UNC share. The Windows tests cover UNC paths; mapped-drive detection uses GetDriveTypeW but has not had a live mapped-drive integration test.
+
+Limitations: junctions/reparse points are not resolved to their final volume, and Linux/macOS network mounts are not classified yet. Do not interpret this as a filesystem sandbox or as proof that local media can never be exposed on a network. The Stage 2 exit gate remains open.

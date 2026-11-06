@@ -160,6 +160,12 @@ func Load(path string) (StoreConfig, error) {
 	cfg.Frame.ConfigPath = resolvePath(base, cfg.Frame.ConfigPath)
 	cfg.Storage.SessionsDir = resolvePath(base, cfg.Storage.SessionsDir)
 	cfg.Storage.OutputDir = resolvePath(base, cfg.Storage.OutputDir)
+	if err := validateLocalStoragePath(cfg.Storage.SessionsDir); err != nil {
+		return StoreConfig{}, fmt.Errorf("storage.sessions_dir: %w", err)
+	}
+	if err := validateLocalStoragePath(cfg.Storage.OutputDir); err != nil {
+		return StoreConfig{}, fmt.Errorf("storage.output_dir: %w", err)
+	}
 	return cfg, nil
 }
 
@@ -179,6 +185,14 @@ func Save(path string, cfg StoreConfig) error {
 		return fmt.Errorf("resolve store config path: %w", err)
 	}
 	base := filepath.Dir(absolutePath)
+	resolvedSessions := resolvePath(base, cfg.Storage.SessionsDir)
+	resolvedOutput := resolvePath(base, cfg.Storage.OutputDir)
+	if err := validateLocalStoragePath(resolvedSessions); err != nil {
+		return fmt.Errorf("storage.sessions_dir: %w", err)
+	}
+	if err := validateLocalStoragePath(resolvedOutput); err != nil {
+		return fmt.Errorf("storage.output_dir: %w", err)
+	}
 	persisted := cfg
 	persisted.Frame.ConfigPath = portablePath(base, cfg.Frame.ConfigPath)
 	persisted.Storage.SessionsDir = portablePath(base, cfg.Storage.SessionsDir)
@@ -277,6 +291,12 @@ func (cfg StoreConfig) Validate() error {
 	}
 	if strings.TrimSpace(cfg.Storage.OutputDir) == "" {
 		return errors.New("storage.output_dir is required")
+	}
+	if err := validateLocalStoragePath(cfg.Storage.SessionsDir); err != nil {
+		return fmt.Errorf("storage.sessions_dir: %w", err)
+	}
+	if err := validateLocalStoragePath(cfg.Storage.OutputDir); err != nil {
+		return fmt.Errorf("storage.output_dir: %w", err)
 	}
 	if cfg.Storage.SessionRetentionDays < 0 || cfg.Storage.SessionRetentionDays > 3650 {
 		return errors.New("storage.session_retention_days must be 0 (disabled) or between 1 and 3650")
