@@ -49,7 +49,7 @@ func newTestRunner(t *testing.T, cam *fake.Provider, cfgPath string, onEvent fun
 	outputDir := filepath.Join(root, "output")
 	runner := &Runner{Camera: cam, Renderer: render.New(), Output: output.NewLocal(outputDir), OnEvent: onEvent,
 		Sleep: func(ctx context.Context, _ time.Duration) error { return ctx.Err() }}
-	cfg := Config{FrameConfigPath: cfgPath, WorkDir: workDir, CaptureCount: 3, Countdown: 0, Interval: 0, CaptureWidth: 640, CaptureHeight: 480,
+	cfg := Config{FrameConfigPath: cfgPath, WorkDir: workDir, OutputDir: outputDir, CaptureCount: 3, Countdown: 0, Interval: 0, CaptureWidth: 640, CaptureHeight: 480,
 		SessionID: "0123456789abcdef0123456789abcdef"}
 	return runner, cfg, workDir, outputDir
 }
@@ -281,6 +281,121 @@ func TestExpiredContextMarksSessionTimedOut(t *testing.T) {
 	}
 }
 
+func TestNewSessionRefusesExistingWorkspaceWithoutOverwritingIt(t *testing.T) {
+	root := t.TempDir()
+	workDir := filepath.Join(root, "sessions")
+	outputDir := filepath.Join(root, "output")
+	sessionID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	sessionDir := filepath.Join(workDir, sessionID)
+	captureDir := filepath.Join(sessionDir, "captures")
+	if err := os.MkdirAll(captureDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	prior := []byte("previous session artifact")
+	priorPath := filepath.Join(sessionDir, "rendered.jpg")
+	if err := os.WriteFile(priorPath, prior, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cam := fake.New()
+	runner := &Runner{Camera: cam, Renderer: render.New(), Output: output.NewLocal(outputDir)}
+	result, err := runner.Run(context.Background(), Config{
+		FrameConfigPath: testFrameConfig(t), WorkDir: workDir, OutputDir: outputDir,
+		CaptureCount: 3, CaptureWidth: 640, CaptureHeight: 480, SessionID: sessionID,
+	})
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("Run error=%v, want existing workspace refusal", err)
+	}
+	if result.State != session.Failed {
+		t.Fatalf("result state=%s, want failed", result.State)
+	}
+	got, readErr := os.ReadFile(priorPath)
+	if readErr != nil || string(got) != string(prior) {
+		t.Fatalf("existing session artifact changed: got=%q err=%v", got, readErr)
+	}
+	if _, err := cam.Capture(context.Background(), camera.CaptureRequest{
+		Sequence: 1, Width: 640, Height: 480, OutputPath: filepath.Join(root, "must-not-exist.jpg"),
+	}); err == nil {
+		t.Fatal("camera should not have been opened for a colliding session ID")
+	}
+}
+
+func TestResumeSessionWithZeroCompletedCapturesUsesExistingEmptyWorkspace(t *testing.T) {
+	root := t.TempDir()
+	workDir := filepath.Join(root, "sessions")
+	outputDir := filepath.Join(root, "output")
+	sessionID := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	captureDir := filepath.Join(workDir, sessionID, "captures")
+	if err := os.MkdirAll(captureDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cam := fake.New()
+	runner := &Runner{Camera: cam, Renderer: render.New(), Output: output.NewLocal(outputDir),
+		Sleep: func(ctx context.Context, _ time.Duration) error { return ctx.Err() }}
+	result, err := runner.Run(context.Background(), Config{
+		FrameConfigPath: testFrameConfig(t), WorkDir: workDir, OutputDir: outputDir,
+		CaptureCount: 3, CaptureWidth: 640, CaptureHeight: 480,
+		SessionID: sessionID, ResumeSession: true, ResumeCaptureCount: 0,
+	})
+	if err != nil {
+		t.Fatalf("resume zero-capture session: %v", err)
+	}
+	if result.State != session.Completed || len(result.CapturePaths) != 3 {
+		t.Fatalf("unexpected resumed result: state=%s captures=%d", result.State, len(result.CapturePaths))
+	}
+}
+
+func TestResumeSessionRejectsUnexpectedExistingCaptureEntries(t *testing.T) {
+	root := t.TempDir()
+	workDir := filepath.Join(root, "sessions")
+	outputDir := filepath.Join(root, "output")
+	sessionID := "cccccccccccccccccccccccccccccccc"
+	captureDir := filepath.Join(workDir, sessionID, "captures")
+	if err := os.MkdirAll(captureDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(captureDir, "capture-01.jpg"), []byte("one"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(captureDir, "unexpected.tmp"), []byte("partial"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cam := fake.New()
+	runner := &Runner{Camera: cam, Renderer: render.New(), Output: output.NewLocal(outputDir)}
+	_, err := runner.Run(context.Background(), Config{
+		FrameConfigPath: testFrameConfig(t), WorkDir: workDir, OutputDir: outputDir,
+		CaptureCount: 3, CaptureWidth: 640, CaptureHeight: 480,
+		SessionID: sessionID, ResumeSession: true, ResumeCaptureCount: 1,
+	})
+	if err == nil || !strings.Contains(err.Error(), "expected exactly 1 completed captures") {
+		t.Fatalf("Run error=%v, want unexpected capture entry refusal", err)
+	}
+	if _, err := cam.Capture(context.Background(), camera.CaptureRequest{
+		Sequence: 1, Width: 640, Height: 480, OutputPath: filepath.Join(root, "must-not-exist.jpg"),
+	}); err == nil {
+		t.Fatal("camera should not have been opened for an unsafe resume workspace")
+	}
+}
+
+func TestRunRejectsOverlappingSessionAndOutputRootsBeforeCreatingSession(t *testing.T) {
+	root := t.TempDir()
+	sessions := filepath.Join(root, "sessions")
+	outputDir := filepath.Join(sessions, "photos")
+	sessionID := "dddddddddddddddddddddddddddddddd"
+	cam := fake.New()
+	runner := &Runner{Camera: cam, Renderer: render.New(), Output: output.NewLocal(outputDir)}
+	_, err := runner.Run(context.Background(), Config{
+		FrameConfigPath: testFrameConfig(t), WorkDir: sessions, OutputDir: outputDir,
+		CaptureCount: 3, CaptureWidth: 640, CaptureHeight: 480, SessionID: sessionID,
+	})
+	if err == nil || !strings.Contains(err.Error(), "non-overlapping roots") {
+		t.Fatalf("Run error=%v, want root overlap rejection", err)
+	}
+	if _, err := os.Stat(filepath.Join(sessions, sessionID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("session workspace created despite root overlap: %v", err)
+	}
+}
+
 func TestRepeatedSessionsCloseCameraAndKeepOutputsIsolated(t *testing.T) {
 	root := t.TempDir()
 	workDir := filepath.Join(root, "sessions")
@@ -297,6 +412,7 @@ func TestRepeatedSessionsCloseCameraAndKeepOutputsIsolated(t *testing.T) {
 		cfg := Config{
 			FrameConfigPath: framePath,
 			WorkDir:         workDir,
+			OutputDir:       outputDir,
 			CaptureCount:    3,
 			Countdown:       0,
 			Interval:        0,
@@ -380,13 +496,16 @@ func (c *blockingCamera) isClosed() bool {
 
 func TestDeadlineDuringCaptureClosesCameraAndTimesOutSession(t *testing.T) {
 	cam := &blockingCamera{}
+	root := t.TempDir()
+	outputDir := filepath.Join(root, "output")
 	runner := &Runner{
-		Camera: cam, Renderer: render.New(), Output: output.NewLocal(t.TempDir()),
+		Camera: cam, Renderer: render.New(), Output: output.NewLocal(outputDir),
 		Sleep: func(ctx context.Context, _ time.Duration) error { return ctx.Err() },
 	}
 	cfg := Config{
 		FrameConfigPath: testFrameConfig(t),
-		WorkDir:         filepath.Join(t.TempDir(), "sessions"),
+		WorkDir:         filepath.Join(root, "sessions"),
+		OutputDir:       filepath.Join(root, "output"),
 		CaptureCount:    3,
 		CaptureWidth:    640,
 		CaptureHeight:   480,
@@ -445,6 +564,7 @@ func TestRunCompletesCaptureRenderSaveAfterCameraRecovery(t *testing.T) {
 	cfg := Config{
 		FrameConfigPath: testFrameConfig(t),
 		WorkDir:         workDir,
+		OutputDir:       outputDir,
 		CaptureCount:    3,
 		CaptureWidth:    640,
 		CaptureHeight:   480,
@@ -513,7 +633,7 @@ func TestRunResumesExistingCapturesWithoutOverwritingThem(t *testing.T) {
 		Sleep: func(ctx context.Context, _ time.Duration) error { return ctx.Err() },
 	}
 	result, err := runner.Run(context.Background(), Config{
-		FrameConfigPath: cfgPath, WorkDir: workDir, CaptureCount: 3,
+		FrameConfigPath: cfgPath, WorkDir: workDir, OutputDir: outputDir, CaptureCount: 3,
 		Countdown: 0, Interval: 0, CaptureWidth: 640, CaptureHeight: 480,
 		SessionID: sessionID, ResumeCaptureCount: 1,
 	})

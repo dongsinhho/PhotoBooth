@@ -9,6 +9,13 @@ import (
 	"strings"
 )
 
+func canonicalLocalStoragePath(path string) (string, error) {
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("storage path %q is not absolute", path)
+	}
+	return resolveLinuxStoragePath(path)
+}
+
 func validateLocalStoragePath(path string) error {
 	path = strings.TrimSpace(path)
 	if path == "" {

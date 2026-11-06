@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	stationconfig "github.com/dongsinhho/PhotoBooth/internal/booth/config"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/framepackage"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/session"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/workflow"
@@ -957,5 +958,71 @@ func TestRetentionPreviewExpiresWhenPolicyChanges(t *testing.T) {
 	}
 	if _, err := os.Stat(sessionPath); err != nil {
 		t.Fatalf("policy change or stale apply removed data: %v", err)
+	}
+}
+
+func TestPlayerRuntimeConfigIsImmutableSnapshot(t *testing.T) {
+	app := NewApp()
+	cfg := stationconfig.Defaults()
+	cfg.Capture.Shots = 3
+	cfg.Camera.Width = 1280
+	cfg.Camera.Height = 720
+	app.stationConfig = cfg
+	app.framePath = filepath.Join(t.TempDir(), "frame-v1.json")
+	app.workDir = filepath.Join(t.TempDir(), "sessions-v1")
+	app.outputDir = filepath.Join(t.TempDir(), "output-v1")
+	app.playerShotCount = 3
+	app.playerCountdown = 3 * time.Second
+	app.playerInterval = time.Second
+
+	app.mu.Lock()
+	snapshot := app.playerRuntimeConfigLocked()
+	app.stationConfig.Capture.Shots = 9
+	app.stationConfig.Camera.Width = 1920
+	app.framePath = filepath.Join(t.TempDir(), "frame-v2.json")
+	app.workDir = filepath.Join(t.TempDir(), "sessions-v2")
+	app.outputDir = filepath.Join(t.TempDir(), "output-v2")
+	app.playerShotCount = 9
+	app.playerCountdown = 0
+	app.playerInterval = 0
+	app.mu.Unlock()
+
+	if snapshot.stationConfig.Capture.Shots != 3 || snapshot.stationConfig.Camera.Width != 1280 {
+		t.Fatalf("station config snapshot changed after app mutation: %+v", snapshot.stationConfig)
+	}
+	if snapshot.shotCount != 3 || snapshot.countdown != 3*time.Second || snapshot.interval != time.Second {
+		t.Fatalf("capture settings snapshot changed: %+v", snapshot)
+	}
+	if !strings.HasSuffix(snapshot.framePath, "frame-v1.json") ||
+		!strings.HasSuffix(snapshot.workDir, "sessions-v1") ||
+		!strings.HasSuffix(snapshot.outputDir, "output-v1") {
+		t.Fatalf("storage/frame path snapshot changed: %+v", snapshot)
+	}
+}
+
+func TestContinuePhotoSessionRejectsConcurrentSettingsSaveOrInvalidProfile(t *testing.T) {
+	const sessionID = "0123456789abcdef0123456789abcdef"
+	tests := []struct {
+		name           string
+		settingsError  string
+		settingsSaving bool
+		want           string
+	}{
+		{name: "settings save in progress", settingsSaving: true, want: "settings are being saved"},
+		{name: "invalid station settings", settingsError: "invalid profile", want: "station settings need attention"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := NewApp()
+			app.player = PlayerSession{ID: sessionID, State: string(session.Failed), Captured: 1, Total: 3}
+			app.settingsError = tt.settingsError
+			app.settingsSaving = tt.settingsSaving
+			if _, err := app.ContinuePhotoSession(sessionID); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("ContinuePhotoSession error=%v, want %q", err, tt.want)
+			}
+			if app.playerRunning {
+				t.Fatal("continue attempt should not mark a session running")
+			}
+		})
 	}
 }

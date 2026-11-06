@@ -28,6 +28,17 @@ var (
 // validateLocalStoragePath prevents local-only mode from writing session or
 // guest output data to UNC shares, mapped network drives, or directory
 // reparse points whose resolved target is network-backed.
+func canonicalLocalStoragePath(path string) (string, error) {
+	path = normalizeWindowsFinalPath(filepath.Clean(path))
+	if isWindowsUNCPath(path) {
+		return path, nil
+	}
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("storage path %q is not absolute", path)
+	}
+	return resolveWindowsStorageTarget(path)
+}
+
 func validateLocalStoragePath(path string) error {
 	path = normalizeWindowsFinalPath(strings.TrimSpace(path))
 	if path == "" {
@@ -42,7 +53,7 @@ func validateLocalStoragePath(path string) error {
 		return nil
 	}
 
-	resolved, err := resolveWindowsStorageTarget(path)
+	resolved, err := canonicalLocalStoragePath(path)
 	if err != nil {
 		return fmt.Errorf("resolve storage path %q: %w", path, err)
 	}

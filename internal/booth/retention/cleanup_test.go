@@ -181,7 +181,7 @@ func TestBuildPlanRejectsOverlappingRootsAndInvalidPolicy(t *testing.T) {
 		options Options
 		want    string
 	}{
-		{"overlapping", Options{SessionsDir: filepath.Join(base, "data"), OutputDir: filepath.Join(base, "data", "output"), Policy: Policy{SessionRetentionDays: 10, OutputRetentionDays: 10}}, "must not contain"},
+		{"overlapping", Options{SessionsDir: filepath.Join(base, "data"), OutputDir: filepath.Join(base, "data", "output"), Policy: Policy{SessionRetentionDays: 10, OutputRetentionDays: 10}}, "non-overlapping roots"},
 		{"negative", Options{SessionsDir: filepath.Join(base, "sessions"), OutputDir: filepath.Join(base, "output"), Policy: Policy{SessionRetentionDays: -1}}, "retention days"},
 		{"excessive", Options{SessionsDir: filepath.Join(base, "sessions"), OutputDir: filepath.Join(base, "output"), Policy: Policy{OutputRetentionDays: 3651}}, "retention days"},
 	}
@@ -413,5 +413,23 @@ func TestApplyRequiresMatchingConfirmationDigest(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("confirmed candidate remains: %v", err)
+	}
+}
+
+func TestBuildPlanRejectsOverlappingRootsEvenWhenOnePolicyIsDisabled(t *testing.T) {
+	root := t.TempDir()
+	sessions := filepath.Join(root, "sessions")
+	outputs := filepath.Join(sessions, "photos")
+	if err := os.MkdirAll(outputs, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := BuildPlan(context.Background(), Options{
+		SessionsDir: sessions,
+		OutputDir:   outputs,
+		Policy:      Policy{SessionRetentionDays: 30, OutputRetentionDays: 0},
+		Now:         time.Now(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "non-overlapping roots") {
+		t.Fatalf("BuildPlan error=%v, want root overlap rejection", err)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dongsinhho/PhotoBooth/internal/booth/camera"
+	stationconfig "github.com/dongsinhho/PhotoBooth/internal/booth/config"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/output"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/session"
 )
@@ -24,15 +25,19 @@ type Renderer interface {
 type Config struct {
 	FrameConfigPath string
 	WorkDir         string
+	OutputDir       string // Optional when the dispatcher does not expose a local root.
 	CaptureCount    int
 	Countdown       time.Duration
 	Interval        time.Duration
 	CaptureWidth    int
 	CaptureHeight   int
 	SessionID       string // Optional. Generated automatically when empty.
+	// ResumeSession permits reusing an existing, verified session workspace,
+	// including the case where the previous attempt failed before the first
+	// complete capture. It always requires an explicit SessionID.
+	ResumeSession bool
 	// ResumeCaptureCount reuses validated capture-01.jpg..capture-N.jpg from
-	// the same session directory and captures only the remaining shots. It
-	// requires an explicit SessionID and must be smaller than CaptureCount.
+	// the same session directory and captures only the remaining shots.
 	ResumeCaptureCount int
 }
 
@@ -100,8 +105,8 @@ func (r *Runner) Run(ctx context.Context, cfg Config) (result Result, runErr err
 			return result, errors.New("resume capture count must be at least zero and less than capture count")
 		}
 	}
-	if cfg.ResumeCaptureCount > 0 && cfg.SessionID == "" {
-		return result, errors.New("an explicit session ID is required when resuming captures")
+	if (cfg.ResumeSession || cfg.ResumeCaptureCount > 0) && cfg.SessionID == "" {
+		return result, errors.New("an explicit session ID is required when resuming a session")
 	}
 	if strings.TrimSpace(cfg.WorkDir) == "" {
 		return result, errors.New("work directory is required")
@@ -137,18 +142,70 @@ func (r *Runner) Run(ctx context.Context, cfg Config) (result Result, runErr err
 	if err := ctx.Err(); err != nil {
 		return r.fail(result, err)
 	}
+	if err := stationconfig.ValidateLocalStoragePath(cfg.WorkDir); err != nil {
+		return r.fail(result, fmt.Errorf("validate local sessions root: %w", err))
+	}
+	if strings.TrimSpace(cfg.OutputDir) != "" {
+		if err := stationconfig.ValidateLocalStoragePath(cfg.OutputDir); err != nil {
+			return r.fail(result, fmt.Errorf("validate local output root: %w", err))
+		}
+		if err := stationconfig.ValidateDistinctStorageRoots(cfg.WorkDir, cfg.OutputDir); err != nil {
+			return r.fail(result, fmt.Errorf("validate isolated session/output roots: %w", err))
+		}
+	}
+	if err := os.MkdirAll(cfg.WorkDir, 0o700); err != nil {
+		return r.fail(result, fmt.Errorf("prepare sessions root: %w", err))
+	}
 	sessionDir := filepath.Join(cfg.WorkDir, cfg.SessionID)
 	captureDir := filepath.Join(sessionDir, "captures")
-	if err := os.MkdirAll(captureDir, 0o700); err != nil {
-		return r.fail(result, fmt.Errorf("create session workspace: %w", err))
+	if err := stationconfig.ValidateStorageChild(cfg.WorkDir, sessionDir); err != nil {
+		return r.fail(result, fmt.Errorf("validate session workspace identity: %w", err))
+	}
+	if err := stationconfig.ValidateStorageChild(sessionDir, captureDir); err != nil {
+		return r.fail(result, fmt.Errorf("validate capture directory identity: %w", err))
+	}
+	resumeExisting := cfg.ResumeSession || cfg.ResumeCaptureCount > 0
+	if !resumeExisting {
+		// New sessions must claim a previously unused directory atomically.
+		// MkdirAll would silently reuse a stale/colliding session ID.
+		if err := os.Mkdir(sessionDir, 0o700); err != nil {
+			if errors.Is(err, os.ErrExist) {
+				return r.fail(result, fmt.Errorf("session workspace %q already exists; refusing to reuse or overwrite it", sessionDir))
+			}
+			return r.fail(result, fmt.Errorf("create new session workspace: %w", err))
+		}
+		if err := os.Mkdir(captureDir, 0o700); err != nil {
+			return r.fail(result, fmt.Errorf("create new session capture directory: %w", err))
+		}
+	} else {
+		if err := requireSessionDirectory(sessionDir, "session workspace"); err != nil {
+			return r.fail(result, err)
+		}
+		sessionEntries, readErr := os.ReadDir(sessionDir)
+		if readErr != nil {
+			return r.fail(result, fmt.Errorf("inspect resume session workspace: %w", readErr))
+		}
+		if len(sessionEntries) != 1 || sessionEntries[0].Name() != "captures" {
+			return r.fail(result, errors.New("resume session workspace must contain only the captures directory; refusing stale or unexpected session artifacts"))
+		}
+		if err := requireSessionDirectory(captureDir, "capture directory"); err != nil {
+			return r.fail(result, err)
+		}
+		entries, readErr := os.ReadDir(captureDir)
+		if readErr != nil {
+			return r.fail(result, fmt.Errorf("inspect existing captures: %w", readErr))
+		}
+		if len(entries) != cfg.ResumeCaptureCount {
+			return r.fail(result, fmt.Errorf("resume workspace contains %d entries; expected exactly %d completed captures", len(entries), cfg.ResumeCaptureCount))
+		}
 	}
 	for index := 0; index < cfg.ResumeCaptureCount; index++ {
 		expectedPath := filepath.Join(captureDir, fmt.Sprintf("capture-%02d.jpg", index+1))
-		info, statErr := os.Stat(expectedPath)
+		info, statErr := os.Lstat(expectedPath)
 		if statErr != nil {
 			return r.fail(result, fmt.Errorf("validate existing capture %d: %w", index+1, statErr))
 		}
-		if !info.Mode().IsRegular() || info.Size() == 0 {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 {
 			return r.fail(result, fmt.Errorf("existing capture %d is not a non-empty regular file", index+1))
 		}
 		result.CapturePaths = append(result.CapturePaths, expectedPath)
@@ -180,6 +237,12 @@ func (r *Runner) Run(ctx context.Context, cfg Config) (result Result, runErr err
 		}
 		if err := r.countdown(ctx, &result, cfg.Countdown, shot, cfg.CaptureCount); err != nil {
 			return r.fail(result, err)
+		}
+		if err := stationconfig.ValidateStorageChild(cfg.WorkDir, sessionDir); err != nil {
+			return r.fail(result, fmt.Errorf("revalidate session workspace before capture: %w", err))
+		}
+		if err := stationconfig.ValidateStorageChild(sessionDir, captureDir); err != nil {
+			return r.fail(result, fmt.Errorf("revalidate capture directory before capture: %w", err))
 		}
 		path := filepath.Join(captureDir, fmt.Sprintf("capture-%02d.jpg", shot))
 		captureStarted := time.Now()
@@ -225,6 +288,9 @@ func (r *Runner) Run(ctx context.Context, cfg Config) (result Result, runErr err
 
 	if err := r.transition(&result, session.Rendering, "compose captured images with selected frame"); err != nil {
 		return r.fail(result, err)
+	}
+	if err := stationconfig.ValidateStorageChild(cfg.WorkDir, sessionDir); err != nil {
+		return r.fail(result, fmt.Errorf("revalidate session workspace before render: %w", err))
 	}
 	renderedPath := filepath.Join(sessionDir, "rendered.jpg")
 	renderStarted := time.Now()
@@ -386,6 +452,17 @@ func newSessionID() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(id[:]), nil
+}
+
+func requireSessionDirectory(path, label string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspect %s %q: %w", label, path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("%s %q must be a real directory, not a symlink or file", label, path)
+	}
+	return nil
 }
 
 func validSessionID(id string) bool {

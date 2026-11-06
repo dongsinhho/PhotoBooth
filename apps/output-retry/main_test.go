@@ -114,25 +114,18 @@ func TestRunRejectsIncompleteSessionAndInvalidSessionID(t *testing.T) {
 }
 
 func TestRunRejectsOverlappingStorageRootsAndSymlinkedSession(t *testing.T) {
-	configPath, sessionID, rendered, outputs := createRetryFixture(t)
+	configPath, sessionID, rendered, _ := createRetryFixture(t)
 	cfg, err := stationconfig.Load(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg.Storage.OutputDir = cfg.Storage.SessionsDir
-	if err := stationconfig.Save(configPath, cfg); err != nil {
-		t.Fatal(err)
-	}
-	err = run([]string{"--config", configPath, "--session-id", sessionID}, &bytes.Buffer{}, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "must not contain one another") {
-		t.Fatalf("overlapping roots error=%v", err)
+	if err := stationconfig.Save(configPath, cfg); err == nil || !strings.Contains(err.Error(), "non-overlapping roots") {
+		t.Fatalf("overlapping roots save error=%v, want config rejection", err)
 	}
 
-	// Restore config and replace the session folder with a symlink where supported.
-	cfg.Storage.OutputDir = outputs
-	if err := stationconfig.Save(configPath, cfg); err != nil {
-		t.Fatal(err)
-	}
+	// Replace the session folder with a symlink where supported. The failed
+	// config save above must leave the original, separated roots untouched.
 	sessionDir := filepath.Dir(rendered)
 	if err := os.Rename(sessionDir, sessionDir+".saved"); err != nil {
 		t.Fatal(err)
@@ -152,7 +145,7 @@ func TestRunRejectsOverlappingStorageRootsAndSymlinkedSession(t *testing.T) {
 		_ = os.Rename(sessionDir+".saved", sessionDir)
 	}()
 	err = run([]string{"--config", configPath, "--session-id", sessionID}, &bytes.Buffer{}, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "session directory") {
+	if err == nil || !strings.Contains(err.Error(), "session identity") {
 		t.Fatalf("symlinked session error=%v", err)
 	}
 }

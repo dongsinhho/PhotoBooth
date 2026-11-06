@@ -139,3 +139,31 @@ func TestCoordinatorRejectsEmptyOrInvalidJobs(t *testing.T) {
 		t.Fatal("expected invalid session ID to fail before dispatch")
 	}
 }
+
+func TestLocalExecuteNeverOverwritesAnExistingSessionPhoto(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "photos")
+	sessionDir := filepath.Join(root, testSessionID)
+	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	finalPath := filepath.Join(sessionDir, "photo.jpg")
+	previous := []byte("previous session's finalized photo")
+	if err := os.WriteFile(finalPath, previous, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source := writeOutputSource(t)
+
+	result, err := NewLocal(root).Execute(context.Background(), Job{
+		SessionID: testSessionID, SourcePath: source,
+	})
+	if err == nil {
+		t.Fatal("Execute unexpectedly replaced an existing finalized photo")
+	}
+	if result.OutputPath != "" {
+		t.Fatalf("failed Execute returned output path %q", result.OutputPath)
+	}
+	got, readErr := os.ReadFile(finalPath)
+	if readErr != nil || string(got) != string(previous) {
+		t.Fatalf("existing output changed: got=%q readErr=%v", got, readErr)
+	}
+}

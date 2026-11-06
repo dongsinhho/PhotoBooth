@@ -18,6 +18,7 @@ import (
 	"github.com/dongsinhho/PhotoBooth/internal/booth/camera"
 	fakecamera "github.com/dongsinhho/PhotoBooth/internal/booth/camera/fake"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/camera/recovery"
+	stationconfig "github.com/dongsinhho/PhotoBooth/internal/booth/config"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/output"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/render"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/session"
@@ -27,6 +28,28 @@ import (
 
 //go:embed assets/photo-strip-v1.json
 var embeddedSampleFrame []byte
+
+type playerRuntimeConfig struct {
+	stationConfig stationconfig.StoreConfig
+	framePath     string
+	workDir       string
+	outputDir     string
+	shotCount     int
+	countdown     time.Duration
+	interval      time.Duration
+}
+
+func (a *App) playerRuntimeConfigLocked() playerRuntimeConfig {
+	return playerRuntimeConfig{
+		stationConfig: a.stationConfig,
+		framePath:     a.framePath,
+		workDir:       a.workDir,
+		outputDir:     a.outputDir,
+		shotCount:     a.playerShotCount,
+		countdown:     a.playerCountdown,
+		interval:      a.playerInterval,
+	}
+}
 
 type PlayerSession struct {
 	ID               string   `json:"id"`
@@ -103,11 +126,12 @@ func (a *App) startPhotoSession(demo bool) (PlayerSession, error) {
 		a.mu.Unlock()
 		return PlayerSession{}, err
 	}
+	runConfig := a.playerRuntimeConfigLocked()
 	mode, message := "Windows webcam", "Preparing camera and frame…"
 	if demo {
 		mode, message = "Synthetic camera", "Preparing a demo capture…"
 	}
-	a.player = PlayerSession{ID: id, State: "preflight", Total: a.playerShotCount, Message: message, CameraMode: mode, DemoMode: demo}
+	a.player = PlayerSession{ID: id, State: "preflight", Total: runConfig.shotCount, Message: message, CameraMode: mode, DemoMode: demo}
 	ctx, cancel := context.WithCancel(a.playerBaseContext())
 	a.playerCancel, a.playerRunning = cancel, true
 	snapshot := clonePlayerSession(a.player)
@@ -115,7 +139,7 @@ func (a *App) startPhotoSession(demo bool) (PlayerSession, error) {
 	a.emitPlayerSession(snapshot)
 	go func() {
 		defer cancel()
-		a.runPhotoSession(ctx, id, 0, demo)
+		a.runPhotoSession(ctx, id, 0, demo, false, runConfig)
 	}()
 	return snapshot, nil
 }
@@ -123,6 +147,15 @@ func (a *App) startPhotoSession(demo bool) (PlayerSession, error) {
 // ContinuePhotoSession preserves earlier shots and retries only the unfinished ones.
 func (a *App) ContinuePhotoSession(sessionID string) (PlayerSession, error) {
 	a.mu.Lock()
+	if a.settingsError != "" {
+		message := a.settingsError
+		a.mu.Unlock()
+		return PlayerSession{}, fmt.Errorf("station settings need attention before continuing capture: %s", message)
+	}
+	if a.settingsSaving {
+		a.mu.Unlock()
+		return PlayerSession{}, errors.New("station settings are being saved; try again in a moment")
+	}
 	if a.outputRetrying {
 		a.mu.Unlock()
 		return PlayerSession{}, errors.New("wait for the local output retry to finish")
@@ -148,6 +181,7 @@ func (a *App) ContinuePhotoSession(sessionID string) (PlayerSession, error) {
 		return PlayerSession{}, errors.New("all photos have already been captured; start a new session")
 	}
 	resumeCount, demo := a.player.Captured, a.player.DemoMode
+	runConfig := a.playerRuntimeConfigLocked()
 	a.player.State = "reconnecting"
 	a.player.Message = "Reopening the camera; completed photos will be kept…"
 	a.player.ErrorMessage = ""
@@ -158,7 +192,7 @@ func (a *App) ContinuePhotoSession(sessionID string) (PlayerSession, error) {
 	a.emitPlayerSession(snapshot)
 	go func() {
 		defer cancel()
-		a.runPhotoSession(ctx, sessionID, resumeCount, demo)
+		a.runPhotoSession(ctx, sessionID, resumeCount, demo, true, runConfig)
 	}()
 	return snapshot, nil
 }
@@ -356,25 +390,24 @@ func (a *App) OpenPhotoOutputFolder(sessionID string) error {
 	return exec.Command("explorer.exe", "/select,", path).Start()
 }
 
-func (a *App) runPhotoSession(ctx context.Context, sessionID string, resumeCount int, demo bool) {
+func (a *App) runPhotoSession(ctx context.Context, sessionID string, resumeCount int, demo bool, resumeExisting bool, runConfig playerRuntimeConfig) {
 	var provider camera.Provider
 	if demo {
 		provider = fakecamera.New()
 	} else {
-		config := a.stationConfig
-		provider = newConfiguredCameraProvider(config, func(event recovery.Event) {
+		provider = newConfiguredCameraProvider(runConfig.stationConfig, func(event recovery.Event) {
 			a.handleRecoveryEvent(sessionID, event)
 		})
 	}
 	runner := &workflow.Runner{
-		Camera: provider, Renderer: render.New(), Output: output.NewLocal(a.outputDir),
+		Camera: provider, Renderer: render.New(), Output: output.NewLocal(runConfig.outputDir),
 		OnEvent: func(event workflow.Event) { a.handleWorkflowEvent(sessionID, event) },
 	}
 	result, runErr := runner.Run(ctx, workflow.Config{
-		FrameConfigPath: a.framePath, WorkDir: a.workDir, CaptureCount: a.playerShotCount,
-		CaptureWidth: a.stationConfig.Camera.Width, CaptureHeight: a.stationConfig.Camera.Height,
-		SessionID: sessionID, ResumeCaptureCount: resumeCount,
-		Countdown: a.playerCountdown, Interval: a.playerInterval,
+		FrameConfigPath: runConfig.framePath, WorkDir: runConfig.workDir, OutputDir: runConfig.outputDir, CaptureCount: runConfig.shotCount,
+		CaptureWidth: runConfig.stationConfig.Camera.Width, CaptureHeight: runConfig.stationConfig.Camera.Height,
+		SessionID: sessionID, ResumeSession: resumeExisting, ResumeCaptureCount: resumeCount,
+		Countdown: runConfig.countdown, Interval: runConfig.interval,
 	})
 	previews := make([]string, len(result.CapturePaths))
 	for i, path := range result.CapturePaths {
@@ -409,7 +442,7 @@ func (a *App) runPhotoSession(ctx context.Context, sessionID string, resumeCount
 		if result.State == session.PartialSuccess {
 			a.player.Message = "The photo strip was saved, but one or more output targets did not finish."
 		} else {
-			a.player.Message = fmt.Sprintf("All %d photos were captured, rendered, and saved locally.", a.playerShotCount)
+			a.player.Message = fmt.Sprintf("All %d photos were captured, rendered, and saved locally.", runConfig.shotCount)
 		}
 	}
 	snapshot := clonePlayerSession(a.player)

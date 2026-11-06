@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
+
+	stationconfig "github.com/dongsinhho/PhotoBooth/internal/booth/config"
 )
 
 // RetryLocalFromSession validates a completed session's preserved captures and
@@ -40,18 +41,30 @@ func RetryLocalFromSession(ctx context.Context, sessionsRoot, outputRoot, sessio
 	if err != nil {
 		return "", fmt.Errorf("resolve output root: %w", err)
 	}
-	if retryPathsOverlap(sessionsRoot, outputRoot) {
-		return "", errors.New("sessions_dir and output_dir must not contain one another; refusing output retry")
+	if err := stationconfig.ValidateLocalStoragePath(sessionsRoot); err != nil {
+		return "", fmt.Errorf("validate sessions root for output retry: %w", err)
+	}
+	if err := stationconfig.ValidateLocalStoragePath(outputRoot); err != nil {
+		return "", fmt.Errorf("validate output root for retry: %w", err)
+	}
+	if err := stationconfig.ValidateDistinctStorageRoots(sessionsRoot, outputRoot); err != nil {
+		return "", fmt.Errorf("refuse output retry: %w", err)
 	}
 	if err := requireRetryDirectory(sessionsRoot, "sessions root"); err != nil {
 		return "", err
 	}
 
 	sessionDir := filepath.Join(sessionsRoot, sessionID)
+	if err := stationconfig.ValidateStorageChild(sessionsRoot, sessionDir); err != nil {
+		return "", fmt.Errorf("validate session identity for output retry: %w", err)
+	}
 	if err := requireRetryDirectory(sessionDir, "session directory"); err != nil {
 		return "", err
 	}
 	captureDir := filepath.Join(sessionDir, "captures")
+	if err := stationconfig.ValidateStorageChild(sessionDir, captureDir); err != nil {
+		return "", fmt.Errorf("validate capture directory for output retry: %w", err)
+	}
 	if err := requireRetryDirectory(captureDir, "capture directory"); err != nil {
 		return "", err
 	}
@@ -126,23 +139,4 @@ func ensureRetryOutputAvailable(outputRoot, sessionID string) error {
 		return fmt.Errorf("inspect session output %q: %w", sessionOutput, err)
 	}
 	return nil
-}
-
-func retryPathsOverlap(a, b string) bool {
-	normalize := func(path string) string {
-		path = filepath.Clean(path)
-		if runtime.GOOS == "windows" {
-			path = strings.ToLower(path)
-		}
-		return path
-	}
-	contains := func(parent, child string) bool {
-		rel, err := filepath.Rel(normalize(parent), normalize(child))
-		if err != nil || filepath.IsAbs(rel) || rel == ".." ||
-			strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return false
-		}
-		return true
-	}
-	return contains(a, b) || contains(b, a)
 }

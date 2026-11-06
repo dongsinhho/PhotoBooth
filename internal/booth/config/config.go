@@ -166,6 +166,9 @@ func Load(path string) (StoreConfig, error) {
 	if err := validateLocalStoragePath(cfg.Storage.OutputDir); err != nil {
 		return StoreConfig{}, fmt.Errorf("storage.output_dir: %w", err)
 	}
+	if err := ValidateDistinctStorageRoots(cfg.Storage.SessionsDir, cfg.Storage.OutputDir); err != nil {
+		return StoreConfig{}, err
+	}
 	return cfg, nil
 }
 
@@ -192,6 +195,9 @@ func Save(path string, cfg StoreConfig) error {
 	}
 	if err := validateLocalStoragePath(resolvedOutput); err != nil {
 		return fmt.Errorf("storage.output_dir: %w", err)
+	}
+	if err := ValidateDistinctStorageRoots(resolvedSessions, resolvedOutput); err != nil {
+		return err
 	}
 	persisted := cfg
 	persisted.Frame.ConfigPath = portablePath(base, cfg.Frame.ConfigPath)
@@ -297,6 +303,9 @@ func (cfg StoreConfig) Validate() error {
 	}
 	if err := validateLocalStoragePath(cfg.Storage.OutputDir); err != nil {
 		return fmt.Errorf("storage.output_dir: %w", err)
+	}
+	if err := ValidateDistinctStorageRoots(cfg.Storage.SessionsDir, cfg.Storage.OutputDir); err != nil {
+		return err
 	}
 	if cfg.Storage.SessionRetentionDays < 0 || cfg.Storage.SessionRetentionDays > 3650 {
 		return errors.New("storage.session_retention_days must be 0 (disabled) or between 1 and 3650")

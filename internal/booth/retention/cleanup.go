@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	stationconfig "github.com/dongsinhho/PhotoBooth/internal/booth/config"
 )
 
 const (
@@ -123,13 +125,19 @@ func BuildPlan(ctx context.Context, options Options) (Plan, error) {
 			options.OutputDir = filepath.Clean(absolute)
 		}
 	}
+	if err := stationconfig.ValidateLocalStoragePath(options.SessionsDir); err != nil {
+		return plan, fmt.Errorf("validate retention sessions root: %w", err)
+	}
+	if err := stationconfig.ValidateLocalStoragePath(options.OutputDir); err != nil {
+		return plan, fmt.Errorf("validate retention output root: %w", err)
+	}
+	if err := stationconfig.ValidateDistinctStorageRoots(options.SessionsDir, options.OutputDir); err != nil {
+		return plan, fmt.Errorf("refuse retention plan: %w", err)
+	}
 	plan.options, plan.GeneratedAt = options, options.Now
 	if options.Policy.SessionRetentionDays == 0 && options.Policy.OutputRetentionDays == 0 {
 		plan.Disabled = true
 		return plan, nil
-	}
-	if options.Policy.SessionRetentionDays > 0 && options.Policy.OutputRetentionDays > 0 && pathsOverlap(options.SessionsDir, options.OutputDir) {
-		return plan, errors.New("session and output roots must not contain one another when both retention policies are enabled")
 	}
 	plan.rootSnapshots = make(map[string]rootSnapshot, 2)
 	if options.Policy.SessionRetentionDays > 0 {
@@ -393,17 +401,6 @@ func eligible(modified time.Time, days int, now time.Time) bool {
 		return false
 	}
 	return !modified.After(now.Add(-time.Duration(days) * 24 * time.Hour))
-}
-
-func pathsOverlap(a, b string) bool {
-	contains := func(parent, child string) bool {
-		rel, err := filepath.Rel(filepath.Clean(parent), filepath.Clean(child))
-		if err != nil || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return false
-		}
-		return true
-	}
-	return contains(a, b) || contains(b, a)
 }
 
 func rootForKind(options Options, kind string) string {

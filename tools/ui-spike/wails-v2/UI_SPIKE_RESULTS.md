@@ -660,3 +660,25 @@ Validation:
 - Wails module go test/vet and run-photobooth.ps1 -NoLaunch Windows build: PASS. No app/camera was started by the build.
 
 Limitations: the network filesystem set is explicit; unknown remote FUSE types may not be detected. macOS/other platforms retain an unclassified fallback. There remains a narrow TOCTOU window if a mount/reparse target changes after the last validation but before filesystem operations. This is a best-effort local-mode guard, not a filesystem sandbox. Linux runtime/mount integration remains pending; Linux GUI build stays pending per user request.
+
+## Session/output identity isolation and immutable run snapshot (2026-11-06)
+
+- Station sessions_dir and output_dir are now required to be separate, non-overlapping canonical roots in direct validation, Load-after-resolution and Save-before-write. Retention planning and local-output retry enforce the same rule even outside Settings.
+- Added ValidateStorageChild(root, child): the resolved child must remain an immediate child of the canonical root and retain the requested basename. Workflow validates the session workspace and captures directory before use, before each capture and before render. Retry validates the session/captures identity. LocalProvider validates output session identity both before and after directory creation.
+- New workflow sessions use atomic os.Mkdir and fail rather than reusing an existing session ID/workspace. Continue passes an explicit resume flag even with zero completed shots; resume requires a real session directory containing only captures, and exactly the expected completed numbered, non-empty regular capture files. Unexpected files or symlinked captures are rejected.
+- LocalProvider.Execute now uses exclusive publication, so an existing finalized photo for the same session cannot be overwritten during normal dispatcher operation. Retry was already using exclusive publication.
+- Wails player takes a locked runtime snapshot of station config, frame path, sessions/output roots, shot count and timing at start/continue. Settings cannot be changed while a session runs; Continue also refuses while settings save is active or profile load warning is present.
+- Tests cover: root equality/nesting and aliases; actual Windows directory junctions to prove resolved overlap and session identity redirection are rejected; session-ID collision keeps old bytes unchanged and does not open camera; resume with zero existing captures; unexpected capture entries; overlapping roots blocked before creating a session; no-overwrite dispatcher output; retry child identity; and immutable Wails runtime snapshot / Continue guards.
+
+Validation:
+- Root go test -count=1 ./...: PASS.
+- Root go vet ./...: PASS.
+- Root Windows go build ./...: PASS.
+- Root Linux/amd64 CGO_ENABLED=0 go build ./...: PASS (compile only).
+- Linux config/workflow/output/retention test binaries compile: PASS (not executed on Linux).
+- Wails module go test -count=1 ./... and go vet ./...: PASS.
+- Windows Wails Preview run-photobooth.ps1 -NoLaunch: PASS; build-only, no app/camera launched.
+- Windows junction-specific tests: PASS, including overlap through a junction and session-child redirect.
+- No Linux GUI/runtime/mount, physical camera, soak, image-quality or printer test was run.
+
+Limits: checks are repeated close to use but are not a kernel-enforced filesystem sandbox; a narrow TOCTOU window remains. Linux-specific logic is compile-tested only until a Linux host is available. Unknown network FUSE providers and macOS mount classification remain pending.

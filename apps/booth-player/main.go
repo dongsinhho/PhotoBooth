@@ -155,6 +155,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	result, err := runner.Run(ctx, workflow.Config{
 		FrameConfigPath: framePath,
 		WorkDir:         *workDir,
+		OutputDir:       *outputDir,
 		CaptureCount:    *shots,
 		Countdown:       *countdown,
 		Interval:        *interval,

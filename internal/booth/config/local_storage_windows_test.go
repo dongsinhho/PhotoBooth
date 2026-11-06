@@ -117,3 +117,45 @@ func TestNormalizeWindowsFinalPathPreservesVolumeGUIDPath(t *testing.T) {
 		t.Fatalf("volume-GUID path %q lost its absolute volume identity", got)
 	}
 }
+
+func TestValidateDistinctStorageRootsDetectsDirectoryJunctionOverlap(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "real-sessions")
+	if err := os.Mkdir(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	junction := filepath.Join(root, "photos-alias")
+	command := exec.Command("cmd", "/c", "mklink", "/J", junction, real)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Skipf("directory junction creation is unavailable: %v (%s)", err, output)
+	}
+	t.Cleanup(func() { _ = os.Remove(junction) })
+
+	err := ValidateDistinctStorageRoots(real, filepath.Join(junction, "photos"))
+	if err == nil || !strings.Contains(err.Error(), "non-overlapping roots") {
+		t.Fatalf("ValidateDistinctStorageRoots() error=%v, want junction overlap rejection", err)
+	}
+}
+
+func TestValidateStorageChildRejectsJunctionRedirectingSessionIdentity(t *testing.T) {
+	root := t.TempDir()
+	sessionsRoot := filepath.Join(root, "sessions")
+	backingRoot := filepath.Join(root, "backing")
+	if err := os.MkdirAll(sessionsRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(backingRoot, "session-one")
+	if err := os.MkdirAll(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	junction := filepath.Join(sessionsRoot, "session-one")
+	command := exec.Command("cmd", "/c", "mklink", "/J", junction, target)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Skipf("directory junction creation is unavailable: %v (%s)", err, output)
+	}
+	t.Cleanup(func() { _ = os.Remove(junction) })
+
+	if err := ValidateStorageChild(sessionsRoot, junction); err == nil {
+		t.Fatal("session workspace junction redirected outside its assigned root must be rejected")
+	}
+}

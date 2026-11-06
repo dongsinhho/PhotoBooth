@@ -30,7 +30,9 @@ func NewLocal(root string) *LocalProvider { return &LocalProvider{RootDir: root}
 func (p *LocalProvider) Name() string { return TargetLocalStorage }
 
 func (p *LocalProvider) Execute(ctx context.Context, job Job) (TargetOutput, error) {
-	path, err := p.Save(ctx, job.SessionID, job.SourcePath)
+	// A dispatcher is publishing a finalized session artifact. Never replace
+	// an existing photo for the same session identity.
+	path, err := p.SaveExclusive(ctx, job.SessionID, job.SourcePath)
 	return TargetOutput{OutputPath: path}, err
 }
 
@@ -81,12 +83,18 @@ func (p *LocalProvider) save(ctx context.Context, sessionID, sourcePath string, 
 	}
 
 	outDir := filepath.Join(p.RootDir, sessionID)
+	if err := stationconfig.ValidateStorageChild(p.RootDir, outDir); err != nil {
+		return "", fmt.Errorf("validate output session identity: %w", err)
+	}
 	if err := ops.MkdirAll(outDir, 0o700); err != nil {
 		return "", storageOperationError("create session output directory", err)
 	}
 	// Re-resolve the now-existing session directory immediately before creating
 	// any temporary photo bytes. This catches an existing junction/symlink or
 	// mount target that was not present during configuration load.
+	if err := stationconfig.ValidateStorageChild(p.RootDir, outDir); err != nil {
+		return "", fmt.Errorf("revalidate output session identity: %w", err)
+	}
 	if err := p.validateRoot(outDir); err != nil {
 		return "", fmt.Errorf("validate local session output directory: %w", err)
 	}

@@ -86,7 +86,7 @@ func TestRetryLocalFromSessionRejectsUnsafeOrIncompleteInput(t *testing.T) {
 	})
 	t.Run("overlapping roots", func(t *testing.T) {
 		sessions, _, _ := makeRetrySession(t, 3)
-		if _, err := RetryLocalFromSession(context.Background(), sessions, filepath.Join(sessions, "nested-output"), retryFixtureSessionID, 3); err == nil || !strings.Contains(err.Error(), "must not contain one another") {
+		if _, err := RetryLocalFromSession(context.Background(), sessions, filepath.Join(sessions, "nested-output"), retryFixtureSessionID, 3); err == nil || !strings.Contains(err.Error(), "non-overlapping roots") {
 			t.Fatalf("error=%v, want overlapping roots refusal", err)
 		}
 	})
@@ -186,7 +186,7 @@ func TestRetryLocalFromSessionRejectsSymlinkedSessionDirectory(t *testing.T) {
 		_ = os.Remove(sessionDir)
 		_ = os.Rename(backup, sessionDir)
 	}()
-	if _, err := RetryLocalFromSession(context.Background(), sessionsRoot, outputRoot, retryFixtureSessionID, 3); err == nil || !strings.Contains(err.Error(), "session directory") {
-		t.Fatalf("error=%v, want symlinked session refusal", err)
+	if _, err := RetryLocalFromSession(context.Background(), sessionsRoot, outputRoot, retryFixtureSessionID, 3); err == nil || !strings.Contains(err.Error(), "session identity") {
+		t.Fatalf("error=%v, want redirected session identity refusal", err)
 	}
 }
