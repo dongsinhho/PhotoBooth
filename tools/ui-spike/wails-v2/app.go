@@ -17,6 +17,7 @@ import (
 	"time"
 
 	stationconfig "github.com/dongsinhho/PhotoBooth/internal/booth/config"
+	"github.com/dongsinhho/PhotoBooth/internal/booth/retention"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -54,12 +55,16 @@ type App struct {
 	playerInterval  time.Duration
 	playerShotCount int
 
-	playerDataDir  string // injectable by tests; empty uses the OS user cache directory
-	settingsPath   string
-	stationConfig  stationconfig.StoreConfig
-	settingsError  string
-	settingsSaving bool
-	pathsMu        sync.Mutex
+	playerDataDir        string // injectable by tests; empty uses the OS user cache directory
+	settingsPath         string
+	stationConfig        stationconfig.StoreConfig
+	settingsError        string
+	settingsSaving       bool
+	retentionBusy        bool
+	retentionPlan        *retention.Plan
+	retentionPlanDigest  string
+	retentionPlanOptions retention.Options
+	pathsMu              sync.Mutex
 }
 
 type DemoSession struct {

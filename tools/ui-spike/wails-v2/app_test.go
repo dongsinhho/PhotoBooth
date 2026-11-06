@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -745,4 +746,216 @@ func TestRetryPhotoOutputRequiresAllCapturesAndBlocksConcurrentMutations(t *test
 	app.mu.Lock()
 	app.outputRetrying = false
 	app.mu.Unlock()
+}
+
+func TestRetentionCleanupWailsFlowRequiresReviewedPlan(t *testing.T) {
+	app := NewApp()
+	app.playerDataDir = t.TempDir()
+
+	settings, err := app.GetPlayerSettings()
+	if err != nil {
+		t.Fatalf("GetPlayerSettings: %v", err)
+	}
+	if settings.SessionRetentionDays != 0 || settings.OutputRetentionDays != 0 {
+		t.Fatalf("retention must default to disabled: %+v", settings)
+	}
+	settings.SessionRetentionDays = 30
+	settings.OutputRetentionDays = 30
+	saved, err := app.SavePlayerSettings(settings)
+	if err != nil {
+		t.Fatalf("SavePlayerSettings with retention policy: %v", err)
+	}
+	if saved.SessionRetentionDays != 30 || saved.OutputRetentionDays != 30 {
+		t.Fatalf("retention policy did not round-trip: %+v", saved)
+	}
+
+	const sessionID = "0123456789abcdef0123456789abcdef"
+	sessionPath := seedExpiredRetentionSession(t, app.workDir, sessionID)
+	outputPath := seedExpiredRetentionOutput(t, app.outputDir, sessionID)
+
+	preview, err := app.PreviewRetentionCleanup()
+	if err != nil {
+		t.Fatalf("PreviewRetentionCleanup: %v", err)
+	}
+	if preview.Disabled || preview.CandidateCount != 2 || preview.TotalFiles != 3 || preview.TotalBytes == 0 {
+		t.Fatalf("unexpected dry-run summary: %+v", preview)
+	}
+	if len(preview.Candidates) != 2 || preview.PlanDigest == "" {
+		t.Fatalf("preview did not expose the exact candidate list and digest: %+v", preview)
+	}
+	if _, err := os.Stat(sessionPath); err != nil {
+		t.Fatalf("dry-run changed session data: %v", err)
+	}
+	if _, err := os.Stat(outputPath); err != nil {
+		t.Fatalf("dry-run changed output data: %v", err)
+	}
+
+	if _, err := app.ApplyRetentionCleanup(strings.Repeat("0", 64)); err == nil {
+		t.Fatal("ApplyRetentionCleanup accepted a mismatched digest")
+	}
+	if _, err := os.Stat(sessionPath); err != nil {
+		t.Fatalf("wrong digest changed session data: %v", err)
+	}
+	if _, err := os.Stat(outputPath); err != nil {
+		t.Fatalf("wrong digest changed output data: %v", err)
+	}
+
+	result, err := app.ApplyRetentionCleanup(preview.PlanDigest)
+	if err != nil {
+		t.Fatalf("ApplyRetentionCleanup with reviewed digest: %v", err)
+	}
+	if result.RemovedCandidates != 2 || result.RemovedFiles != 3 || result.RemovedBytes != preview.TotalBytes {
+		t.Fatalf("unexpected apply result: %+v (preview %+v)", result, preview)
+	}
+	for _, path := range []string{sessionPath, outputPath} {
+		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("expected reviewed expired folder %q to be removed, stat error=%v", path, err)
+		}
+	}
+	if _, err := app.ApplyRetentionCleanup(preview.PlanDigest); err == nil {
+		t.Fatal("a one-use retention plan was replayed")
+	}
+
+	reloaded := NewApp()
+	reloaded.playerDataDir = app.playerDataDir
+	persisted, err := reloaded.GetPlayerSettings()
+	if err != nil {
+		t.Fatalf("reload retention settings: %v", err)
+	}
+	if persisted.SessionRetentionDays != 30 || persisted.OutputRetentionDays != 30 {
+		t.Fatalf("retention policy did not survive restart: %+v", persisted)
+	}
+}
+
+func TestRetentionCleanupDefaultsRemainDisabled(t *testing.T) {
+	app := NewApp()
+	app.playerDataDir = t.TempDir()
+	settings, err := app.GetPlayerSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedExpiredRetentionSession(t, app.workDir, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+
+	preview, err := app.PreviewRetentionCleanup()
+	if err != nil {
+		t.Fatalf("PreviewRetentionCleanup with disabled policy: %v", err)
+	}
+	if !preview.Disabled || preview.CandidateCount != 0 || preview.TotalFiles != 0 {
+		t.Fatalf("disabled policy should produce an empty, non-destructive plan: %+v", preview)
+	}
+	if settings.SessionRetentionDays != 0 || settings.OutputRetentionDays != 0 {
+		t.Fatalf("default settings unexpectedly enable retention: %+v", settings)
+	}
+	if _, err := app.ApplyRetentionCleanup(preview.PlanDigest); err == nil {
+		t.Fatal("disabled or empty cleanup plan must not be applicable")
+	}
+}
+
+func TestRetentionOperationsRejectConcurrentSessionAndSettingsChanges(t *testing.T) {
+	app := NewApp()
+	app.playerDataDir = t.TempDir()
+	settings, err := app.GetPlayerSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	app.mu.Lock()
+	app.retentionBusy = true
+	app.mu.Unlock()
+	if _, err := app.StartDemoPhotoSession(); err == nil || !strings.Contains(err.Error(), "retention cleanup") {
+		t.Fatalf("StartDemoPhotoSession error=%v, want retention guard", err)
+	}
+	if _, err := app.SavePlayerSettings(settings); err == nil || !strings.Contains(err.Error(), "retention cleanup") {
+		t.Fatalf("SavePlayerSettings error=%v, want retention guard", err)
+	}
+	app.mu.Lock()
+	app.retentionBusy = false
+	app.mu.Unlock()
+}
+
+func seedExpiredRetentionSession(t *testing.T, root, sessionID string) string {
+	t.Helper()
+	sessionPath := filepath.Join(root, sessionID)
+	capturesPath := filepath.Join(sessionPath, "captures")
+	if err := os.MkdirAll(capturesPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range []struct {
+		name string
+		body string
+	}{
+		{name: "capture-01.jpg", body: "capture"},
+	} {
+		if err := os.WriteFile(filepath.Join(capturesPath, file.name), []byte(file.body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(sessionPath, "rendered.jpg"), []byte("rendered"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-45 * 24 * time.Hour)
+	for _, path := range []string{
+		filepath.Join(capturesPath, "capture-01.jpg"),
+		filepath.Join(sessionPath, "rendered.jpg"),
+		capturesPath,
+		sessionPath,
+	} {
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return sessionPath
+}
+
+func seedExpiredRetentionOutput(t *testing.T, root, sessionID string) string {
+	t.Helper()
+	outputPath := filepath.Join(root, sessionID)
+	if err := os.MkdirAll(outputPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	photoPath := filepath.Join(outputPath, "photo.jpg")
+	if err := os.WriteFile(photoPath, []byte("final-photo"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-45 * 24 * time.Hour)
+	if err := os.Chtimes(photoPath, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(outputPath, old, old); err != nil {
+		t.Fatal(err)
+	}
+	return outputPath
+}
+
+func TestRetentionPreviewExpiresWhenPolicyChanges(t *testing.T) {
+	app := NewApp()
+	app.playerDataDir = t.TempDir()
+	settings, err := app.GetPlayerSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings.SessionRetentionDays = 30
+	if _, err := app.SavePlayerSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	sessionPath := seedExpiredRetentionSession(t, app.workDir, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+
+	preview, err := app.PreviewRetentionCleanup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.CandidateCount != 1 {
+		t.Fatalf("candidate_count=%d, want 1", preview.CandidateCount)
+	}
+
+	settings.SessionRetentionDays = 31
+	if _, err := app.SavePlayerSettings(settings); err != nil {
+		t.Fatalf("change retention policy: %v", err)
+	}
+	if _, err := app.ApplyRetentionCleanup(preview.PlanDigest); err == nil {
+		t.Fatal("stale preview remained applicable after policy change")
+	}
+	if _, err := os.Stat(sessionPath); err != nil {
+		t.Fatalf("policy change or stale apply removed data: %v", err)
+	}
 }

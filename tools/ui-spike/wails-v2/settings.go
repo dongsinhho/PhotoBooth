@@ -18,12 +18,14 @@ import (
 // editable from the Wails player. Camera/backend and delivery/payment policies
 // remain operator-managed configuration rather than guest-facing controls.
 type PlayerSettings struct {
-	ShotCount   int    `json:"shot_count"`
-	Countdown   string `json:"countdown"`
-	Interval    string `json:"interval"`
-	FramePath   string `json:"frame_path"`
-	ConfigPath  string `json:"config_path"`
-	LoadWarning string `json:"load_warning,omitempty"`
+	ShotCount            int    `json:"shot_count"`
+	Countdown            string `json:"countdown"`
+	Interval             string `json:"interval"`
+	SessionRetentionDays int    `json:"session_retention_days"`
+	OutputRetentionDays  int    `json:"output_retention_days"`
+	FramePath            string `json:"frame_path"`
+	ConfigPath           string `json:"config_path"`
+	LoadWarning          string `json:"load_warning,omitempty"`
 }
 
 func (a *App) GetPlayerSettings() (PlayerSettings, error) {
@@ -54,12 +56,14 @@ func (a *App) playerSettingsLocked() PlayerSettings {
 		framePath = a.framePath
 	}
 	return PlayerSettings{
-		ShotCount:   shotCount,
-		Countdown:   countdown,
-		Interval:    interval,
-		FramePath:   framePath,
-		ConfigPath:  a.settingsPath,
-		LoadWarning: a.settingsError,
+		ShotCount:            shotCount,
+		Countdown:            countdown,
+		Interval:             interval,
+		SessionRetentionDays: cfg.Storage.SessionRetentionDays,
+		OutputRetentionDays:  cfg.Storage.OutputRetentionDays,
+		FramePath:            framePath,
+		ConfigPath:           a.settingsPath,
+		LoadWarning:          a.settingsError,
 	}
 }
 
@@ -104,6 +108,10 @@ func (a *App) SavePlayerSettings(settings PlayerSettings) (PlayerSettings, error
 	if a.settingsSaving {
 		a.mu.Unlock()
 		return PlayerSettings{}, errors.New("a settings save is already in progress")
+	}
+	if a.retentionBusy {
+		a.mu.Unlock()
+		return PlayerSettings{}, errors.New("settings cannot be changed while retention cleanup is running")
 	}
 	configPath := strings.TrimSpace(a.settingsPath)
 	if configPath == "" {
@@ -161,6 +169,8 @@ func (a *App) SavePlayerSettings(settings PlayerSettings) (PlayerSettings, error
 	cfg.Capture.Shots = settings.ShotCount
 	cfg.Capture.Countdown = strings.TrimSpace(settings.Countdown)
 	cfg.Capture.Interval = strings.TrimSpace(settings.Interval)
+	cfg.Storage.SessionRetentionDays = settings.SessionRetentionDays
+	cfg.Storage.OutputRetentionDays = settings.OutputRetentionDays
 	cfg.Frame.ConfigPath = framePath
 	cfg.Storage.SessionsDir = a.workDir
 	cfg.Storage.OutputDir = a.outputDir
@@ -195,6 +205,8 @@ func (a *App) SavePlayerSettings(settings PlayerSettings) (PlayerSettings, error
 	a.mu.Lock()
 	a.stationConfig = cfg
 	a.settingsError = ""
+	a.retentionPlan = nil
+	a.retentionPlanDigest = ""
 	a.framePath = cfg.Frame.ConfigPath
 	a.workDir = cfg.Storage.SessionsDir
 	a.outputDir = cfg.Storage.OutputDir

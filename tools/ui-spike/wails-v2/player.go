@@ -94,6 +94,10 @@ func (a *App) startPhotoSession(demo bool) (PlayerSession, error) {
 		a.mu.Unlock()
 		return PlayerSession{}, errors.New("wait for the local output retry to finish before starting another session")
 	}
+	if a.retentionBusy {
+		a.mu.Unlock()
+		return PlayerSession{}, errors.New("wait for local retention cleanup to finish before starting a session")
+	}
 	id, err := newPlayerSessionID()
 	if err != nil {
 		a.mu.Unlock()
@@ -122,6 +126,10 @@ func (a *App) ContinuePhotoSession(sessionID string) (PlayerSession, error) {
 	if a.outputRetrying {
 		a.mu.Unlock()
 		return PlayerSession{}, errors.New("wait for the local output retry to finish")
+	}
+	if a.retentionBusy {
+		a.mu.Unlock()
+		return PlayerSession{}, errors.New("wait for local retention cleanup to finish")
 	}
 	if a.playerRunning {
 		a.mu.Unlock()
@@ -161,6 +169,10 @@ func (a *App) RestartPhotoSession(sessionID string) (PlayerSession, error) {
 	if a.outputRetrying {
 		a.mu.Unlock()
 		return PlayerSession{}, errors.New("wait for the local output retry to finish")
+	}
+	if a.retentionBusy {
+		a.mu.Unlock()
+		return PlayerSession{}, errors.New("wait for local retention cleanup to finish")
 	}
 	if a.playerRunning {
 		a.mu.Unlock()
@@ -252,9 +264,9 @@ func (a *App) RetryPhotoOutput(sessionID string) (PlayerSession, error) {
 		a.mu.Unlock()
 		return PlayerSession{}, errors.New("a local output retry is already running")
 	}
-	if a.settingsSaving {
+	if a.settingsSaving || a.retentionBusy {
 		a.mu.Unlock()
-		return PlayerSession{}, errors.New("wait for settings/package operations to finish before retrying local output")
+		return PlayerSession{}, errors.New("wait for settings/package/retention operations to finish before retrying local output")
 	}
 	if sessionID == "" || sessionID != a.player.ID || !isPlayerSessionID(sessionID) {
 		a.mu.Unlock()

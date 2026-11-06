@@ -1,7 +1,7 @@
 # Local Session and Output Retention
 
-**Status:** Implemented in the root Go core and the separate retention CLI\
-**Default:** Disabled; dry-run only unless a reviewed plan digest and `--apply` are supplied\
+**Status:** Implemented in the root Go core, the separate retention CLI, and the Windows Preview operator Settings UI\
+**Default:** Disabled; UI requires preview + explicit confirmation, CLI requires a reviewed plan digest and `--apply`\
 **Date:** 2026-10-29
 
 ## Policy
@@ -62,3 +62,15 @@ The automated tests use temporary directories and synthetic files. They cover dr
 ## Out of scope
 
 There is no automatic schedule, Wails settings UI for retention, quarantine/undo UI, configurable per-file exceptions, database of deletion audit records, cloud retention, printer spool cleanup or secure wiping. Any scheduler or UI integration must preserve the opt-in and reviewed-plan behavior.
+
+## Windows Preview operator Settings integration (2026-11-06)
+
+The Wails Windows Preview Settings screen now exposes both retention values (0–3650 days; 0 remains disabled). Saving either value only updates the station config file; it never runs cleanup.
+
+The Review old local data panel uses a separate read-only preview call. It displays candidate type, session ID, exact local path, last-modified time, file count, total bytes, scan/skip counts, retention values and a plan digest. The UI lists at most 100 paths. When the plan contains more than 100 candidates, Apply is disabled so an operator cannot approve a truncated list; use the CLI to review the complete candidate set instead.
+
+Apply requires the latest non-empty in-memory preview, matching digest and unchanged configured roots/policy, followed by a native confirmation dialog. The core retention.Apply rebuilds and verifies the candidate set and checks every target immediately before removal. The plan is one-use and is discarded on policy change, preview discard, success or failure. Session start/continue/restart, output retry, settings save and frame-package mutations are blocked during an active preview/apply operation to avoid races.
+
+Validation on 2026-11-06: Wails Go tests verify default-disabled behavior, dry-run non-destructiveness, wrong-digest rejection, exact apply to synthetic temp folders, one-use token behavior, policy-change invalidation and operation guards. Windows UI persistence smoke verified 0/0 defaults, saving 30/45 days, read-only preview with an empty profile, disabled Apply for zero candidates, restart persistence, graceful process close and temporary-profile cleanup. No real photo/session path was used and no cleanup was applied to user data.
+
+This is still the Windows Preview prototype, not production UI certification. Cleanup remains manual and is not scheduled. It is not secure erasure.

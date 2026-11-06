@@ -10,6 +10,10 @@ export function ActivateFramePackage(arg1, arg2) {
   return window['go']['main']['App']['ActivateFramePackage'](arg1, arg2);
 }
 
+export function ApplyRetentionCleanup(arg1) {
+  return window['go']['main']['App']['ApplyRetentionCleanup'](arg1);
+}
+
 export function BrowseFrameConfig() {
   return window['go']['main']['App']['BrowseFrameConfig']();
 }
@@ -40,6 +44,10 @@ export function CurrentCameraPreviewStatus() {
 
 export function CurrentPhotoSession() {
   return window['go']['main']['App']['CurrentPhotoSession']();
+}
+
+export function DiscardRetentionPreview() {
+  return window['go']['main']['App']['DiscardRetentionPreview']();
 }
 
 export function DismissPhotoSession(arg1) {
@@ -80,6 +88,10 @@ export function OpenPhotoOutputFolder(arg1) {
 
 export function Ping(arg1) {
   return window['go']['main']['App']['Ping'](arg1);
+}
+
+export function PreviewRetentionCleanup() {
+  return window['go']['main']['App']['PreviewRetentionCleanup']();
 }
 
 export function Ready() {

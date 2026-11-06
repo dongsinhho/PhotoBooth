@@ -30,6 +30,9 @@ import {
   ActivateFramePackage,
   RollbackActiveFrame,
   UninstallFramePackage,
+  PreviewRetentionCleanup,
+  ApplyRetentionCleanup,
+  DiscardRetentionPreview,
   IsKioskMode,
   ToggleKioskMode,
   ExitKioskMode,
@@ -46,6 +49,8 @@ const appState = {
   framePackageCandidate: null,
   framePackageState: null,
   packageBusy: false,
+  retentionPreview: null,
+  retentionBusy: false,
   preview: {
     state: 'stopped',
     lastSequence: 0,
@@ -137,6 +142,16 @@ root.innerHTML = `
               <input id="settings-interval" type="text" value="1s" maxlength="16" spellcheck="false" />
               <small>Use 0s for no delay. Maximum duration is 5 minutes.</small>
             </label>
+            <label class="settings-field">
+              <span>Keep completed sessions (days)</span>
+              <input id="settings-session-retention" type="number" min="0" max="3650" step="1" value="0" />
+              <small>0 disables cleanup. Expired sessions include captures and rendered originals.</small>
+            </label>
+            <label class="settings-field">
+              <span>Keep finalized local photos (days)</span>
+              <input id="settings-output-retention" type="number" min="0" max="3650" step="1" value="0" />
+              <small>0 disables cleanup. This policy is independent from session retention.</small>
+            </label>
             <div class="settings-field frame-field">
               <label for="settings-frame-path">Frame JSON file</label>
               <div class="frame-path-row">
@@ -187,6 +202,30 @@ root.innerHTML = `
             </div>
             <div id="frame-package-list" class="frame-package-list" aria-live="polite"></div>
             <p class="settings-footnote">Package v1 accepts a manifest, one frame definition, and optional preview PNG/JPEG or LICENSE.txt. It does not execute scripts, load themes/plugins or download remote assets.</p>
+          </section>
+          <section class="retention-manager" aria-labelledby="retention-title">
+            <div class="package-manager-heading">
+              <div>
+                <div class="eyebrow accent">LOCAL DATA &amp; PRIVACY</div>
+                <h3 id="retention-title">Review old local data</h3>
+                <p>Saving a retention policy never deletes anything. Cleanup is always manual: preview exact candidates, review the list, then confirm once.</p>
+              </div>
+            </div>
+            <div class="retention-actions">
+              <button id="preview-retention" class="secondary-button" type="button">Preview cleanup</button>
+              <span class="retention-safety-note">No automatic cleanup · No cloud upload · No secure erase</span>
+            </div>
+            <div id="retention-warning" class="settings-warning hidden" role="alert"></div>
+            <div id="retention-preview" class="retention-preview hidden" aria-live="polite">
+              <div id="retention-summary" class="retention-summary"></div>
+              <div id="retention-candidates" class="retention-candidates"></div>
+              <p id="retention-digest" class="retention-digest"></p>
+              <div class="retention-actions">
+                <button id="cancel-retention" class="secondary-button" type="button">Discard preview</button>
+                <button id="apply-retention" class="primary-button" type="button" disabled>Apply reviewed cleanup</button>
+              </div>
+              <p class="settings-footnote">Apply permanently removes only the listed expired local session/output folders. This is not secure erasure; backups or filesystem snapshots may retain copies.</p>
+            </div>
           </section>
           <p class="settings-footnote">Camera, payment, and media-delivery policies remain local/operator-managed. Cloud and payment modes are not enabled in this build.</p>
         </div>
@@ -637,6 +676,8 @@ function populateSettingsForm(settings) {
   byId('settings-shot-count').value = String(settings.shot_count || 3);
   byId('settings-countdown').value = settings.countdown || '3s';
   byId('settings-interval').value = settings.interval || '1s';
+  byId('settings-session-retention').value = String(settings.session_retention_days || 0);
+  byId('settings-output-retention').value = String(settings.output_retention_days || 0);
   byId('settings-frame-path').value = settings.frame_path || '';
   byId('settings-config-path').textContent = settings.config_path || 'Local station config';
   setSettingsWarning(settings.load_warning || '');
@@ -650,6 +691,10 @@ function populateSettingsForm(settings) {
 async function openSettings() {
   try {
     await StopCameraPreview();
+    try { await DiscardRetentionPreview(); } catch {}
+    appState.retentionPreview = null;
+    byId('retention-preview').classList.add('hidden');
+    setRetentionWarning('');
     const settings = await GetPlayerSettings();
     populateSettingsForm(settings);
     await refreshFramePackageState();
@@ -678,9 +723,14 @@ async function saveSettings() {
       shot_count: Number(byId('settings-shot-count').value),
       countdown: byId('settings-countdown').value.trim(),
       interval: byId('settings-interval').value.trim(),
+      session_retention_days: Number(byId('settings-session-retention').value),
+      output_retention_days: Number(byId('settings-output-retention').value),
       frame_path: byId('settings-frame-path').value.trim(),
     });
     populateSettingsForm(saved);
+    appState.retentionPreview = null;
+    byId('retention-preview').classList.add('hidden');
+    setRetentionWarning('');
     appState.session = await CurrentPhotoSession();
     // Keep the operator in Settings; updatePhotoSession also routes to the
     // guest/home view when the session is idle.
@@ -694,8 +744,158 @@ async function saveSettings() {
 }
 
 function cancelSettings() {
+  void DiscardRetentionPreview().catch(() => {});
+  appState.retentionPreview = null;
+  byId('retention-preview').classList.add('hidden');
   showView('idle');
   void ensureCameraPreview();
+}
+
+function setRetentionWarning(message) {
+  const warning = byId('retention-warning');
+  warning.textContent = message || '';
+  warning.classList.toggle('hidden', !message);
+}
+
+function setRetentionBusy(busy) {
+  appState.retentionBusy = busy;
+  byId('preview-retention').disabled = busy;
+  byId('apply-retention').disabled = busy || !appState.retentionPreview ||
+    appState.retentionPreview.disabled || appState.retentionPreview.truncated || appState.retentionPreview.candidate_count < 1;
+  byId('cancel-retention').disabled = busy;
+  byId('settings-session-retention').disabled = busy;
+  byId('settings-output-retention').disabled = busy;
+  byId('save-settings').disabled = busy;
+  byId('cancel-settings').disabled = busy;
+}
+
+function formatRetentionBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (value < 1024) return `${value} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let scaled = value;
+  let unit = -1;
+  do {
+    scaled /= 1024;
+    unit++;
+  } while (scaled >= 1024 && unit < units.length - 1);
+  return `${scaled.toFixed(2)} ${units[unit]}`;
+}
+
+function renderRetentionPreview(preview) {
+  appState.retentionPreview = preview;
+  const panel = byId('retention-preview');
+  const summary = byId('retention-summary');
+  const candidates = byId('retention-candidates');
+  summary.replaceChildren();
+  candidates.replaceChildren();
+  panel.classList.remove('hidden');
+
+  const headline = document.createElement('strong');
+  if (preview.disabled) {
+    headline.textContent = 'Retention is disabled. Nothing can be deleted with the current 0-day policies.';
+  } else if (preview.candidate_count === 0) {
+    headline.textContent = 'No expired PhotoBooth data matched the enabled policies.';
+  } else {
+    headline.textContent = `${preview.candidate_count} candidate folders · ${preview.total_files} files · ${formatRetentionBytes(preview.total_bytes)}`;
+  }
+  const metadata = document.createElement('p');
+  metadata.textContent = `Scanned ${preview.scanned_count} recognized folders · skipped ${preview.skipped_count} unsafe or incomplete entries · preview created ${new Date(preview.generated_at).toLocaleString()}`;
+  summary.append(headline, metadata);
+
+  for (const item of (preview.candidates || [])) {
+    const row = document.createElement('article');
+    row.className = 'retention-candidate';
+    const title = document.createElement('strong');
+    title.textContent = `${item.kind === 'session' ? 'SESSION' : 'FINAL PHOTO'} · ${item.session_id}`;
+    const details = document.createElement('small');
+    details.textContent = `Last modified ${new Date(item.last_modified).toLocaleString()} · ${item.file_count} files · ${formatRetentionBytes(item.size_bytes)}`;
+    const location = document.createElement('code');
+    location.textContent = item.path;
+    row.append(title, details, location);
+    candidates.append(row);
+  }
+
+  if (preview.truncated) {
+    const note = document.createElement('p');
+    note.textContent = `Safety limit: showing the first ${preview.candidates.length} of ${preview.candidate_count} candidates. Apply is disabled because every deletion path must be reviewed here. Use the retention-cleanup CLI to inspect the full plan.`;
+    candidates.append(note);
+  }
+  byId('retention-digest').textContent = preview.candidate_count > 0
+    ? `Review token: ${preview.plan_digest}`
+    : 'This preview contains no deletion candidates.';
+  byId('apply-retention').disabled = appState.retentionBusy || preview.disabled || preview.truncated || preview.candidate_count < 1;
+}
+
+async function previewRetentionCleanup() {
+  if (appState.retentionBusy) return;
+  const sessionDays = Number(byId('settings-session-retention').value);
+  const outputDays = Number(byId('settings-output-retention').value);
+  if (sessionDays !== Number(appState.settings?.session_retention_days || 0) ||
+      outputDays !== Number(appState.settings?.output_retention_days || 0)) {
+    setRetentionWarning('Save the retention policy first. Preview always uses the saved local policy, not unsaved form values.');
+    return;
+  }
+  setRetentionWarning('');
+  byId('retention-preview').classList.add('hidden');
+  setRetentionBusy(true);
+  try {
+    const preview = await PreviewRetentionCleanup();
+    renderRetentionPreview(preview);
+  } catch (error) {
+    appState.retentionPreview = null;
+    setRetentionWarning(`Could not build a read-only cleanup preview: ${error}`);
+  } finally {
+    setRetentionBusy(false);
+    if (appState.retentionPreview) {
+      byId('apply-retention').disabled = appState.retentionPreview.disabled ||
+        appState.retentionPreview.truncated || appState.retentionPreview.candidate_count < 1;
+    }
+  }
+}
+
+async function discardRetentionPreview() {
+  if (appState.retentionBusy) return;
+  try {
+    await DiscardRetentionPreview();
+    appState.retentionPreview = null;
+    byId('retention-preview').classList.add('hidden');
+    setRetentionWarning('');
+  } catch (error) {
+    setRetentionWarning(`Could not discard the preview: ${error}`);
+  }
+}
+
+async function applyRetentionCleanup() {
+  const preview = appState.retentionPreview;
+  if (appState.retentionBusy || !preview || preview.disabled || preview.truncated || preview.candidate_count < 1) return;
+  if (Number(byId('settings-session-retention').value) !== preview.session_retention_days ||
+      Number(byId('settings-output-retention').value) !== preview.output_retention_days) {
+    void DiscardRetentionPreview().catch(() => {});
+    appState.retentionPreview = null;
+    byId('retention-preview').classList.add('hidden');
+    setRetentionWarning('The retention policy has changed since this preview. Save it and generate a new preview before applying.');
+    return;
+  }
+  const approved = window.confirm(
+    `Permanently remove ${preview.candidate_count} expired local folders (${preview.total_files} files, ${formatRetentionBytes(preview.total_bytes)})?\n\nOnly the reviewed candidates are eligible. This cannot be undone from PhotoBooth. Backups or filesystem snapshots may still retain copies.`
+  );
+  if (!approved) return;
+
+  setRetentionWarning('');
+  setRetentionBusy(true);
+  try {
+    const result = await ApplyRetentionCleanup(preview.plan_digest);
+    appState.retentionPreview = null;
+    byId('retention-preview').classList.add('hidden');
+    showToast(`Cleanup complete: removed ${result.removed_candidates} folders, ${result.removed_files} files (${formatRetentionBytes(result.removed_bytes)}).`);
+  } catch (error) {
+    appState.retentionPreview = null;
+    byId('retention-preview').classList.add('hidden');
+    setRetentionWarning(`Cleanup did not complete cleanly: ${error}. Generate a new preview and inspect the remaining data before trying again.`);
+  } finally {
+    setRetentionBusy(false);
+  }
 }
 
 function setPackageWarning(message) {
@@ -1038,6 +1238,18 @@ byId('validate-frame-package').addEventListener('click', validateFramePackage);
 byId('install-frame-package').addEventListener('click', installFramePackage);
 byId('refresh-frame-packages').addEventListener('click', refreshFramePackageState);
 byId('rollback-frame').addEventListener('click', rollbackActiveFrame);
+byId('preview-retention').addEventListener('click', previewRetentionCleanup);
+byId('cancel-retention').addEventListener('click', discardRetentionPreview);
+byId('apply-retention').addEventListener('click', applyRetentionCleanup);
+for (const id of ['settings-session-retention', 'settings-output-retention']) {
+  byId(id).addEventListener('input', () => {
+    if (!appState.retentionPreview || appState.retentionBusy) return;
+    void DiscardRetentionPreview().catch(() => {});
+    appState.retentionPreview = null;
+    byId('retention-preview').classList.add('hidden');
+    setRetentionWarning('Retention settings changed. Save the policy and preview again before cleanup.');
+  });
+}
 byId('frame-package-path').addEventListener('input', () => {
   clearPackageCandidate();
   setPackageWarning('');

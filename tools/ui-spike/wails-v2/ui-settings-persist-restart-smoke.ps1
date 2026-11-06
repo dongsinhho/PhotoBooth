@@ -148,6 +148,7 @@ function Open-Settings {
     Invoke-Button 'Settings & frame*' 'open Settings & frame'
     Wait-Text 'OPERATOR CONFIGURATION' $SettingsTimeoutSeconds
     Wait-Text 'Frame packages' $SettingsTimeoutSeconds
+    Wait-Text 'Review old local data' $SettingsTimeoutSeconds
     $checks.Add('Settings view fully loaded after preview stop barrier') | Out-Null
 }
 
@@ -173,12 +174,21 @@ try {
     Start-PhotoBooth
     Open-Settings
     $shotCount = Read-Value 'settings-shot-count'
+    $sessionRetentionDefault = Read-Value 'settings-session-retention'
+    $outputRetentionDefault = Read-Value 'settings-output-retention'
     if ($shotCount -notmatch '3') { throw "Expected default three-shot setting, found '$shotCount'." }
+    if ($sessionRetentionDefault -ne '0' -or $outputRetentionDefault -ne '0') {
+        throw "Retention must default to disabled (0/0), found sessions='$sessionRetentionDefault' outputs='$outputRetentionDefault'."
+    }
     Set-Value 'settings-countdown' '4s'
     Set-Value 'settings-interval' '750ms'
+    Set-Value 'settings-session-retention' '30'
+    Set-Value 'settings-output-retention' '45'
     $countdownBeforeSave = Read-Value 'settings-countdown'
     $intervalBeforeSave = Read-Value 'settings-interval'
-    Write-Host ("UIA_VALUES_BEFORE_SAVE countdown={0} interval={1}" -f $countdownBeforeSave,$intervalBeforeSave)
+    $sessionRetentionBeforeSave = Read-Value 'settings-session-retention'
+    $outputRetentionBeforeSave = Read-Value 'settings-output-retention'
+    Write-Host ("UIA_VALUES_BEFORE_SAVE countdown={0} interval={1} session_retention_days={2} output_retention_days={3}" -f $countdownBeforeSave,$intervalBeforeSave,$sessionRetentionBeforeSave,$outputRetentionBeforeSave)
     Invoke-Button 'Save settings*' 'save local station settings'
     $deadline = (Get-Date).AddSeconds(10)
     while ((Get-Date) -lt $deadline -and !(Test-Path -LiteralPath $configPath -PathType Leaf)) {
@@ -190,7 +200,9 @@ try {
     $persisted = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
     if ([int]$persisted.capture.shots -ne 3 -or
         [string]$persisted.capture.countdown -ne '4s' -or
-        [string]$persisted.capture.interval -ne '750ms') {
+        [string]$persisted.capture.interval -ne '750ms' -or
+        [int]$persisted.storage.session_retention_days -ne 30 -or
+        [int]$persisted.storage.output_retention_days -ne 45) {
         Write-Host ('PERSISTED_CONFIG=' + ($persisted | ConvertTo-Json -Depth 8 -Compress))
         throw ("Persisted config mismatch. UIA before save countdown='{0}' interval='{1}'." -f $countdownBeforeSave,$intervalBeforeSave)
     }
@@ -198,9 +210,17 @@ try {
         shot_count = [int]$persisted.capture.shots
         countdown = [string]$persisted.capture.countdown
         interval = [string]$persisted.capture.interval
+        session_retention_days = [int]$persisted.storage.session_retention_days
+        output_retention_days = [int]$persisted.storage.output_retention_days
     }
     $checks.Add('Save settings persisted shot count, countdown and interval to local schema-v1 config') | Out-Null
-    Write-Host 'SETTINGS_SAVE_PERSISTED=True countdown=4s interval=750ms shots=3'
+    Write-Host 'SETTINGS_SAVE_PERSISTED=True countdown=4s interval=750ms shots=3 session_retention_days=30 output_retention_days=45'
+    Invoke-Button 'Preview cleanup' 'run read-only retention preview'
+    Wait-Text 'No expired PhotoBooth data matched the enabled policies.' $SettingsTimeoutSeconds
+    if (Find-Button 'Apply reviewed cleanup*') {
+        throw 'Apply cleanup must remain disabled when the preview contains zero candidates.'
+    }
+    $checks.Add('read-only retention preview renders and disables Apply when no candidates exist') | Out-Null
     Close-PhotoBooth
     if ($forcedStop) { throw 'First PhotoBooth process required forced termination; restart persistence is not considered clean.' }
     $checks.Add('first PhotoBooth process exited gracefully') | Out-Null
@@ -213,10 +233,14 @@ try {
         shot_count = Read-Value 'settings-shot-count'
         countdown = Read-Value 'settings-countdown'
         interval = Read-Value 'settings-interval'
+        session_retention_days = Read-Value 'settings-session-retention'
+        output_retention_days = Read-Value 'settings-output-retention'
     }
     if ($restartValues.shot_count -notmatch '3' -or
         $restartValues.countdown -ne '4s' -or
-        $restartValues.interval -ne '750ms') {
+        $restartValues.interval -ne '750ms' -or
+        $restartValues.session_retention_days -ne '30' -or
+        $restartValues.output_retention_days -ne '45') {
         throw ("Settings did not survive app restart. Values: {0}" -f ($restartValues | ConvertTo-Json -Compress))
     }
     $checks.Add('second PhotoBooth process reloaded saved settings after restart') | Out-Null

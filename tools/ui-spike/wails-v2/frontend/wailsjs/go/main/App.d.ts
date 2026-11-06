@@ -6,6 +6,8 @@ export function AcknowledgeCameraPreview(arg1:number):Promise<void>;
 
 export function ActivateFramePackage(arg1:string,arg2:string):Promise<main.PlayerSettings>;
 
+export function ApplyRetentionCleanup(arg1:string):Promise<main.RetentionApplyResult>;
+
 export function BrowseFrameConfig():Promise<string>;
 
 export function BrowseFramePackage():Promise<string>;
@@ -21,6 +23,8 @@ export function ContinuePhotoSession(arg1:string):Promise<main.PlayerSession>;
 export function CurrentCameraPreviewStatus():Promise<main.CameraPreviewStatus>;
 
 export function CurrentPhotoSession():Promise<main.PlayerSession>;
+
+export function DiscardRetentionPreview():Promise<void>;
 
 export function DismissPhotoSession(arg1:string):Promise<main.PlayerSession>;
 
@@ -41,6 +45,8 @@ export function IsKioskMode():Promise<boolean>;
 export function OpenPhotoOutputFolder(arg1:string):Promise<void>;
 
 export function Ping(arg1:number):Promise<number>;
+
+export function PreviewRetentionCleanup():Promise<main.RetentionPreview>;
 
 export function Ready():Promise<Record<string, any>>;
 

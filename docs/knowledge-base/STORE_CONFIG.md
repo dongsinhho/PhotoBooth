@@ -1,6 +1,6 @@
 # Versioned Store Configuration (Schema v1)
 
-**Status:** Implemented in the root Go CLI/core and the isolated Wails player prototype (shot count, timing and frame path).
+**Status:** Implemented in the root Go CLI/core and the isolated Wails Windows Preview player (shot count, timing, frame path, and opt-in session/output retention policy).
 
 ## Run with the sample config
 
@@ -48,7 +48,7 @@ Unimplemented modes such as cloud delivery or QR payment fail validation rather 
 
 The Wails Windows prototype now reads and writes a station profile through the same root `internal/booth/config` package. Its profile is stored at `%LOCALAPPDATA%\PhotoBooth\store-config-v1.json`. The first launch installs the embedded sample frame at `%LOCALAPPDATA%\PhotoBooth\frames\photo-strip-v1.json` and initializes local `sessions` and `photos` folders.
 
-The **Settings & frame** screen exposes shot count (1–12), countdown, interval, and a local frame JSON path. Browse opens a native local file picker. Saving is disabled while a session runs, validates durations and the selected frame schema, and requires the frame's slot count to match the configured shot count. Settings persist across restarts; invalid existing config is not silently overwritten, shows a warning, and blocks sessions until the operator saves a valid replacement.
+The **Settings & frame** screen exposes shot count (1–12), countdown, interval, a local frame JSON path, and independent session/output retention days (0 disables; 1–3650 enables). Browse opens a native local file picker. Saving is disabled while a session/output retry or retention preview/apply runs, validates durations and the selected frame schema, and requires the frame's slot count to match the configured shot count. Saving a retention policy never deletes data; the separate Review old local data panel must build a read-only candidate preview before a one-time, explicit Apply confirmation. Settings persist across restarts; invalid existing config is not silently overwritten, shows a warning, and blocks sessions until the operator saves a valid replacement.
 
 This is wired into the Wails **prototype only**. It does not add live-preview, arbitrary frame editing, camera-control options, cloud/LAN delivery, payment processing, hot reload, or production UI certification. The UI settings page does not upload photos or frame files.
 
@@ -56,7 +56,7 @@ This is wired into the Wails **prototype only**. It does not add live-preview, a
 
 Implemented: strict JSON load/save, safe defaults, validation, relative path resolution, root CLI integration and explicit CLI override precedence; Wails prototype settings for shot count, countdown, interval and frame path; local .pbframe create/validate/install/list; and Wails package validate/install/activate/rollback with local integrity checks and recovery metadata. See [FRAME_PACKAGE_FORMAT.md](FRAME_PACKAGE_FORMAT.md).
 
-Implemented separately: opt-in local session/output retention through `apps/retention-cleanup`. It defaults to read-only dry-run and requires a reviewed plan digest plus `--apply` before deleting any candidates. It is not triggered automatically by the player. See [LOCAL_DATA_RETENTION.md](LOCAL_DATA_RETENTION.md).
+Opt-in local session/output retention is implemented in the core and CLI, and surfaced through the Wails Windows Preview Settings UI. CLI cleanup defaults to read-only dry-run and requires a reviewed plan digest plus `--apply`; UI cleanup requires a fully displayed preview, the latest one-use digest and explicit confirmation. Neither path is triggered automatically by the player. See [LOCAL_DATA_RETENTION.md](LOCAL_DATA_RETENTION.md).
 
 Not implemented yet: file-watcher/hot-reload, automatic migration from older schema versions, package signatures/publisher trust, full theme packages, catalog/download sync, arbitrary assets/fonts/animation, LAN/cloud delivery, payment processing, or a policy for locking down config paths on a multi-user PC.
 

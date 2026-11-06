@@ -246,6 +246,9 @@ func (a *App) beginFramePackageOperation() (string, string, stationconfig.StoreC
 	if a.settingsSaving {
 		return "", "", stationconfig.StoreConfig{}, errors.New("another settings/package operation is already running")
 	}
+	if a.retentionBusy {
+		return "", "", stationconfig.StoreConfig{}, errors.New("frame packages cannot be changed while local retention cleanup is running")
+	}
 	if strings.TrimSpace(a.settingsPath) == "" || strings.TrimSpace(a.framePath) == "" {
 		return "", "", stationconfig.StoreConfig{}, errors.New("station settings are not initialized")
 	}
