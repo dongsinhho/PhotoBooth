@@ -335,3 +335,19 @@ func parseDuration(field, value string) (time.Duration, error) {
 	}
 	return duration, nil
 }
+
+// ValidateLocalStoragePath checks an absolute or working-directory-relative
+// storage root against the current platform's known network-filesystem rules.
+// Call it again near the time of output creation; config validation alone
+// cannot protect against mounts or directory links changing while the app runs.
+func ValidateLocalStoragePath(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return errors.New("storage path is required")
+	}
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("resolve storage path: %w", err)
+	}
+	return validateLocalStoragePath(absolute)
+}

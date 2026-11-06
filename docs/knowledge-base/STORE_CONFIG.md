@@ -29,12 +29,12 @@ The example at `examples/store-config-v1.json` is the canonical sample. Schema v
 | `camera` | `provider`, optional `device`, `width`, `height`, `fps` | Provider `fake` or `windowsmf`; dimensions 1–4096; FPS greater than 0 and at most 120 |
 | `capture` | `shots`, `countdown`, `interval` | 1–12 shots; Go duration strings from `0s` through 5 minutes; shot count must match frame slots at workflow preflight |
 | `frame` | `config_path` | Required non-empty local frame JSON path; renderer performs frame-schema validation |
-| `storage` | `sessions_dir`, `output_dir`, `session_retention_days`, `output_retention_days` | Required local filesystem paths; retention values are optional integers, 0 disables cleanup, 1–3650 days enables the separate cleanup CLI |
+| `storage` | `sessions_dir`, `output_dir`, `session_retention_days`, `output_retention_days` | Required filesystem roots; Windows rejects UNC/network drives and follows existing junctions; Linux classifies the backing mount; retention values are optional integers, 0 disables cleanup, 1–3650 days enables cleanup |
 | `media_delivery` | `mode` | Only `local` is implemented |
 | `payment` | `mode` | Only `disabled` is implemented; this is the free/no-payment path |
 | root | `schema_version` | Required integer; currently must equal `1` |
 
-Relative paths are resolved from the directory containing the config file. Absolute paths are preserved. On Windows, local mode rejects UNC paths and mapped network drives for both session and output roots during validation, load-after-resolution and save-before-write. This is a guard against accidental network storage, not a filesystem sandbox: reparse-point/junction targets and network mounts on Linux/macOS are not yet classified by this check.
+Relative paths are resolved from the directory containing the config file. Absolute paths are preserved. Windows local-mode checks follow existing junction/symlink targets and reject UNC/network drives; Linux checks the backing mount from /proc/self/mountinfo and rejects known network filesystem types. Load and Save validate resolved roots, and LocalProvider revalidates output directories immediately before writing. See the limitations in the Local-mode network path guard section below.
 
 ## Defaults and validation
 
@@ -67,6 +67,8 @@ A new isolated Wails UI smoke, `tools/ui-spike/wails-v2/ui-settings-persist-rest
 
 ## Local-mode network path guard (2026-11-06)
 
-On Windows, local mode rejects UNC session/output roots and mapped network drive volumes. Validation occurs in StoreConfig.Validate, after relative paths are resolved by Load, and before Save writes the config. This also catches relative roots when the station config itself resides on a UNC share. The Windows tests cover UNC paths; mapped-drive detection uses GetDriveTypeW but has not had a live mapped-drive integration test.
+On Windows, local mode rejects UNC roots, mapped network drives and existing directory junction/symlink paths whose resolved target is network-backed. It follows the nearest existing ancestor with CreateFileW/GetFinalPathNameByHandleW, preserving not-yet-created child components, then checks GetDriveTypeW. On Linux, it resolves symlinks at the nearest existing ancestor and classifies the longest matching mountpoint from /proc/self/mountinfo. Known network filesystem types include NFS/NFS4, CIFS/SMB, SSHFS, 9p, Ceph, GlusterFS, Lustre, AFS, Coda, DAVFS and selected remote FUSE drivers. The mountinfo parser handles optional fields and escaped mountpoint paths.
 
-Limitations: junctions/reparse points are not resolved to their final volume, and Linux/macOS network mounts are not classified yet. Do not interpret this as a filesystem sandbox or as proof that local media can never be exposed on a network. The Stage 2 exit gate remains open.
+StoreConfig.Validate checks direct paths; Load checks again after resolving config-relative paths; Save checks resolved paths before replacing config. LocalProvider also checks the output root before directory creation and re-checks the concrete session directory after creation but before creating a temporary photo file. Tests cover Windows UNC rejection, a real local directory junction, final-path normalization, mountinfo parsing/type classification and injected network rejection before output bytes are written.
+
+Limitations: Linux mount classification has only been cross-compiled in this environment; no Linux runtime/mount integration test was run. The network filesystem list is explicit, so unknown FUSE/network providers may not be recognized. macOS/other platforms retain the unclassified fallback. A mount or reparse target can still change in the narrow interval after validation, so this is a best-effort guard, not a filesystem sandbox or a guarantee against all network exposure. Stage 2 exit gate remains open.

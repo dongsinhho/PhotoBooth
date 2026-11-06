@@ -1,8 +1,7 @@
-//go:build !windows
+//go:build !windows && !linux
 
 package config
 
-// Non-Windows storage mount classification is intentionally not inferred from
-// path syntax. Linux/macOS mount-type enforcement remains a separate platform
-// gate; this helper currently preserves existing path behavior there.
+// macOS and other platforms still need mount/filesystem classification before
+// local mode can claim to reject network-backed storage.
 func validateLocalStoragePath(string) error { return nil }

@@ -643,3 +643,20 @@ Validation:
 - Go integration tests used only synthetic expired folder layouts inside t.TempDir() and proved dry-run, wrong/stale digest rejection, exact reviewed apply, one-use token and no implicit deletion. No real station photo/session data was touched.
 
 Linux build/runtime/camera/printer validation remains pending. No USB recovery, long-run soak or representative-lighting image-quality test was run in this continuation.
+
+## Platform-aware local storage validation and output-time recheck (2026-11-06)
+
+Core local-storage validation now resolves existing path indirections before classifying storage:
+- Windows follows the nearest existing ancestor using CreateFileW / GetFinalPathNameByHandleW, then rejects UNC targets and mapped remote drive types. Missing child directories are appended to the resolved ancestor so setup does not require output folders to exist.
+- Linux resolves symlinks through the nearest existing ancestor and selects the longest matching mountpoint from /proc/self/mountinfo. Known network filesystems (NFS/NFS4, CIFS/SMB, SSHFS, 9p, Ceph, GlusterFS, Lustre, AFS, Coda, DAVFS and selected remote FUSE drivers) are rejected.
+- LocalProvider validates its configured root before creating output folders and validates the concrete session output directory again after MkdirAll, immediately before creating the temporary image file.
+
+Validation:
+- Windows config tests: UNC paths in Validate/Load/Save, final-path normalization and real local directory-junction resolution: PASS. Junction test created a directory junction with mklink /J and confirmed a not-yet-created child path resolves to the real target.
+- Generic mountinfo tests: optional fields, escaped mountpoint, longest mountpoint boundary, malformed input and known network filesystem classification: PASS.
+- Output provider tests inject network-backed errors at both validation checkpoints and confirm no output root/session photo bytes are created: PASS.
+- Root go test -count=1 ./..., go vet ./..., Windows go build ./...: PASS.
+- Linux/amd64 CGO-disabled go build ./... plus config/output test-binary compilation: PASS (compile only). Linux-specific path resolver was not executed on Linux in this environment.
+- Wails module go test/vet and run-photobooth.ps1 -NoLaunch Windows build: PASS. No app/camera was started by the build.
+
+Limitations: the network filesystem set is explicit; unknown remote FUSE types may not be detected. macOS/other platforms retain an unclassified fallback. There remains a narrow TOCTOU window if a mount/reparse target changes after the last validation but before filesystem operations. This is a best-effort local-mode guard, not a filesystem sandbox. Linux runtime/mount integration remains pending; Linux GUI build stays pending per user request.

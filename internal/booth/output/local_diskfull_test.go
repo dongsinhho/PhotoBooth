@@ -216,3 +216,64 @@ func TestTargetResultKeepsTypedCauseOutOfJSON(t *testing.T) {
 		t.Fatalf("human-readable diagnostic was lost from JSON: %s", text)
 	}
 }
+
+func TestLocalSaveRejectsNetworkBackedRootBeforeCreatingOutput(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "network-photos")
+	source := filepath.Join(t.TempDir(), "rendered.jpg")
+	if err := os.WriteFile(source, []byte("synthetic-rendered-photo"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var checks int
+	provider := NewLocal(root)
+	provider.validateStoragePath = func(path string) error {
+		checks++
+		if path != root {
+			t.Fatalf("first validation path=%q, want root %q", path, root)
+		}
+		return errors.New("network filesystem nfs4 is not allowed")
+	}
+
+	if _, err := provider.Save(context.Background(), testSessionID, source); err == nil ||
+		!strings.Contains(err.Error(), "network filesystem") {
+		t.Fatalf("Save error=%v, want network filesystem rejection", err)
+	}
+	if checks != 1 {
+		t.Fatalf("validation checks=%d, want rejection at first check", checks)
+	}
+	if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("network-backed output root should not be created: stat error=%v", err)
+	}
+}
+
+func TestLocalSaveRechecksCreatedSessionDirectoryBeforeWritingBytes(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "photos")
+	source := filepath.Join(t.TempDir(), "rendered.jpg")
+	if err := os.WriteFile(source, []byte("synthetic-rendered-photo"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sessionDir := filepath.Join(root, testSessionID)
+	var checked []string
+	provider := NewLocal(root)
+	provider.validateStoragePath = func(path string) error {
+		checked = append(checked, path)
+		if len(checked) == 2 {
+			return errors.New("network mount appeared at session directory")
+		}
+		return nil
+	}
+
+	if _, err := provider.Save(context.Background(), testSessionID, source); err == nil ||
+		!strings.Contains(err.Error(), "network mount appeared") {
+		t.Fatalf("Save error=%v, want second validation rejection", err)
+	}
+	if len(checked) != 2 || checked[0] != root || checked[1] != sessionDir {
+		t.Fatalf("validation paths=%v, want root then session directory", checked)
+	}
+	entries, err := os.ReadDir(sessionDir)
+	if err != nil {
+		t.Fatalf("session output directory should exist after mkdir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("output bytes were created before the second validation: %v", entries)
+	}
+}

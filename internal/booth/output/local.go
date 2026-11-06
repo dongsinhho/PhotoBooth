@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	stationconfig "github.com/dongsinhho/PhotoBooth/internal/booth/config"
 )
 
 var ErrInsufficientStorage = errors.New("insufficient storage space")
@@ -18,8 +20,9 @@ type Provider interface {
 }
 
 type LocalProvider struct {
-	RootDir string
-	ops     localFileOps
+	RootDir             string
+	ops                 localFileOps
+	validateStoragePath func(string) error // injectable for deterministic network-storage tests
 }
 
 func NewLocal(root string) *LocalProvider { return &LocalProvider{RootDir: root} }
@@ -65,6 +68,9 @@ func (p *LocalProvider) save(ctx context.Context, sessionID, sourcePath string, 
 	if !validSessionID(sessionID) {
 		return "", errors.New("session ID must be a 32-character lowercase hexadecimal identifier")
 	}
+	if err := p.validateRoot(p.RootDir); err != nil {
+		return "", fmt.Errorf("validate local output root: %w", err)
+	}
 	ops := p.fileOps()
 	info, err := ops.Stat(sourcePath)
 	if err != nil {
@@ -77,6 +83,12 @@ func (p *LocalProvider) save(ctx context.Context, sessionID, sourcePath string, 
 	outDir := filepath.Join(p.RootDir, sessionID)
 	if err := ops.MkdirAll(outDir, 0o700); err != nil {
 		return "", storageOperationError("create session output directory", err)
+	}
+	// Re-resolve the now-existing session directory immediately before creating
+	// any temporary photo bytes. This catches an existing junction/symlink or
+	// mount target that was not present during configuration load.
+	if err := p.validateRoot(outDir); err != nil {
+		return "", fmt.Errorf("validate local session output directory: %w", err)
 	}
 	finalPath := filepath.Join(outDir, "photo.jpg")
 	temp, err := ops.CreateTemp(outDir, ".photo-*.tmp")
@@ -139,6 +151,13 @@ func (p *LocalProvider) save(ctx context.Context, sessionID, sourcePath string, 
 	}
 	publishTemp = false
 	return finalPath, nil
+}
+
+func (p *LocalProvider) validateRoot(path string) error {
+	if p.validateStoragePath != nil {
+		return p.validateStoragePath(path)
+	}
+	return stationconfig.ValidateLocalStoragePath(path)
 }
 
 func (p *LocalProvider) fileOps() localFileOps {
