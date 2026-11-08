@@ -12,7 +12,10 @@ import (
 	"time"
 
 	stationconfig "github.com/dongsinhho/PhotoBooth/internal/booth/config"
+	"github.com/dongsinhho/PhotoBooth/internal/booth/delivery"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/framepackage"
+	"github.com/dongsinhho/PhotoBooth/internal/booth/output"
+	"github.com/dongsinhho/PhotoBooth/internal/booth/payment"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/session"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/workflow"
 )
@@ -967,6 +970,8 @@ func TestPlayerRuntimeConfigIsImmutableSnapshot(t *testing.T) {
 	cfg.Capture.Shots = 3
 	cfg.Camera.Width = 1280
 	cfg.Camera.Height = 720
+	cfg.MediaDelivery.Mode = "LOCAL"
+	cfg.Payment.Mode = "DISABLED"
 	app.stationConfig = cfg
 	app.framePath = filepath.Join(t.TempDir(), "frame-v1.json")
 	app.workDir = filepath.Join(t.TempDir(), "sessions-v1")
@@ -979,6 +984,8 @@ func TestPlayerRuntimeConfigIsImmutableSnapshot(t *testing.T) {
 	snapshot := app.playerRuntimeConfigLocked()
 	app.stationConfig.Capture.Shots = 9
 	app.stationConfig.Camera.Width = 1920
+	app.stationConfig.MediaDelivery.Mode = "local"
+	app.stationConfig.Payment.Mode = "disabled"
 	app.framePath = filepath.Join(t.TempDir(), "frame-v2.json")
 	app.workDir = filepath.Join(t.TempDir(), "sessions-v2")
 	app.outputDir = filepath.Join(t.TempDir(), "output-v2")
@@ -987,8 +994,9 @@ func TestPlayerRuntimeConfigIsImmutableSnapshot(t *testing.T) {
 	app.playerInterval = 0
 	app.mu.Unlock()
 
-	if snapshot.stationConfig.Capture.Shots != 3 || snapshot.stationConfig.Camera.Width != 1280 {
-		t.Fatalf("station config snapshot changed after app mutation: %+v", snapshot.stationConfig)
+	if snapshot.stationConfig.Capture.Shots != 3 || snapshot.stationConfig.Camera.Width != 1280 ||
+		snapshot.stationConfig.MediaDelivery.Mode != "LOCAL" || snapshot.stationConfig.Payment.Mode != "DISABLED" {
+		t.Fatalf("station config/policy snapshot changed after app mutation: %+v", snapshot.stationConfig)
 	}
 	if snapshot.shotCount != 3 || snapshot.countdown != 3*time.Second || snapshot.interval != time.Second {
 		t.Fatalf("capture settings snapshot changed: %+v", snapshot)
@@ -1024,5 +1032,47 @@ func TestContinuePhotoSessionRejectsConcurrentSettingsSaveOrInvalidProfile(t *te
 				t.Fatal("continue attempt should not mark a session running")
 			}
 		})
+	}
+}
+
+func TestSavePlayerSettingsPreservesDeliveryAndPaymentPolicies(t *testing.T) {
+	app := NewApp()
+	app.playerDataDir = t.TempDir()
+	settings, err := app.GetPlayerSettings()
+	if err != nil {
+		t.Fatalf("initialize station profile: %v", err)
+	}
+
+	// These policy fields intentionally are not user-editable controls in this
+	// Preview screen. Saving capture/frame/retention settings must preserve them.
+	app.mu.Lock()
+	app.stationConfig.MediaDelivery.Mode = "LOCAL"
+	app.stationConfig.Payment.Mode = "DISABLED"
+	app.mu.Unlock()
+
+	if _, err := app.SavePlayerSettings(settings); err != nil {
+		t.Fatalf("SavePlayerSettings: %v", err)
+	}
+	persisted, err := stationconfig.Load(app.settingsPath)
+	if err != nil {
+		t.Fatalf("reload saved station profile: %v", err)
+	}
+	if persisted.MediaDelivery.Mode != "LOCAL" || persisted.Payment.Mode != "DISABLED" {
+		t.Fatalf("settings save changed policy fields that are outside the UI controls: media=%q payment=%q",
+			persisted.MediaDelivery.Mode, persisted.Payment.Mode)
+	}
+	dispatcher, err := delivery.NewDispatcher(persisted.MediaDelivery, persisted.Storage.OutputDir)
+	if err != nil {
+		t.Fatalf("persisted local delivery policy no longer resolves: %v", err)
+	}
+	if named, ok := dispatcher.(interface{ Name() string }); !ok || named.Name() != output.TargetLocalStorage {
+		t.Fatalf("persisted policy resolved to %T, want local output dispatcher", dispatcher)
+	}
+	gate, err := payment.NewGate(persisted.Payment)
+	if err != nil {
+		t.Fatalf("persisted disabled payment policy no longer resolves: %v", err)
+	}
+	if _, ok := gate.(payment.DisabledGate); !ok {
+		t.Fatalf("persisted payment policy resolved to %T, want DisabledGate", gate)
 	}
 }

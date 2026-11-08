@@ -50,3 +50,28 @@ func TestResolveLinuxStoragePathRejectsExistingFileComponent(t *testing.T) {
 		t.Fatal("file path component must not be accepted as a storage directory")
 	}
 }
+
+func TestResolveLinuxStoragePathAcceptsExistingRegularFileAsFinalComponent(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "frame.json")
+	if err := os.WriteFile(file, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveLinuxStoragePath(file)
+	if err != nil {
+		t.Fatalf("regular file child should be canonicalizable: %v", err)
+	}
+	if got != file {
+		t.Fatalf("resolved path=%q, want %q", got, file)
+	}
+}
+
+func TestValidateLocalStoragePathRejectsRegularFileRoot(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(file, []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateLocalStoragePath(file); err == nil {
+		t.Fatal("regular file must not be accepted as a storage root")
+	}
+}

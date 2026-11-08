@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,10 +16,27 @@ import (
 	"github.com/dongsinhho/PhotoBooth/internal/booth/camera"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/camera/fake"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/camera/recovery"
+	stationconfig "github.com/dongsinhho/PhotoBooth/internal/booth/config"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/output"
+	"github.com/dongsinhho/PhotoBooth/internal/booth/payment"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/render"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/session"
 )
+
+func truncateWorkflowJPEGScanPayload(t *testing.T, data []byte) []byte {
+	t.Helper()
+	marker := bytes.Index(data, []byte{0xff, 0xda})
+	if marker < 0 || marker+4 > len(data) {
+		t.Fatal("JPEG fixture has no complete start-of-scan marker")
+	}
+	segmentLength := int(data[marker+2])<<8 | int(data[marker+3])
+	scanStart := marker + 2 + segmentLength
+	if scanStart >= len(data)-2 {
+		t.Fatalf("JPEG fixture has no scan payload to truncate: size=%d scan_start=%d", len(data), scanStart)
+	}
+	truncated := append([]byte(nil), data[:scanStart]...)
+	return append(truncated, 0xff, 0xd9)
+}
 
 func testFrameConfig(t *testing.T) string {
 	t.Helper()
@@ -54,6 +72,30 @@ func newTestRunner(t *testing.T, cam *fake.Provider, cfgPath string, onEvent fun
 	return runner, cfg, workDir, outputDir
 }
 
+func writeWorkflowTestManifest(t *testing.T, sessionDir string, cfg Config, phase session.Phase, completed int) {
+	t.Helper()
+	manifest, err := NewSessionManifest(cfg)
+	if err != nil {
+		t.Fatalf("build test manifest: %v", err)
+	}
+	// Existing resume fixtures exercise backwards-compatible manifest v1.
+	manifest.Version = session.LegacyManifestVersion
+	manifest.Phase = phase
+	manifest.CompletedShots = completed
+	manifest.UpdatedAt = time.Now().UTC()
+	if phase == session.PhaseRendered {
+		manifest.RenderedAt = manifest.UpdatedAt
+	}
+	if phase == session.PhaseOutputFinalized {
+		manifest.RenderedAt = manifest.UpdatedAt
+		manifest.OutputFinalizedAt = manifest.UpdatedAt
+		manifest.OutputPath = filepath.Join(filepath.Dir(sessionDir), "output", cfg.SessionID, "photo.jpg")
+	}
+	if err := session.WriteManifest(sessionDir, manifest); err != nil {
+		t.Fatalf("write test manifest: %v", err)
+	}
+}
+
 func TestRunCompletesOfflineCaptureRenderSaveFlow(t *testing.T) {
 	cfgPath := testFrameConfig(t)
 	cam := fake.New()
@@ -67,12 +109,33 @@ func TestRunCompletesOfflineCaptureRenderSaveFlow(t *testing.T) {
 			countdownEvents++
 		}
 	})
+	gate := &recordingPaymentGate{}
+	runner.PaymentGate = gate
 	result, err := runner.Run(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
+	if len(gate.requests) != 1 || gate.requests[0].SessionID != result.SessionID || gate.requests[0].Resume || gate.requests[0].DemoMode {
+		t.Fatalf("new-session payment request=%+v, want one request for the new live session", gate.requests)
+	}
 	if result.State != session.Completed {
 		t.Fatalf("state=%s, want completed", result.State)
+	}
+	sessionDir := filepath.Join(workDir, result.SessionID)
+	manifest, manifestErr := session.ReadManifest(sessionDir)
+	if manifestErr != nil {
+		t.Fatalf("read new-session manifest: %v", manifestErr)
+	}
+	if manifest.Version != session.ManifestVersion || manifest.FrameSnapshotFile != session.FrameSnapshotFileName {
+		t.Fatalf("new session must persist schema-v2 frame snapshot metadata: %+v", manifest)
+	}
+	_, snapshotBytes, snapshotErr := session.ReadFrameSnapshot(sessionDir, manifest)
+	if snapshotErr != nil {
+		t.Fatalf("read new-session frame snapshot: %v", snapshotErr)
+	}
+	originalFrameBytes, frameErr := os.ReadFile(cfgPath)
+	if frameErr != nil || !bytes.Equal(snapshotBytes, originalFrameBytes) {
+		t.Fatalf("new-session frame snapshot differs from selected frame: err=%v", frameErr)
 	}
 	if len(result.CaptureDurations) != 3 {
 		t.Fatalf("capture duration count=%d, want 3", len(result.CaptureDurations))
@@ -87,6 +150,16 @@ func TestRunCompletesOfflineCaptureRenderSaveFlow(t *testing.T) {
 	}
 	if len(result.CapturePaths) != 3 {
 		t.Fatalf("captures=%d, want 3", len(result.CapturePaths))
+	}
+	for index, capturePath := range result.CapturePaths {
+		wantPath := filepath.Join(workDir, result.SessionID, "captures", fmt.Sprintf("capture-%02d.jpg", index+1))
+		if filepath.Clean(capturePath) != filepath.Clean(wantPath) {
+			t.Fatalf("capture %d path=%q, want committed path %q", index+1, capturePath, wantPath)
+		}
+	}
+	stagingPath := filepath.Join(workDir, result.SessionID, "captures", session.CaptureStagingDirectoryName)
+	if _, err := os.Lstat(stagingPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("successful session left capture staging artifacts: %v", err)
 	}
 	if countdownEvents != 3 {
 		t.Fatalf("countdown events=%d, want 3", countdownEvents)
@@ -154,6 +227,31 @@ type successfulPrinter struct{}
 func (successfulPrinter) Name() string { return output.TargetPrinter }
 func (successfulPrinter) Execute(context.Context, output.Job) (output.TargetOutput, error) {
 	return output.TargetOutput{Status: output.TargetQueued, JobID: "print-job-test-123"}, nil
+}
+
+func TestManifestFailureAfterCameraOpenClosesCamera(t *testing.T) {
+	runner, cfg, _, _ := newTestRunner(t, fake.New(), testFrameConfig(t), nil)
+	cam := fake.New()
+	runner.Camera = cam
+	runner.writeManifest = func(sessionDir string, manifest session.Manifest) error {
+		if manifest.Phase == session.PhaseCapturing {
+			return errors.New("injected manifest persistence failure")
+		}
+		return session.WriteManifest(sessionDir, manifest)
+	}
+
+	result, err := runner.Run(context.Background(), cfg)
+	if err == nil || !strings.Contains(err.Error(), "injected manifest persistence failure") {
+		t.Fatalf("Run error=%v, want injected capturing-manifest failure", err)
+	}
+	if result.State != session.Failed {
+		t.Fatalf("state=%s, want failed", result.State)
+	}
+	if _, captureErr := cam.Capture(context.Background(), camera.CaptureRequest{
+		Sequence: 1, Width: 640, Height: 480, OutputPath: filepath.Join(t.TempDir(), "must-not-exist.jpg"),
+	}); captureErr == nil {
+		t.Fatal("camera remained open after capturing-manifest persistence failed")
+	}
 }
 
 func TestOutputFailureMarksSessionFailed(t *testing.T) {
@@ -332,16 +430,88 @@ func TestResumeSessionWithZeroCompletedCapturesUsesExistingEmptyWorkspace(t *tes
 	cam := fake.New()
 	runner := &Runner{Camera: cam, Renderer: render.New(), Output: output.NewLocal(outputDir),
 		Sleep: func(ctx context.Context, _ time.Duration) error { return ctx.Err() }}
-	result, err := runner.Run(context.Background(), Config{
+	gate := &recordingPaymentGate{}
+	runner.PaymentGate = gate
+	cfg := Config{
 		FrameConfigPath: testFrameConfig(t), WorkDir: workDir, OutputDir: outputDir,
 		CaptureCount: 3, CaptureWidth: 640, CaptureHeight: 480,
 		SessionID: sessionID, ResumeSession: true, ResumeCaptureCount: 0,
-	})
+	}
+	writeWorkflowTestManifest(t, filepath.Dir(captureDir), cfg, session.PhasePreflight, 0)
+	result, err := runner.Run(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("resume zero-capture session: %v", err)
 	}
 	if result.State != session.Completed || len(result.CapturePaths) != 3 {
 		t.Fatalf("unexpected resumed result: state=%s captures=%d", result.State, len(result.CapturePaths))
+	}
+	if len(gate.requests) != 1 || gate.requests[0].SessionID != sessionID || !gate.requests[0].Resume || gate.requests[0].DemoMode {
+		t.Fatalf("resume payment request=%+v, want one idempotent authorization request for the stable session ID", gate.requests)
+	}
+}
+
+type openTrackingCamera struct {
+	provider  *fake.Provider
+	openCalls int
+}
+
+func (c *openTrackingCamera) Info() camera.Info { return c.provider.Info() }
+func (c *openTrackingCamera) Open(ctx context.Context) error {
+	c.openCalls++
+	return c.provider.Open(ctx)
+}
+func (c *openTrackingCamera) Close() error { return c.provider.Close() }
+func (c *openTrackingCamera) Capture(ctx context.Context, req camera.CaptureRequest) (camera.CaptureResult, error) {
+	return c.provider.Capture(ctx, req)
+}
+
+func TestResumeSessionRejectsInvalidJPEGBeforeOpeningCamera(t *testing.T) {
+	root := t.TempDir()
+	workDir := filepath.Join(root, "sessions")
+	outputDir := filepath.Join(root, "output")
+	sessionID := "cccccccccccccccccccccccccccccccc"
+	captureDir := filepath.Join(workDir, sessionID, "captures")
+	if err := os.MkdirAll(captureDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	capturePath := filepath.Join(captureDir, "capture-01.jpg")
+	fixtureCamera := fake.New()
+	if err := fixtureCamera.Open(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixtureCamera.Capture(context.Background(), camera.CaptureRequest{
+		Sequence: 1, Width: 640, Height: 480, OutputPath: capturePath,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixtureCamera.Close(); err != nil {
+		t.Fatal(err)
+	}
+	validJPEG, err := os.ReadFile(capturePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	truncatedJPEG := truncateWorkflowJPEGScanPayload(t, validJPEG)
+	if err := os.WriteFile(capturePath, truncatedJPEG, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cam := &openTrackingCamera{provider: fake.New()}
+	runner := &Runner{Camera: cam, Renderer: render.New(), Output: output.NewLocal(outputDir)}
+	cfg := Config{
+		FrameConfigPath: testFrameConfig(t), WorkDir: workDir, OutputDir: outputDir,
+		CaptureCount: 3, CaptureWidth: 640, CaptureHeight: 480,
+		SessionID: sessionID, ResumeSession: true, ResumeCaptureCount: 1,
+	}
+	writeWorkflowTestManifest(t, filepath.Dir(captureDir), cfg, session.PhaseCapturing, 1)
+	if _, err := runner.Run(context.Background(), cfg); err == nil || !strings.Contains(err.Error(), "JPEG") {
+		t.Fatalf("Run error=%v, want invalid JPEG refusal", err)
+	}
+	if cam.openCalls != 0 {
+		t.Fatalf("camera Open calls=%d, want 0 for a truncated preserved JPEG", cam.openCalls)
+	}
+	if _, err := os.Stat(filepath.Join(captureDir, "capture-02.jpg")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("resume wrote a new capture before validating the existing JPEG: %v", err)
 	}
 }
 
@@ -362,12 +532,14 @@ func TestResumeSessionRejectsUnexpectedExistingCaptureEntries(t *testing.T) {
 	}
 	cam := fake.New()
 	runner := &Runner{Camera: cam, Renderer: render.New(), Output: output.NewLocal(outputDir)}
-	_, err := runner.Run(context.Background(), Config{
+	cfg := Config{
 		FrameConfigPath: testFrameConfig(t), WorkDir: workDir, OutputDir: outputDir,
 		CaptureCount: 3, CaptureWidth: 640, CaptureHeight: 480,
 		SessionID: sessionID, ResumeSession: true, ResumeCaptureCount: 1,
-	})
-	if err == nil || !strings.Contains(err.Error(), "expected exactly 1 completed captures") {
+	}
+	writeWorkflowTestManifest(t, filepath.Dir(captureDir), cfg, session.PhaseCapturing, 1)
+	_, err := runner.Run(context.Background(), cfg)
+	if err == nil || !strings.Contains(err.Error(), "unexpected capture entry") {
 		t.Fatalf("Run error=%v, want unexpected capture entry refusal", err)
 	}
 	if _, err := cam.Capture(context.Background(), camera.CaptureRequest{
@@ -632,11 +804,13 @@ func TestRunResumesExistingCapturesWithoutOverwritingThem(t *testing.T) {
 		Camera: cam, Renderer: render.New(), Output: output.NewLocal(outputDir),
 		Sleep: func(ctx context.Context, _ time.Duration) error { return ctx.Err() },
 	}
-	result, err := runner.Run(context.Background(), Config{
+	cfg := Config{
 		FrameConfigPath: cfgPath, WorkDir: workDir, OutputDir: outputDir, CaptureCount: 3,
 		Countdown: 0, Interval: 0, CaptureWidth: 640, CaptureHeight: 480,
-		SessionID: sessionID, ResumeCaptureCount: 1,
-	})
+		SessionID: sessionID, ResumeSession: true, ResumeCaptureCount: 1,
+	}
+	writeWorkflowTestManifest(t, filepath.Dir(captureDir), cfg, session.PhaseCapturing, 1)
+	result, err := runner.Run(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("Run resumed session: %v", err)
 	}
@@ -725,5 +899,355 @@ func TestDiskFullOutputFailurePreservesCapturesAndRenderedSession(t *testing.T) 
 	}
 	if _, err := os.Stat(filepath.Join(workDir, result.SessionID, "captures", "capture-03.jpg")); err != nil {
 		t.Fatalf("third source capture was removed: %v", err)
+	}
+}
+
+type partialWriteCaptureProvider struct {
+	base *fake.Provider
+}
+
+func (p *partialWriteCaptureProvider) Info() camera.Info              { return p.base.Info() }
+func (p *partialWriteCaptureProvider) Open(ctx context.Context) error { return p.base.Open(ctx) }
+func (p *partialWriteCaptureProvider) Close() error                   { return p.base.Close() }
+func (p *partialWriteCaptureProvider) Capture(_ context.Context, req camera.CaptureRequest) (camera.CaptureResult, error) {
+	if err := os.WriteFile(req.OutputPath, []byte("partial JPEG bytes left by a crashed camera write"), 0o600); err != nil {
+		return camera.CaptureResult{}, err
+	}
+	return camera.CaptureResult{}, errors.New("simulated camera interruption after a partial staging write")
+}
+
+func TestPartialCaptureRemainsStagedAndExplicitContinueRetakesIt(t *testing.T) {
+	runner, cfg, workDir, outputDir := newTestRunner(t, &fake.Provider{}, testFrameConfig(t), nil)
+	runner.Camera = &partialWriteCaptureProvider{base: fake.New()}
+	result, err := runner.Run(context.Background(), cfg)
+	if err == nil || !strings.Contains(err.Error(), "partial staging write") {
+		t.Fatalf("Run error=%v, want simulated partial capture failure", err)
+	}
+	if len(result.CapturePaths) != 0 {
+		t.Fatalf("partial capture was committed: %+v", result.CapturePaths)
+	}
+	capturesDir := filepath.Join(workDir, result.SessionID, "captures")
+	finalPath := filepath.Join(capturesDir, "capture-01.jpg")
+	if _, err := os.Stat(finalPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("partial image escaped staging into the committed capture namespace: %v", err)
+	}
+	scan, err := session.InspectRecoveryRoot(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scan.Items) != 1 || scan.Items[0].Status != session.RecoveryResumeAvailable || scan.Items[0].CompletedShots != 0 {
+		t.Fatalf("recovery scan=%+v, want zero-committed-shot resumable session", scan)
+	}
+
+	partialPath := filepath.Join(capturesDir, session.CaptureStagingDirectoryName, "shot-01-")
+	entries, err := os.ReadDir(filepath.Join(capturesDir, session.CaptureStagingDirectoryName))
+	if err != nil || len(entries) != 1 || !strings.HasPrefix(entries[0].Name(), filepath.Base(partialPath)) {
+		t.Fatalf("staged partial write was not retained for explicit recovery: entries=%+v err=%v", entries, err)
+	}
+
+	resume := &Runner{Camera: fake.New(), Renderer: render.New(), Output: output.NewLocal(outputDir),
+		Sleep: func(ctx context.Context, _ time.Duration) error { return ctx.Err() }}
+	cfg.ResumeSession = true
+	cfg.ResumeCaptureCount = 0
+	resumed, err := resume.Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("explicit Continue after partial capture: %v", err)
+	}
+	if resumed.State != session.Completed || len(resumed.CapturePaths) != cfg.CaptureCount {
+		t.Fatalf("resumed result=%+v, want completed session with %d committed captures", resumed, cfg.CaptureCount)
+	}
+	if _, err := os.Stat(filepath.Join(capturesDir, session.CaptureStagingDirectoryName)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("explicit Continue did not clean validated staging artifacts: %v", err)
+	}
+}
+
+func TestPublishedCaptureWithStaleManifestIsReconciledOnExplicitContinue(t *testing.T) {
+	runner, cfg, workDir, outputDir := newTestRunner(t, fake.New(), testFrameConfig(t), nil)
+	injected := errors.New("simulated interruption before manifest progress update")
+	runner.writeManifest = func(sessionDir string, manifest session.Manifest) error {
+		if manifest.Phase == session.PhaseCapturing && manifest.CompletedShots == 1 {
+			return injected
+		}
+		return session.WriteManifest(sessionDir, manifest)
+	}
+	interrupted, err := runner.Run(context.Background(), cfg)
+	if !errors.Is(err, injected) {
+		t.Fatalf("Run error=%v, want injected manifest interruption", err)
+	}
+	firstCapture := filepath.Join(workDir, interrupted.SessionID, "captures", "capture-01.jpg")
+	if err := session.ValidateJPEGFile(firstCapture); err != nil {
+		t.Fatalf("atomically published capture is invalid: %v", err)
+	}
+
+	scan, err := session.InspectRecoveryRoot(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scan.Items) != 1 || scan.Items[0].Status != session.RecoveryResumeAvailable ||
+		scan.Items[0].Manifest == nil || scan.Items[0].Manifest.CompletedShots != 0 || scan.Items[0].CompletedShots != 1 {
+		t.Fatalf("recovery scan=%+v, want one durable capture ahead of manifest", scan)
+	}
+
+	resume := &Runner{Camera: fake.New(), Renderer: render.New(), Output: output.NewLocal(outputDir),
+		Sleep: func(ctx context.Context, _ time.Duration) error { return ctx.Err() }}
+	cfg.ResumeSession = true
+	cfg.ResumeCaptureCount = 1
+	resumed, err := resume.Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("Continue should reconcile the atomically published capture: %v", err)
+	}
+	if resumed.State != session.Completed || len(resumed.CapturePaths) != cfg.CaptureCount {
+		t.Fatalf("resumed result=%+v, want completed session", resumed)
+	}
+	manifest, err := session.ReadManifest(filepath.Join(workDir, resumed.SessionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.CompletedShots != cfg.CaptureCount || manifest.Phase != session.PhaseOutputFinalized {
+		t.Fatalf("reconciled manifest=%+v, want finalized manifest with all captures", manifest)
+	}
+}
+
+func TestCapturePublicationNeverOverwritesAnExistingFinalPath(t *testing.T) {
+	runner, cfg, workDir, _ := newTestRunner(t, fake.New(), testFrameConfig(t), nil)
+	sentinel := []byte("pre-existing artifact must never be replaced")
+	runner.publishCapture = func(stagedPath, finalPath string) error {
+		if err := os.WriteFile(finalPath, sentinel, 0o600); err != nil {
+			return err
+		}
+		return publishCaptureNoReplace(stagedPath, finalPath)
+	}
+	result, err := runner.Run(context.Background(), cfg)
+	if err == nil || !strings.Contains(err.Error(), "without replacement") {
+		t.Fatalf("Run error=%v, want no-replace publication collision", err)
+	}
+	finalPath := filepath.Join(workDir, result.SessionID, "captures", "capture-01.jpg")
+	got, readErr := os.ReadFile(finalPath)
+	if readErr != nil || string(got) != string(sentinel) {
+		t.Fatalf("pre-existing final path was modified: got=%q err=%v", got, readErr)
+	}
+}
+
+func TestResumeUsesImmutableFrameSnapshotWhenOriginalFrameIsMissing(t *testing.T) {
+	root := t.TempDir()
+	workDir := filepath.Join(root, "sessions")
+	outputDir := filepath.Join(root, "output")
+	framePath := testFrameConfig(t)
+	sessionID := "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	sessionDir := filepath.Join(workDir, sessionID)
+	captureDir := filepath.Join(sessionDir, "captures")
+	if err := os.MkdirAll(captureDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{
+		FrameConfigPath: framePath, WorkDir: workDir, OutputDir: outputDir,
+		CaptureCount: 3, CaptureWidth: 640, CaptureHeight: 480,
+		SessionID: sessionID, ResumeSession: true, ResumeCaptureCount: 1,
+	}
+	frameBytes, err := readFrameConfigBytes(framePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := NewSessionManifestFromFrameBytes(cfg, frameBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshotPath, snapshotHash, err := session.WriteFrameSnapshot(sessionDir, frameBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.FrameSnapshotFile = session.FrameSnapshotFileName
+	manifest.FrameSnapshotSHA256 = snapshotHash
+
+	fixtureCamera := fake.New()
+	if err := fixtureCamera.Open(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixtureCamera.Capture(context.Background(), camera.CaptureRequest{
+		Sequence: 1, Width: 640, Height: 480,
+		OutputPath: filepath.Join(captureDir, "capture-01.jpg"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixtureCamera.Close(); err != nil {
+		t.Fatal(err)
+	}
+	manifest.Phase = session.PhaseCapturing
+	manifest.CompletedShots = 1
+	manifest.UpdatedAt = time.Now().UTC()
+	if err := session.WriteManifest(sessionDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate the operator changing or removing the active frame after the
+	// interrupted session was created. Recovery must render from its snapshot.
+	if err := os.Remove(framePath); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := &Runner{
+		Camera: fake.New(), Renderer: render.New(), Output: output.NewLocal(outputDir),
+		Sleep: func(ctx context.Context, _ time.Duration) error { return ctx.Err() },
+	}
+	result, err := runner.Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("resume with original frame missing: %v", err)
+	}
+	if result.State != session.Completed || len(result.CapturePaths) != 3 {
+		t.Fatalf("result state=%s captures=%d, want completed with 3 captures", result.State, len(result.CapturePaths))
+	}
+	if _, err := os.Stat(snapshotPath); err != nil {
+		t.Fatalf("durable frame snapshot was removed during resume: %v", err)
+	}
+	if err := session.ValidateJPEGFile(result.RenderedPath); err != nil {
+		t.Fatalf("rendered output was not produced from the snapshot: %v", err)
+	}
+	if err := session.ValidateJPEGFile(result.OutputPath); err != nil {
+		t.Fatalf("local output missing/invalid after resume: %v", err)
+	}
+}
+
+type recordingPaymentGate struct {
+	requests []payment.Request
+}
+
+func (g *recordingPaymentGate) EnsureAuthorized(ctx context.Context, request payment.Request) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	g.requests = append(g.requests, request)
+	return nil
+}
+
+type rejectingPaymentGate struct {
+	err error
+}
+
+func (g rejectingPaymentGate) EnsureAuthorized(context.Context, payment.Request) error {
+	return g.err
+}
+
+func TestPaymentGateDenialHappensBeforeWorkspaceCreationOrCameraOpen(t *testing.T) {
+	framePath := testFrameConfig(t)
+	cameraProvider := fake.New()
+	runner, cfg, workDir, _ := newTestRunner(t, cameraProvider, framePath, nil)
+	runner.PaymentGate = rejectingPaymentGate{err: errors.New("payment not verified")}
+
+	result, err := runner.Run(context.Background(), cfg)
+	if err == nil || !strings.Contains(err.Error(), "payment authorization failed before capture") {
+		t.Fatalf("Run error=%v, want payment denial", err)
+	}
+	if result.State != session.Failed {
+		t.Fatalf("result state=%s, want failed", result.State)
+	}
+	sessionDir := filepath.Join(workDir, cfg.SessionID)
+	if _, statErr := os.Stat(sessionDir); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("payment denial must happen before claiming a session workspace: %v", statErr)
+	}
+	if _, captureErr := cameraProvider.Capture(context.Background(), camera.CaptureRequest{
+		Sequence: 1, Width: 640, Height: 480, OutputPath: filepath.Join(t.TempDir(), "probe.jpg"),
+	}); captureErr == nil || !strings.Contains(strings.ToLower(captureErr.Error()), "open") {
+		t.Fatalf("camera unexpectedly became usable before payment authorization: %v", captureErr)
+	}
+}
+
+func TestSessionManifestRecordsCurrentDeliveryAndPaymentPolicies(t *testing.T) {
+	cfg := Config{
+		SessionID:       "0123456789abcdef0123456789abcdef",
+		FrameConfigPath: testFrameConfig(t),
+		CaptureCount:    3,
+		CaptureWidth:    640,
+		CaptureHeight:   480,
+	}
+	manifest, err := NewSessionManifest(cfg)
+	if err != nil {
+		t.Fatalf("NewSessionManifest: %v", err)
+	}
+	if manifest.MediaDeliveryMode != stationconfig.MediaDeliveryModeLocal ||
+		manifest.PaymentMode != stationconfig.PaymentModeDisabled {
+		t.Fatalf("manifest policies=%q/%q, want local/disabled", manifest.MediaDeliveryMode, manifest.PaymentMode)
+	}
+
+	cfg.MediaDeliveryMode = "lan"
+	if _, err := NewSessionManifest(cfg); err == nil || !strings.Contains(err.Error(), "unsupported media delivery mode") {
+		t.Fatalf("unsupported delivery mode error=%v", err)
+	}
+	cfg.MediaDeliveryMode = stationconfig.MediaDeliveryModeLocal
+	cfg.PaymentMode = "qr"
+	if _, err := NewSessionManifest(cfg); err == nil || !strings.Contains(err.Error(), "unsupported payment mode") {
+		t.Fatalf("unsupported payment mode error=%v", err)
+	}
+}
+
+func TestResumeRejectsUnsupportedPolicyChangeBeforeOpeningCamera(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		edit func(*Config)
+		want string
+	}{
+		{
+			name: "delivery policy",
+			edit: func(cfg *Config) { cfg.MediaDeliveryMode = "lan" },
+			want: "unsupported media delivery mode",
+		},
+		{
+			name: "payment policy",
+			edit: func(cfg *Config) { cfg.PaymentMode = "qr" },
+			want: "unsupported payment mode",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cameraProvider := fake.New()
+			runner, cfg, workDir, _ := newTestRunner(t, cameraProvider, testFrameConfig(t), nil)
+			cfg.MediaDeliveryMode = stationconfig.MediaDeliveryModeLocal
+			cfg.PaymentMode = stationconfig.PaymentModeDisabled
+			sessionDir := filepath.Join(workDir, cfg.SessionID)
+			captureDir := filepath.Join(sessionDir, "captures")
+			if err := os.MkdirAll(captureDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := cameraProvider.Open(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			capturePath := filepath.Join(captureDir, "capture-01.jpg")
+			if _, err := cameraProvider.Capture(context.Background(), camera.CaptureRequest{
+				Sequence: 1, Width: cfg.CaptureWidth, Height: cfg.CaptureHeight, OutputPath: capturePath,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := cameraProvider.Close(); err != nil {
+				t.Fatal(err)
+			}
+			writeWorkflowTestManifest(t, sessionDir, cfg, session.PhaseCapturing, 1)
+			manifestPath := filepath.Join(sessionDir, session.ManifestFileName)
+			before, err := os.ReadFile(manifestPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			cfg.ResumeSession = true
+			cfg.ResumeCaptureCount = 1
+			tc.edit(&cfg)
+			result, runErr := runner.Run(context.Background(), cfg)
+			if runErr == nil || !strings.Contains(runErr.Error(), tc.want) {
+				t.Fatalf("Run error=%v, want %q", runErr, tc.want)
+			}
+			if result.State != session.Failed {
+				t.Fatalf("resume state=%s, want failed", result.State)
+			}
+			after, err := os.ReadFile(manifestPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(before, after) {
+				t.Fatal("policy mismatch changed the interrupted manifest")
+			}
+			if _, err := cameraProvider.Capture(context.Background(), camera.CaptureRequest{
+				Sequence: 2, Width: cfg.CaptureWidth, Height: cfg.CaptureHeight, OutputPath: filepath.Join(t.TempDir(), "probe.jpg"),
+			}); err == nil {
+				t.Fatal("policy mismatch opened or retained the camera")
+			}
+		})
 	}
 }

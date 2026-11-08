@@ -330,3 +330,31 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none !important;
   .retention-actions { align-items: stretch; flex-direction: column; }
   .retention-actions .secondary-button, .retention-actions .primary-button { width: 100%; }
 }
+
+/* Crash/restart recovery: explicit, operator-controlled local actions. */
+.recovery-panel { width: min(100%, 560px); margin: 16px 0 18px; padding: 15px; border: 1px solid rgba(211,220,247,.16); border-radius: 14px; background: rgba(8,11,19,.46); box-shadow: 0 16px 38px rgba(0,0,0,.14); }
+.recovery-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.recovery-panel-heading strong { color: #edf0fa; font-size: 12px; }
+.recovery-panel-heading span { color: #9b91ca; font-size: 8px; font-weight: 800; letter-spacing: .14em; }
+.recovery-panel-note { margin: 7px 0 12px; color: #8490a7; font-size: 9px; line-height: 1.55; }
+.recovery-list { display: flex; flex-direction: column; gap: 10px; max-height: 330px; overflow-y: auto; }
+.recovery-card { display: flex; flex-direction: column; gap: 7px; padding: 12px; border: 1px solid rgba(211,220,247,.12); border-radius: 10px; background: rgba(15,19,31,.68); }
+.recovery-card-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.recovery-card-header strong { color: #e8ebf7; font-size: 11px; }
+.recovery-status { display: inline-flex; align-items: center; padding: 4px 7px; border-radius: 999px; background: rgba(144,154,177,.12); color: #aeb8cc; font-size: 7px; font-weight: 800; letter-spacing: .1em; }
+.recovery-status-resume_available { background: rgba(114,183,156,.13); color: #a4dcc4; }
+.recovery-status-output_pending { background: rgba(215,177,114,.13); color: #e5c48d; }
+.recovery-card p { margin: 0; color: #b3bed2; font-size: 9px; line-height: 1.55; }
+.recovery-card small { color: #8290a7; font-size: 8px; line-height: 1.5; }
+.recovery-card code { color: #8796b1; font-size: 8px; overflow-wrap: anywhere; }
+.recovery-card-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 3px; }
+.recovery-card-actions button { min-height: 31px; padding: 0 10px; border-radius: 7px; font: inherit; font-size: 8px; font-weight: 700; cursor: pointer; }
+.recovery-card-actions button:disabled { opacity: .45; cursor: wait; }
+.recovery-primary-button { border: 1px solid rgba(230,190,255,.34); background: rgba(177,127,220,.16); color: #e9d6ff; }
+.recovery-secondary-button { border: 1px solid rgba(190,203,226,.18); background: rgba(190,203,226,.06); color: #c2cbdb; }
+.recovery-text-button { border: 1px solid transparent; background: transparent; color: #818da4; }
+@media (max-width: 560px) {
+  .recovery-panel { padding: 12px; }
+  .recovery-card-actions { align-items: stretch; flex-direction: column; }
+  .recovery-card-actions button { width: 100%; }
+}

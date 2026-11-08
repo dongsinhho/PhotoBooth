@@ -40,3 +40,20 @@ Exit code is 1 when a required config/tool check fails. Missing storage director
 - [Camera POC instructions](../camera-poc/README.md)
 
 Do not attach guest photos, webcam frames, rendered strips, credentials, payment screenshots, tokens, serial numbers, or unredacted personal paths to issue reports.
+
+
+## Audit local network exposure
+
+Use the dedicated read-only audit against the actual booth profile:
+
+~~~powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\self-service\audit-local-network-exposure.ps1
+~~~
+
+Or specify a profile explicitly:
+
+~~~powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\self-service\audit-local-network-exposure.ps1 -ConfigPath "$env:LOCALAPPDATA\PhotoBooth\store-config-v1.json"
+~~~
+
+It checks local/fixed storage roots, broad NTFS allow entries, overlapping SMB shares and share ACLs, SMB protocol/service/listeners, active network categories, effective firewall defaults and named SMB-related inbound rules. It attempts to enumerate current SMB sessions; that check may require an elevated PowerShell session. The script never changes firewall/share/service state and never opens photo/session contents. WARN means the host-local gate is incomplete; run the elevated and second-device checks documented in [NETWORK_EXPOSURE_AUDIT.md](../../docs/knowledge-base/NETWORK_EXPOSURE_AUDIT.md).

@@ -20,6 +20,8 @@ export function ContinueDemoSession(arg1:string):Promise<main.DemoSession>;
 
 export function ContinuePhotoSession(arg1:string):Promise<main.PlayerSession>;
 
+export function ContinueRecoveredPhotoSession(arg1:string):Promise<main.PlayerSession>;
+
 export function CurrentCameraPreviewStatus():Promise<main.CameraPreviewStatus>;
 
 export function CurrentPhotoSession():Promise<main.PlayerSession>;
@@ -42,7 +44,11 @@ export function IsBenchmarkMode():Promise<boolean>;
 
 export function IsKioskMode():Promise<boolean>;
 
+export function ListInterruptedPhotoSessions():Promise<Array<main.RecoveryItemView>>;
+
 export function OpenPhotoOutputFolder(arg1:string):Promise<void>;
+
+export function OpenPhotoSessionFolder(arg1:string):Promise<void>;
 
 export function Ping(arg1:number):Promise<number>;
 
@@ -60,7 +66,11 @@ export function RestartDemoSession(arg1:string):Promise<main.DemoSession>;
 
 export function RestartPhotoSession(arg1:string):Promise<main.PlayerSession>;
 
+export function RestartRecoveredPhotoSession(arg1:string):Promise<main.PlayerSession>;
+
 export function RetryPhotoOutput(arg1:string):Promise<main.PlayerSession>;
+
+export function RetryRecoveredPhotoOutput(arg1:string):Promise<main.PlayerSession>;
 
 export function RollbackActiveFrame():Promise<main.PlayerSettings>;
 

@@ -13,6 +13,50 @@ import (
 	"github.com/dongsinhho/PhotoBooth/internal/booth/camera/recovery"
 )
 
+func TestStartCameraPreviewDisabledSkipsProviderAndProfileInitialization(t *testing.T) {
+	t.Setenv(cameraPreviewDisabledEnv, "1")
+	app := NewApp()
+
+	status, err := app.StartCameraPreview()
+	if err != nil {
+		t.Fatalf("StartCameraPreview with preview disabled: %v", err)
+	}
+	if status.State != "disabled" || status.Available {
+		t.Fatalf("disabled preview status=%+v, want disabled and unavailable", status)
+	}
+	if status.Message == "" {
+		t.Fatal("disabled preview must explain why no live preview is running")
+	}
+	if app.previewDone != nil || app.previewCancel != nil || app.previewAck != nil {
+		t.Fatal("disabled preview unexpectedly created a preview worker or acknowledgement channel")
+	}
+	if app.settingsPath != "" || app.workDir != "" || app.outputDir != "" {
+		t.Fatal("disabled preview unexpectedly initialized a station profile")
+	}
+	if current := app.CurrentCameraPreviewStatus(); current.State != "disabled" {
+		t.Fatalf("current preview status=%+v, want disabled", current)
+	}
+}
+
+func TestSyntheticOnlyModeAlsoDisablesIdleCameraPreview(t *testing.T) {
+	t.Setenv(syntheticOnlyEnv, "1")
+	app := NewApp()
+
+	status, err := app.StartCameraPreview()
+	if err != nil {
+		t.Fatalf("StartCameraPreview in synthetic-only mode: %v", err)
+	}
+	if status.State != "disabled" || status.Available {
+		t.Fatalf("synthetic-only preview status=%+v, want disabled", status)
+	}
+	if app.previewDone != nil || app.previewCancel != nil || app.previewAck != nil {
+		t.Fatal("synthetic-only mode created a physical camera preview worker")
+	}
+	if app.settingsPath != "" || app.workDir != "" || app.outputDir != "" {
+		t.Fatal("synthetic-only preview guard initialized the station profile")
+	}
+}
+
 func TestHandlePreviewRecoveryEventRecordsAttemptErrorDetails(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "preview-recovery.jsonl")
 	t.Setenv(cameraPreviewDiagnosticsEnv, path)

@@ -13,6 +13,16 @@ This is a disposable technical spike to assess generic UVC webcam capture and co
 - When a second process attempted to read while another process held the camera, the second reader failed on its first frame. After the holder released the camera, reads succeeded again.
 - Camera-busy recovery here is a low-level smoke check. The Go booth-player now has a bounded provider recovery wrapper; physical USB unplug/replug was verified in a same-process headless harness, but production kiosk UI/session re-entry still needs a dedicated test.
 
+## Linux V4L2 read-only preflight
+
+The Linux camera API target is V4L2. On the Ubuntu 26.04.1 WSL2 evaluation host, Windows detects the B525 but no USB/V4L2 device is currently attached to WSL. Run the read-only inventory before attempting a provider implementation:
+
+    go run ./tools/camera-poc/v4l2-preflight
+
+It reports kernel/UVC module state, /sys/class/video4linux, /dev/videoN nodes and POSIX mode-bit permission estimates. It never opens a camera node, changes permissions, loads modules or streams frames. See [v4l2-preflight/README.md](v4l2-preflight/README.md), [Linux evaluation runbook](../../docs/QUICKSTART_LINUX_EVALUATION.md) and [ADR 0030](../../docs/adr/0030-linux-v4l2-backend-evaluation.md).
+
+WSL2 requires usbipd-win for USB pass-through. Binding requires Windows Administrator permission, and an attached camera is unavailable to Windows until detached. The present environment has no usbipd-win command and no /dev/videoN node; Linux camera capture remains untested.
+
 ## Setup (Windows PowerShell)
 
 From repository root:
@@ -72,7 +82,7 @@ While it is holding the webcam, run a capture attempt from another window. The s
 - The Python JSON renderer remains a disposable POC. The Go renderer is the main development path. The experimental Windows Media Foundation provider passed 100 sequential real B525 sessions in one Go process after native resource-lifecycle cleanup (300/300 captures, 100 rendered strips, 100 local copies); all 500 JPEG artifacts had expected dimensions. OS memory sampled across 813 points did not increase in the final 10% of the run. A same-process OpenCV holder triggered HRESULT 0xC00D3704; the same Go process recovered after release. See docs/knowledge-base/CAMERA_RELIABILITY_RESULTS.md. Extended-window in-flight recovery after physical USB replug passed in the single-process manual harness. A Wails UI capture-output smoke test and one forced initial-contention/retry journey have since passed. The original night scene was grossly dark, but a 2026-10-31 Wails UI batch in the current scene passed 9/9 captures at 1280x720; first-shot drops were 0.000%, 0.000% and 0.660%. A three-pair warm-up A/B found only a 0.037 percentage-point reduction in first-shot drop with the one-second warm-up; keep the default unchanged. Representative controlled-lighting portrait quality is still untested. One active-session physical B525 USB unplug/replug through Wails also passed once; repeat cycles/ports remain open.
 - Physical USB unplug/replug passed with the expanded recovery window: provider reopen succeeded on attempt 22 after 21 unavailable-device attempts, and the same in-flight capture recovered in 23.906 seconds without a process restart. A separate physical unplug/replug during an active Wails UI session passed once on 2026-10-31; Windows PnP and Wails recovery were observed and the same three-shot session completed without app restart or Continue. Repeat UI cycles/ports, printing, full-day/overnight stability, live UI preview and full kiosk operation remain untested.
 - The built-in laptop camera requires a separate test on an actual laptop.
-- Linux capture/output needs a selected distro and a separate test.
+- Linux target Ubuntu 26.04.1 LTS x86_64 has been selected and basic WSL2/WSLg UI evaluation passed. The current WSL host has no attached V4L2 device; run the read-only V4L2 preflight and complete usbipd-win USB pass-through before a Linux capture/output test.
 - DSLR/mirrorless remote still capture and original-file download need another provider path.
 - Keep all output photos out of version control.
 

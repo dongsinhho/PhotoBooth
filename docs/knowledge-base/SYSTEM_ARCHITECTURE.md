@@ -19,6 +19,8 @@ Renders guest and operator experiences using a theme schema and supported compon
 ### Session Orchestrator
 Owns session state, cancellation, deadlines, recovery, and sequencing. Coordinates capture, render, output, payment policy, and selected media-delivery behavior through interfaces.
 
+The Windows Preview now persists a versioned local session manifest and completes read-only crash/restart discovery before the separate idle-preview lifecycle runs. Camera providers write into per-shot `.staging` directories; the workflow fully decodes and syncs each JPEG before atomic no-replace publication under its final numbered filename. Discovery preserves known staging artifacts, while explicit Continue cleans them and retakes missing shots; a single post-publication manifest lag can be reconciled after full decode. Recovery requires explicit operator action; rendered sessions can retry local output only, and ambiguous/legacy layouts remain inspect-only. New schema-v2 sessions preserve their exact declarative frame definition as a SHA-256-verified session-local frame.json; schema-v1 manifests remain readable and still depend on the original frame file. Startup performs bounded JPEG-header checks and verifies snapshot identity; Continue fully decodes preserved captures before opening the camera and renders from the snapshot even when the current Settings frame has changed or disappeared. Recovered output retry fully decodes the preserved render before publication while serialized with preview shutdown. See [SESSION_CRASH_RECOVERY.md](SESSION_CRASH_RECOVERY.md) and [ADR 0028](../adr/0028-local-session-crash-recovery.md).
+
 Suggested state model: Idle -> Preflight -> AwaitingPayment (optional) -> Capturing -> Rendering -> Output -> Delivery -> Completed. Include PartialSuccess, Failed, Cancelled, TimedOut, and recovery paths. Payment and delivery states may be skipped according to configuration.
 
 ### Camera Provider Layer
@@ -39,15 +41,15 @@ Persists the finalized photo under a session-scoped path. A successful local sav
 A future adapter will submit a print job through the selected OS/driver integration. It should return a spool/job identifier and queued status when accepted, rather than block the capture/session thread until paper physically emerges. Retry and duplicate-print behavior must be provider-aware; do not blindly retry an uncertain spool operation.
 
 ### Payment Module
-A policy/orchestrator plus provider adapters. It may be disabled. When payment is required, authoritative server/provider verification must happen before a session permit is granted. Do not treat a client redirect, QR display, screenshot, or guest claim as proof of payment.
+A policy/orchestrator plus provider adapters. The workflow now depends on a payment.Gate interface and invokes it after frame/config preflight but before claiming a session workspace or opening the camera. The only implemented policy is disabled/free: it performs no network request and grants no paid entitlement. A future required-payment provider must verify authoritative server/provider state before granting a durable session permit, reuse that permit on Continue, and use the session ID as an idempotency identity. Do not treat a client redirect, QR display, screenshot, or guest claim as proof of payment. See [ADR 0029](../adr/0029-media-delivery-and-payment-policy-boundaries.md).
 
 ### Media Delivery Module
-Policy-based router with three modes:
-- **Local-only:** save photos at the booth; operator-managed access.
-- **LAN:** expose only the selected output to devices on the trusted store network via a short-lived session link/QR or controlled download endpoint.
-- **Platform cloud:** upload through a configured cloud service with explicit retention and access controls.
+A policy-based router is resolved from StoreConfig into the output.Dispatcher interface. The Local factory is implemented and used by CLI and Wails; it preserves the current local-only, session-scoped, no-overwrite output behavior. The policy boundary reserves future modes:
+- **Local-only (implemented):** save photos at the booth; operator-managed access.
+- **LAN (not implemented):** expose only the selected output to devices on the trusted store network via a short-lived session link/QR or controlled download endpoint.
+- **Platform cloud (not implemented):** upload through a configured cloud service with explicit retention and access controls.
 
-Capture/render must complete even if optional delivery later fails; delivery can become pending/retryable where policy permits.
+Unsupported modes fail closed rather than silently falling back to local. Capture/render remains independent of delivery providers; the dispatcher reports target outcomes separately. New schema-v2 session manifests include both delivery and payment modes in their run-config fingerprint so Continue refuses policy drift. Stage 2 still has not passed its exit gate; no network listener or payment provider is introduced by this boundary work.
 
 ### Local Persistence
 SQLite is a candidate for session metadata, settings, package versions, and sync state. Photos/assets live on local storage. Define disk-full handling and retention. Do not store payment secrets in plaintext configuration.

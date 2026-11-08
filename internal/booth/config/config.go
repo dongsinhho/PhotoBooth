@@ -14,11 +14,13 @@ import (
 )
 
 const (
-	CurrentSchemaVersion = 1
-	maxConfigBytes       = 64 << 10
-	maxDimension         = 4096
-	maxCaptureShots      = 12
-	maxDuration          = 5 * time.Minute
+	CurrentSchemaVersion   = 1
+	MediaDeliveryModeLocal = "local"
+	PaymentModeDisabled    = "disabled"
+	maxConfigBytes         = 64 << 10
+	maxDimension           = 4096
+	maxCaptureShots        = 12
+	maxDuration            = 5 * time.Minute
 )
 
 // StoreConfig is the versioned, local configuration for one PhotoBooth station.
@@ -80,8 +82,8 @@ func Defaults() StoreConfig {
 			SessionsDir: filepath.Join("data", "sessions"),
 			OutputDir:   filepath.Join("data", "output"),
 		},
-		MediaDelivery: MediaDeliverySettings{Mode: "local"},
-		Payment:       PaymentSettings{Mode: "disabled"},
+		MediaDelivery: MediaDeliverySettings{Mode: MediaDeliveryModeLocal},
+		Payment:       PaymentSettings{Mode: PaymentModeDisabled},
 	}
 }
 
@@ -313,10 +315,10 @@ func (cfg StoreConfig) Validate() error {
 	if cfg.Storage.OutputRetentionDays < 0 || cfg.Storage.OutputRetentionDays > 3650 {
 		return errors.New("storage.output_retention_days must be 0 (disabled) or between 1 and 3650")
 	}
-	if mode := strings.ToLower(strings.TrimSpace(cfg.MediaDelivery.Mode)); mode != "local" {
+	if mode := strings.ToLower(strings.TrimSpace(cfg.MediaDelivery.Mode)); mode != MediaDeliveryModeLocal {
 		return fmt.Errorf("unsupported media_delivery.mode %q (only local is implemented)", cfg.MediaDelivery.Mode)
 	}
-	if mode := strings.ToLower(strings.TrimSpace(cfg.Payment.Mode)); mode != "disabled" {
+	if mode := strings.ToLower(strings.TrimSpace(cfg.Payment.Mode)); mode != PaymentModeDisabled {
 		return fmt.Errorf("unsupported payment.mode %q (only disabled/free mode is implemented)", cfg.Payment.Mode)
 	}
 	return nil

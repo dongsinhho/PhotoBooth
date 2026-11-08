@@ -145,6 +145,13 @@ func (p *LocalProvider) save(ctx context.Context, sessionID, sourcePath string, 
 
 	if exclusive {
 		if err := ops.Link(tempPath, finalPath); err != nil {
+			// Two independent retries may both pass their read-only preflight.
+			// The atomic no-replace link is the publication authority; normalize
+			// its losing-race result to the same actionable no-overwrite error
+			// on Unix and Windows.
+			if errors.Is(err, os.ErrExist) {
+				return "", fmt.Errorf("output %q already exists; refusing to overwrite a previously saved photo: %w", finalPath, err)
+			}
 			return "", storageOperationError("publish local output without overwriting", err)
 		}
 		// The final name now references the fully synced file. Removing the

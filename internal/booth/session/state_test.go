@@ -43,10 +43,15 @@ func TestTerminalStatesCannotContinue(t *testing.T) {
 	}
 }
 
+func TestPreflightCanTransitionDirectlyToRenderingForFullCaptureRecovery(t *testing.T) {
+	if !CanTransition(Preflight, Rendering) {
+		t.Fatal("a fully captured interrupted session must be able to render without reopening the camera")
+	}
+}
+
 func TestInvalidTransitionsAreRejected(t *testing.T) {
 	invalid := [][2]State{
 		{Idle, Capturing},
-		{Preflight, Rendering},
 		{Capturing, Output},
 		{Rendering, Completed},
 		{Output, Capturing},

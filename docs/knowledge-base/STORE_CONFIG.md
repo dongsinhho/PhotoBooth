@@ -84,3 +84,33 @@ A new workflow session claims its workspace with atomic directory creation and r
 The Wails player snapshots station settings, frame path, storage roots, capture count and timing under the app lock when a session starts or continues. Later edits cannot redirect a running session's renderer, camera parameters or output into a different profile. Continue also refuses to start while station settings are invalid or a settings save is in progress.
 
 Validation on the Windows reference host includes root overlap tests (identical/nested/sibling and symlink aliases), live mklink /J tests for root and session-ID redirection, stale-session-ID refusal with previous bytes preserved, empty-workspace resume, unexpected-entry resume refusal, retry identity checks, normal output no-overwrite, and an immutable Wails runtime-config snapshot test. This is best-effort path identity enforcement, not an OS-level sandbox; a narrow TOCTOU interval remains between the final path check and the filesystem operation.
+
+## Policy boundaries (2026-11-07)
+
+The schema-v1 values remain unchanged: media_delivery.mode defaults to local and payment.mode defaults to disabled. The root CLI and Wails player now resolve these settings through separate policy boundaries:
+
+- The delivery factory maps local to the existing output.Dispatcher contract. The local provider and its no-overwrite/session-isolation behavior remain unchanged. Unsupported LAN/cloud values fail closed; they do not construct a network listener or silently fall back.
+- The payment gate is called by the workflow after frame/config validation but before it claims the session workspace or opens the camera. Disabled/free mode does not make network requests. A future provider adapter receives the stable session ID and whether this is a resume, so permit reuse/idempotency can be implemented without coupling a provider to camera capture.
+- The workflow depends on interfaces only. CLI and Wails construct the selected policies from the loaded StoreConfig and pass them to the workflow.
+- New schema-v2 session manifests persist media_delivery_mode and payment_mode and include them in the run-config fingerprint. Continue refuses policy drift. Legacy schema-v1 manifests remain readable.
+
+No LAN delivery or payment processing is implemented by this change. QR/paid modes, cloud, network listeners, payment intents, webhooks and provider credentials remain out of scope; unsupported config values continue to be rejected. Stage 2 exit gate remains OPEN. See [ADR 0029](../adr/0029-media-delivery-and-payment-policy-boundaries.md).
+
+## Policy-boundary acceptance follow-up (2026-11-08)
+
+The local/offline policy path now has an entrypoint-level acceptance test in addition to unit tests. A temporary schema-v1 profile with the fake camera, local delivery and disabled payment completes a three-shot CLI run. The test verifies all captures, a local output under the session-scoped output directory, and a finalized schema-v2 manifest containing media_delivery_mode=local and payment_mode=disabled.
+
+Externally supplied profiles selecting LAN, cloud or QR are rejected by the complete CLI entrypoint before it reaches the run/capture path or creates the sessions root. Config Save also rejects these unsupported values rather than persisting a profile that could imply a feature is available. Workflow tests verify the payment gate receives the stable session ID and Resume flag on both new and continued sessions; a policy change to an unsupported mode fails before camera open and preserves the prior manifest unchanged.
+
+The Wails Settings API continues to expose capture/frame/retention fields only. Regression tests ensure saving those fields preserves media-delivery and payment policy values, and that a started session uses the policy snapshot it captured rather than later mutable app state.
+
+These are synthetic/fake-camera and temporary-directory tests. They do not prove Linux mount behavior at runtime, nor do they constitute a packet-capture audit of a deployed station. Only local delivery and disabled/free payment remain supported; Stage 2 remains OPEN.
+
+
+## Windows local-network exposure audit (2026-11-08)
+
+Added tools/self-service/audit-local-network-exposure.ps1, documented in [NETWORK_EXPOSURE_AUDIT.md](NETWORK_EXPOSURE_AUDIT.md). It reviews local/fixed storage roots, broad NTFS allow principals, overlapping SMB shares and their share ACLs, SMB1/SMB2, LanmanServer, TCP listeners on 445/139, active network categories, effective firewall defaults, named SMB-related inbound rules and current SMB sessions where permissions allow.
+
+ShinPc's actual profile selected local delivery and disabled payment. Both storage roots were distinct directories on fixed local drive C:, with no Everyone/Authenticated Users/BUILTIN Users/Domain Users allow ACE in their returned NTFS ACLs. No ordinary named SMB share overlapped either root. The default C$ administrative share does cover both roots and reports Full access for Administrators, Backup Operators and INTERACTIVE; this remains a WARN for explicit review rather than being treated as a guest-facing PhotoBooth share. SMB1 is disabled; SMB2 and LanmanServer are enabled; listeners exist on 445/139. The active Public firewall profile is enabled with default inbound Block, and no enabled named SMB/File and Printer Sharing/NetBIOS allow rule matching the active profile and ports was found. Current SMB sessions could not be enumerated because the audit identity received Access Denied.
+
+The initial run completed with 0 FAIL / 3 WARN. A follow-up expanded the firewall check to inspect all effective inbound SMB port filters and any Any-port/LanmanServer rules; on the non-elevated account, Windows returned Access Denied and the audit correctly reported this as WARN, producing 0 FAIL / 4 WARN. SMB session enumeration was also denied. This is partial host-local evidence, not proof of remote unreachability or Stage 2 completion. Repeat elevated to review the effective port-filter inventory, administrative-share ACL and sessions, perform a separate trusted-device reachability check, and complete Linux runtime/mount validation. No shares, firewall rules, services, profile settings, session contents or photos were changed or opened.

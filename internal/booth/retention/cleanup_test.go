@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dongsinhho/PhotoBooth/internal/booth/session"
 )
 
 func createOldSession(t *testing.T, root, id string, now time.Time, days int) string {
@@ -431,5 +433,103 @@ func TestBuildPlanRejectsOverlappingRootsEvenWhenOnePolicyIsDisabled(t *testing.
 	})
 	if err == nil || !strings.Contains(err.Error(), "non-overlapping roots") {
 		t.Fatalf("BuildPlan error=%v, want root overlap rejection", err)
+	}
+}
+
+func TestBuildPlanAcceptsFinalizedSessionWithVerifiedFrameSnapshot(t *testing.T) {
+	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	old := now.Add(-40*24*time.Hour - time.Hour)
+	base := t.TempDir()
+	sessions := filepath.Join(base, "sessions")
+	outputs := filepath.Join(base, "output")
+	if err := os.MkdirAll(sessions, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(outputs, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	createManifested := func(id string, corrupt bool) string {
+		t.Helper()
+		dir := createOldSession(t, sessions, id, now, 40)
+		frameBytes := []byte("{\"schema_version\":1,\"frame\":\"retention\"}")
+		snapshotPath, snapshotHash, err := session.WriteFrameSnapshot(dir, frameBytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest := session.NewManifest(id, 1, filepath.Join(base, "frames", "frame.json"), snapshotHash, strings.Repeat("a", 64))
+		manifest.FrameSnapshotFile = session.FrameSnapshotFileName
+		manifest.FrameSnapshotSHA256 = snapshotHash
+		manifest.ConfigSchemaVersion = 1
+		manifest.Phase = session.PhaseOutputFinalized
+		manifest.CompletedShots = 1
+		manifest.CreatedAt = old
+		manifest.RenderedAt = old
+		manifest.OutputFinalizedAt = old
+		manifest.UpdatedAt = old
+		manifest.OutputPath = filepath.Join(outputs, id, "photo.jpg")
+		if err := session.WriteManifest(dir, manifest); err != nil {
+			t.Fatal(err)
+		}
+		if corrupt {
+			if err := os.WriteFile(snapshotPath, []byte("tampered"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, path := range []string{
+			snapshotPath, filepath.Join(dir, session.ManifestFileName),
+			filepath.Join(dir, "captures", "capture-01.jpg"),
+			filepath.Join(dir, "captures"), filepath.Join(dir, "rendered.jpg"), dir,
+		} {
+			if err := os.Chtimes(path, old, old); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return dir
+	}
+
+	validDir := createManifested("99999999999999999999999999999999", false)
+	corruptDir := createManifested("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", true)
+	plan, err := BuildPlan(context.Background(), Options{
+		SessionsDir: sessions, OutputDir: outputs,
+		Policy: Policy{SessionRetentionDays: 30}, Now: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Candidates) != 1 || plan.Candidates[0].Path != validDir {
+		t.Fatalf("retention candidates=%+v, want only finalized session %q", plan.Candidates, validDir)
+	}
+	if _, err := os.Stat(corruptDir); err != nil {
+		t.Fatalf("corrupt snapshot session changed during planning: %v", err)
+	}
+}
+
+func TestBuildPlanSkipsUndeclaredFrameSnapshot(t *testing.T) {
+	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	base := t.TempDir()
+	sessions, outputs := filepath.Join(base, "sessions"), filepath.Join(base, "output")
+	if err := os.MkdirAll(sessions, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(outputs, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dir := createOldSession(t, sessions, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", now, 60)
+	if err := os.WriteFile(filepath.Join(dir, session.FrameSnapshotFileName), []byte("orphaned snapshot"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := BuildPlan(context.Background(), Options{
+		SessionsDir: sessions, OutputDir: outputs,
+		Policy: Policy{SessionRetentionDays: 30}, Now: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Candidates) != 0 {
+		t.Fatalf("retention must preserve session with an undeclared frame snapshot: %+v", plan.Candidates)
+	}
+	if _, err := os.Stat(filepath.Join(dir, session.FrameSnapshotFileName)); err != nil {
+		t.Fatalf("orphaned snapshot changed during dry run: %v", err)
 	}
 }

@@ -316,3 +316,46 @@ Report: %TEMP%\photobooth-wails-quality-cb632a1a1cd94153b78e20c2c946a07e.json.
 Retained artifacts root: %TEMP%\photobooth-wails-quality-cb632a1a1cd94153b78e20c2c946a07e. It contains real camera captures, rendered photos and local outputs; treat it as private photo data. The operator should remove it manually after review when no longer needed.
 
 **Interpretation and limits:** this is a failed current-scene darkness gate, not a portrait/framing acceptance. Lighting and scene exposure were not instrument-controlled, so the result does not isolate a camera-driver/provider defect. Do not change the one-second warm-up or exposure policy based on this batch. Repeat the short quality review only after arranging a representative fixed-lighting scene and intended camera framing. No USB recovery or long-run test was performed in this continuation.
+
+## Wails real-camera image-quality retest after atomic capture staging (2026-11-07)
+
+Harness: `tools/ui-spike/wails-v2/ui-camera-quality-smoke.ps1 -Sessions 3 -KeepArtifacts`. Real Logitech B525 / Windows Media Foundation through the rebuilt Wails Preview. Each session used the normal 3-shot cadence (3-second countdown, 1-second interval) and the provider's existing one-second warm-up. Three sessions completed in one run; camera identity was checked before start and no competing camera client was present.
+
+**Image Quality Gate: PASS (current B525 capture pipeline).** This gate checks that produced photos are decodable at the configured dimensions, are not grossly dark, have no material first-shot exposure drop, and complete capture/render/local-save. All defined checks passed in this batch. Portrait-specific lighting/framing/skin-tone evaluation is a separate optional extension and is not a blocker for this image-quality gate.
+
+- 3/3 sessions completed; 9/9 capture JPEGs decoded at 1280x720.
+- All 3 sessions rendered and published the local output.
+- Overall mean grayscale luminance across 9 captures: 129.207 / 255.
+- Session 1: mean luma 129.433; later-shot median 129.498; first-shot drop 0.150%.
+- Session 2: mean luma 129.044; later-shot median 129.195; first-shot drop 0.350%.
+- Session 3: mean luma 129.144; later-shot median 129.326; first-shot drop 0.421%.
+- Average first-shot drop across sessions: 0.307%; maximum 0.421%, below the unchanged 10% limit.
+- Across captures: contrast SD 29.858-30.100; Laplacian variance 8.843-9.955; dark-pixel fraction 0.109-0.127%; clipped-pixel fraction 0.105-0.112%. Contrast/sharpness metrics are descriptive only; no acceptance threshold is defined for them.
+
+Validator thresholds were unchanged: gross-dark sentinel 20/255 and maximum first-shot drop 10%. The one-second warm-up was not changed and no camera setting was modified.
+
+**Visual review:** all nine images are consistent and show visible room detail without an obvious gross-darkness, severe clipping or capture-corruption issue. The B525 is aimed upward at the room ceiling (ceiling fixtures, ceiling light and air conditioner), so this visual review is valid for the current-scene capture-quality check but does not make claims about face focus/detail, skin tone or portrait framing. The current image-quality gate is PASS; a guest/portrait scene can be used for a later product/demo refinement, not as a reason to invalidate this run.
+
+**Read-only camera controls recorded after the batch:** 1280x720 MJPEG / 30 FPS; exposure Auto -5 (range -11..-2, default -6); focus Auto; white balance Auto 6179 (range 2800..6500, default 5500); brightness Manual 128/255 (driver default); backlight compensation Manual 1/1 (driver default); gain Manual 89 (driver default 64); gamma unsupported. No controls were changed. The diagnostic helper printed a native close warning while releasing the Media Foundation media type/source (`HRESULT 2`, `3222093445`, `1`); the B525 remained PnP `OK` afterward and no camera client process remained. Track this as a diagnostic-helper cleanup warning, separate from the successful Wails capture batch.
+
+Report retained: `%TEMP%\\photobooth-wails-quality-e6f4bedfced64417a3531bbcfff029c6.json`. The nine real capture JPEGs, rendered/local outputs and contact sheet were deleted after visual review; the JSON metrics report remains. No physical camera settings or production code were changed during this retest.
+
+## Warm-up vs. no-warm-up A/B retest (2026-11-07)
+
+Harness: `tools/camera-poc/warmup-ab-test.ps1 -SessionsPerVariant 6 -Shots 3`. Real Logitech B525 / Windows Media Foundation on ShinPc. Six alternating pairs were run (pair order alternated no-warm-up → 1s and 1s → no-warm-up), with three shots per session. Countdown and shot interval were both zero in this diagnostic so the only tested difference was the provider warm-up. All camera controls and the physical scene were left unchanged.
+
+**Capture/quality workflow: PASS in both arms.** 12/12 sessions completed; 36/36 1280x720 captures decoded; all sessions rendered and published local output; both validator arms exited 0 against the unchanged gross-darkness / first-shot-drop thresholds.
+
+| Metric | Warm-up disabled | 1-second warm-up |
+|---|---:|---:|
+| Sessions / captures | 6 / 18 | 6 / 18 |
+| Mean first-shot luminance | 129.973 | 132.273 |
+| Mean later-shot luminance | 129.765 | 132.307 |
+| Mean signed first-shot drop | -0.155% | +0.025% |
+| Quality validator | PASS | PASS |
+
+Interpretation: negative signed drop means the first shot was slightly brighter than the median/later shots. The mean difference (no-warm-up minus 1s warm-up) is -0.180 percentage points, so this run does not demonstrate a measurable first-shot brightness benefit from the one-second warm-up. Median paired warm-up-minus-no-warm-up effect is +0.028 percentage points (slightly in the direction of a darker first shot with warm-up, effectively zero). Five of six pair differences were within -0.121 to +0.075 pp; one no-warm-up session had a +1.099 pp first-shot-brighter outlier which dominates the means. Absolute mean luminance drifted between arms (129.973 vs. 132.273), reinforcing that within-session relative first-vs-later comparisons are more reliable than cross-arm absolute luma in this non-instrumented room.
+
+**Decision:** retain the one-second default. This is a small bounded stream-settling precaution with only one second of startup cost, consistent with the earlier 3-pair diagnostic that found a very small 0.037 pp effect in the other direction. The expanded 6-pair result shows no meaningful or repeatable brightness improvement and no material first-shot-darkness issue even with warm-up disabled. Do not increase warm-up and do not change exposure, gain, white balance or renderer based on these data.
+
+Report: `%TEMP%\\photobooth-warmup-ab-20261107-211532.json` (SHA-256 `2DC1203A478498203CBBF8A89131E27FF352E5C84BE7F762E983C8F107D566BC`). The harness removed its image artifact root automatically; only the JSON metrics report remains. B525 returned to PnP `OK` and no PhotoBooth/camera-client process remained.

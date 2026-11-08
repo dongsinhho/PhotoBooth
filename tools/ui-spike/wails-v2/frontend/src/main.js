@@ -20,6 +20,11 @@ import {
   OpenPhotoOutputFolder,
   RetryPhotoOutput,
   CurrentPhotoSession,
+  ListInterruptedPhotoSessions,
+  ContinueRecoveredPhotoSession,
+  RestartRecoveredPhotoSession,
+  RetryRecoveredPhotoOutput,
+  OpenPhotoSessionFolder,
   GetPlayerSettings,
   SavePlayerSettings,
   BrowseFrameConfig,
@@ -43,6 +48,7 @@ const root = document.querySelector('#app');
 const appState = {
   currentView: 'idle',
   session: null,
+  recoveryItems: [],
   bridge: null,
   benchmark: false,
   settings: null,
@@ -86,6 +92,14 @@ root.innerHTML = `
           <h1>Your shots.<br /><span>One little story.</span></h1>
           <p class="lead">Capture your photos, compose your chosen frame, and save the finished strip on this computer. No cloud upload.</p>
           <div id="home-settings-warning" class="home-settings-warning hidden" role="alert"></div>
+          <section id="recovery-panel" class="recovery-panel hidden" aria-live="polite" aria-labelledby="recovery-title">
+            <div class="recovery-panel-heading">
+              <strong id="recovery-title">Interrupted sessions</strong>
+              <span>LOCAL RECOVERY</span>
+            </div>
+            <p class="recovery-panel-note">Only session metadata and saved JPEG headers were inspected. Nothing was resumed, rewritten or deleted.</p>
+            <div id="recovery-list" class="recovery-list"></div>
+          </section>
           <button id="start-session" class="primary-button">Start with webcam <span aria-hidden="true">→</span></button>
           <button id="start-demo-session" class="idle-secondary-button">Try without a webcam</button>
           <button id="open-settings" class="idle-secondary-button">Settings &amp; frame <span aria-hidden="true">⚙</span></button>
@@ -535,7 +549,7 @@ function updateCameraPreviewFrame(frame) {
 }
 
 async function ensureCameraPreview() {
-  if (appState.currentView !== 'idle' || appState.benchmark) return;
+  if (appState.currentView !== 'idle' || appState.benchmark || appState.preview.state === 'disabled') return;
   if (['stopped', 'stopping', 'unavailable', 'stalled'].includes(appState.preview.state)) {
     resetPreviewTelemetry();
   }
@@ -663,6 +677,142 @@ function updatePhotoSession(session) {
     return;
   }
   showView('capture');
+}
+
+function recoveryActionButton(label, className, onClick) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = className;
+  button.textContent = label;
+  button.addEventListener('click', onClick);
+  return button;
+}
+
+function renderRecoveryPanel(items = appState.recoveryItems) {
+  const panel = byId('recovery-panel');
+  const list = byId('recovery-list');
+  list.replaceChildren();
+  panel.classList.toggle('hidden', !items.length);
+  if (!items.length) return;
+
+  for (const item of items) {
+    const card = document.createElement('article');
+    card.className = 'recovery-card';
+    const header = document.createElement('div');
+    header.className = 'recovery-card-header';
+    const title = document.createElement('strong');
+    title.textContent = `Session ${String(item.session_id || '').slice(0, 8)}…`;
+    const status = document.createElement('span');
+    status.className = `recovery-status recovery-status-${item.status || 'inspect_only'}`;
+    status.textContent = item.status === 'resume_available'
+      ? 'CONTINUE AVAILABLE'
+      : item.status === 'output_pending'
+        ? 'LOCAL SAVE PENDING'
+        : 'INSPECT ONLY';
+    header.append(title, status);
+
+    const completed = Number(item.completed_shots || 0);
+    const expected = Number(item.expected_shots || item.manifest?.expected_shots || 0);
+    const summary = document.createElement('p');
+    if (item.status === 'resume_available') {
+      summary.textContent = completed >= expected
+        ? `All ${expected} photos are preserved. Continue will render and save them without opening the camera.`
+        : `${completed} of ${expected || '?'} photos are preserved. Continue captures only the remaining shots.`;
+    } else if (item.status === 'output_pending') {
+      summary.textContent = `All ${expected} photos and the rendered image are preserved. Retry only the local save; no camera or re-render is needed.`;
+    } else {
+      summary.textContent = item.reason || 'This session is not safe to resume automatically. Its original files have been left untouched.';
+    }
+
+    const details = document.createElement('small');
+    const phase = item.phase || item.manifest?.phase || 'unknown phase';
+    const updated = item.manifest?.updated_at ? new Date(item.manifest.updated_at).toLocaleString() : 'timestamp unavailable';
+    details.textContent = `${phase.replaceAll('_', ' ')} · ${completed}/${expected || '?'} photos · updated ${updated}`;
+
+    const id = document.createElement('code');
+    id.textContent = item.session_id || '';
+    const actions = document.createElement('div');
+    actions.className = 'recovery-card-actions';
+
+    if (item.status === 'resume_available') {
+      actions.append(recoveryActionButton('Continue session', 'recovery-primary-button', async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        try {
+          const resumed = await ContinueRecoveredPhotoSession(item.session_id);
+          appState.recoveryItems = appState.recoveryItems.filter((entry) => entry.session_id !== item.session_id);
+          renderRecoveryPanel();
+          updatePhotoSession(resumed);
+        } catch (error) {
+          button.disabled = false;
+          showToast(`Could not continue this session: ${error}`);
+        }
+      }));
+    }
+    if (item.status === 'output_pending') {
+      actions.append(recoveryActionButton('Retry local save', 'recovery-primary-button', async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        try {
+          const recovered = await RetryRecoveredPhotoOutput(item.session_id);
+          appState.recoveryItems = appState.recoveryItems.filter((entry) => entry.session_id !== item.session_id);
+          renderRecoveryPanel();
+          updatePhotoSession(recovered);
+        } catch (error) {
+          button.disabled = false;
+          showToast(`Could not retry the preserved output: ${error}`);
+          // A recovered output action crosses the camera lifecycle barrier.
+          // Restore idle preview when the retry is refused before taking over
+          // the player/result view; synthetic-only mode remains fail-closed.
+          void ensureCameraPreview();
+        }
+      }));
+    }
+    actions.append(recoveryActionButton('Start a new session', 'recovery-secondary-button', async (event) => {
+      if (!window.confirm('Start a new session with a new ID? The interrupted session and all its files will be kept unchanged.')) return;
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        const fresh = await RestartRecoveredPhotoSession(item.session_id);
+        appState.recoveryItems = appState.recoveryItems.filter((entry) => entry.session_id !== item.session_id);
+        renderRecoveryPanel();
+        updatePhotoSession(fresh);
+      } catch (error) {
+        button.disabled = false;
+        showToast(`Could not start a fresh session: ${error}`);
+      }
+    }));
+    actions.append(recoveryActionButton('Inspect / export files', 'recovery-secondary-button', async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        await OpenPhotoSessionFolder(item.session_id);
+      } catch (error) {
+        showToast(`Could not open the session folder: ${error}`);
+      } finally {
+        button.disabled = false;
+      }
+    }));
+    actions.append(recoveryActionButton('Hide for now', 'recovery-text-button', () => {
+      appState.recoveryItems = appState.recoveryItems.filter((entry) => entry.session_id !== item.session_id);
+      renderRecoveryPanel();
+      showToast('Hidden for this launch. No session files were changed.');
+    }));
+
+    card.append(header, summary, details, id, actions);
+    list.append(card);
+  }
+}
+
+async function refreshRecoveryItems() {
+  try {
+    appState.recoveryItems = await ListInterruptedPhotoSessions();
+    renderRecoveryPanel();
+  } catch (error) {
+    appState.recoveryItems = [];
+    renderRecoveryPanel();
+    showToast(`Interrupted sessions could not be inspected safely: ${error}`);
+  }
 }
 
 function setSettingsWarning(message) {
@@ -1266,6 +1416,8 @@ byId('retry-camera-preview').addEventListener('click', ensureCameraPreview);
     appState.bridge = await Ready();
     updateKioskMode(await IsKioskMode());
     populateSettingsForm(await GetPlayerSettings());
+    // Inspect interrupted sessions before the idle view starts the camera preview.
+    await refreshRecoveryItems();
     updatePhotoSession(await CurrentPhotoSession());
     byId('startup-ms').textContent = `${appState.bridge.startup_to_ready_ms.toFixed(1)} ms`;
     byId('go-version').textContent = appState.bridge.go_version;

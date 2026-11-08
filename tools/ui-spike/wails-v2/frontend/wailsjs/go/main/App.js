@@ -38,6 +38,10 @@ export function ContinuePhotoSession(arg1) {
   return window['go']['main']['App']['ContinuePhotoSession'](arg1);
 }
 
+export function ContinueRecoveredPhotoSession(arg1) {
+  return window['go']['main']['App']['ContinueRecoveredPhotoSession'](arg1);
+}
+
 export function CurrentCameraPreviewStatus() {
   return window['go']['main']['App']['CurrentCameraPreviewStatus']();
 }
@@ -82,8 +86,16 @@ export function IsKioskMode() {
   return window['go']['main']['App']['IsKioskMode']();
 }
 
+export function ListInterruptedPhotoSessions() {
+  return window['go']['main']['App']['ListInterruptedPhotoSessions']();
+}
+
 export function OpenPhotoOutputFolder(arg1) {
   return window['go']['main']['App']['OpenPhotoOutputFolder'](arg1);
+}
+
+export function OpenPhotoSessionFolder(arg1) {
+  return window['go']['main']['App']['OpenPhotoSessionFolder'](arg1);
 }
 
 export function Ping(arg1) {
@@ -118,8 +130,16 @@ export function RestartPhotoSession(arg1) {
   return window['go']['main']['App']['RestartPhotoSession'](arg1);
 }
 
+export function RestartRecoveredPhotoSession(arg1) {
+  return window['go']['main']['App']['RestartRecoveredPhotoSession'](arg1);
+}
+
 export function RetryPhotoOutput(arg1) {
   return window['go']['main']['App']['RetryPhotoOutput'](arg1);
+}
+
+export function RetryRecoveredPhotoOutput(arg1) {
+  return window['go']['main']['App']['RetryRecoveredPhotoOutput'](arg1);
 }
 
 export function RollbackActiveFrame() {

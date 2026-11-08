@@ -38,7 +38,10 @@ type CameraPreviewFrame struct {
 	DataURL  string `json:"data_url"`
 }
 
-const cameraPreviewDiagnosticsEnv = "PHOTOBOOTH_PREVIEW_METRICS_PATH"
+const (
+	cameraPreviewDiagnosticsEnv = "PHOTOBOOTH_PREVIEW_METRICS_PATH"
+	cameraPreviewDisabledEnv    = "PHOTOBOOTH_DISABLE_CAMERA_PREVIEW"
+)
 
 var cameraPreviewDiagnosticsMu sync.Mutex
 var cameraPreviewDiagnosticsFile *os.File
@@ -158,6 +161,18 @@ func recordCameraPreviewDiagnostic(record cameraPreviewDiagnosticRecord) {
 func (a *App) StartCameraPreview() (CameraPreviewStatus, error) {
 	a.cameraLifecycleMu.Lock()
 	defer a.cameraLifecycleMu.Unlock()
+
+	// This opt-in switch is intended for synthetic UI automation and support
+	// diagnostics. It returns before path preparation or provider construction,
+	// guaranteeing that an idle screen cannot touch a physical camera.
+	if os.Getenv(cameraPreviewDisabledEnv) == "1" || syntheticOnlyMode() {
+		status := CameraPreviewStatus{
+			State:   "disabled",
+			Message: "Camera preview is disabled for this run (synthetic-only test mode).",
+		}
+		a.setCameraPreviewStatus(status)
+		return status, nil
+	}
 
 	if runtime.GOOS != "windows" {
 		status := CameraPreviewStatus{State: "unavailable", Message: "Live camera preview is currently supported on Windows only."}

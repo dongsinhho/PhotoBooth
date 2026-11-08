@@ -1,14 +1,11 @@
 export namespace main {
-
 	export class CameraPreviewStatus {
 	    state: string;
 	    message: string;
 	    available: boolean;
-
 	    static createFrom(source: any = {}) {
 	        return new CameraPreviewStatus(source);
 	    }
-
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.state = source["state"];
@@ -22,11 +19,9 @@ export namespace main {
 	    captured: number;
 	    total: number;
 	    failure_reason?: string;
-
 	    static createFrom(source: any = {}) {
 	        return new DemoSession(source);
 	    }
-
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -49,11 +44,9 @@ export namespace main {
 	    has_preview: boolean;
 	    already_installed?: boolean;
 	    is_active: boolean;
-
 	    static createFrom(source: any = {}) {
 	        return new PlayerFramePackage(source);
 	    }
-
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.package_id = source["package_id"];
@@ -75,11 +68,9 @@ export namespace main {
 	    active_frame: string;
 	    can_rollback: boolean;
 	    load_warning?: string;
-
 	    static createFrom(source: any = {}) {
 	        return new PlayerFramePackageState(source);
 	    }
-
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.packages = this.convertValues(source["packages"], PlayerFramePackage);
@@ -87,7 +78,6 @@ export namespace main {
 	        this.can_rollback = source["can_rollback"];
 	        this.load_warning = source["load_warning"];
 	    }
-
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -122,11 +112,9 @@ export namespace main {
 	    preview_data_url?: string;
 	    capture_previews?: string[];
 	    demo_mode: boolean;
-
 	    static createFrom(source: any = {}) {
 	        return new PlayerSession(source);
 	    }
-
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -155,11 +143,9 @@ export namespace main {
 	    frame_path: string;
 	    config_path: string;
 	    load_warning?: string;
-
 	    static createFrom(source: any = {}) {
 	        return new PlayerSettings(source);
 	    }
-
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.shot_count = source["shot_count"];
@@ -172,15 +158,72 @@ export namespace main {
 	        this.load_warning = source["load_warning"];
 	    }
 	}
+	export class RecoveryManifestView {
+	    expected_shots: number;
+	    demo_mode: boolean;
+	    updated_at: string;
+	    static createFrom(source: any = {}) {
+	        return new RecoveryManifestView(source);
+	    }
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.expected_shots = source["expected_shots"];
+	        this.demo_mode = source["demo_mode"];
+	        this.updated_at = source["updated_at"];
+	    }
+	}
+	export class RecoveryItemView {
+	    session_id: string;
+	    directory_path: string;
+	    status: string;
+	    reason?: string;
+	    completed_shots: number;
+	    expected_shots: number;
+	    phase?: string;
+	    manifest?: RecoveryManifestView;
+	    capture_paths?: string[];
+	    rendered_path?: string;
+	    static createFrom(source: any = {}) {
+	        return new RecoveryItemView(source);
+	    }
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.session_id = source["session_id"];
+	        this.directory_path = source["directory_path"];
+	        this.status = source["status"];
+	        this.reason = source["reason"];
+	        this.completed_shots = source["completed_shots"];
+	        this.expected_shots = source["expected_shots"];
+	        this.phase = source["phase"];
+	        this.manifest = this.convertValues(source["manifest"], RecoveryManifestView);
+	        this.capture_paths = source["capture_paths"];
+	        this.rendered_path = source["rendered_path"];
+	    }
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class RetentionApplyResult {
 	    removed_candidates: number;
 	    removed_files: number;
 	    removed_bytes: number;
-
 	    static createFrom(source: any = {}) {
 	        return new RetentionApplyResult(source);
 	    }
-
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.removed_candidates = source["removed_candidates"];
@@ -195,11 +238,9 @@ export namespace main {
 	    last_modified: string;
 	    file_count: number;
 	    size_bytes: number;
-
 	    static createFrom(source: any = {}) {
 	        return new RetentionCandidateView(source);
 	    }
-
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.kind = source["kind"];
@@ -223,11 +264,9 @@ export namespace main {
 	    plan_digest: string;
 	    truncated: boolean;
 	    candidates: RetentionCandidateView[];
-
 	    static createFrom(source: any = {}) {
 	        return new RetentionPreview(source);
 	    }
-
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.generated_at = source["generated_at"];
@@ -243,7 +282,6 @@ export namespace main {
 	        this.truncated = source["truncated"];
 	        this.candidates = this.convertValues(source["candidates"], RetentionCandidateView);
 	    }
-
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -262,5 +300,5 @@ export namespace main {
 		    return a;
 		}
 	}
-
 }
+\n

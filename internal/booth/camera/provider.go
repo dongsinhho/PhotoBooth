@@ -66,9 +66,13 @@ type Capabilities struct {
 type Resolution struct{ Width, Height int }
 
 type CaptureRequest struct {
-	Sequence   int
-	Width      int
-	Height     int
+	Sequence int
+	Width    int
+	Height   int
+	// OutputPath is a caller-owned staging path. Providers may create their own
+	// temporary files beside it, but must return only after this path is fully
+	// written and closed. The workflow validates and atomically publishes it
+	// under the final capture filename; providers never own that final path.
 	OutputPath string
 }
 

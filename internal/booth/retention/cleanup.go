@@ -15,6 +15,7 @@ import (
 	"time"
 
 	stationconfig "github.com/dongsinhho/PhotoBooth/internal/booth/config"
+	"github.com/dongsinhho/PhotoBooth/internal/booth/session"
 )
 
 const (
@@ -125,6 +126,15 @@ func BuildPlan(ctx context.Context, options Options) (Plan, error) {
 			options.OutputDir = filepath.Clean(absolute)
 		}
 	}
+	plan.options, plan.GeneratedAt = options, options.Now
+	// A fully disabled policy is a no-op: do not inspect or classify storage
+	// roots that will not be scanned or modified. This also keeps --dry-run
+	// with both retention values set to zero safe on an unavailable/network
+	// mount, while any enabled retention policy still fails closed below.
+	if options.Policy.SessionRetentionDays == 0 && options.Policy.OutputRetentionDays == 0 {
+		plan.Disabled = true
+		return plan, nil
+	}
 	if err := stationconfig.ValidateLocalStoragePath(options.SessionsDir); err != nil {
 		return plan, fmt.Errorf("validate retention sessions root: %w", err)
 	}
@@ -133,11 +143,6 @@ func BuildPlan(ctx context.Context, options Options) (Plan, error) {
 	}
 	if err := stationconfig.ValidateDistinctStorageRoots(options.SessionsDir, options.OutputDir); err != nil {
 		return plan, fmt.Errorf("refuse retention plan: %w", err)
-	}
-	plan.options, plan.GeneratedAt = options, options.Now
-	if options.Policy.SessionRetentionDays == 0 && options.Policy.OutputRetentionDays == 0 {
-		plan.Disabled = true
-		return plan, nil
 	}
 	plan.rootSnapshots = make(map[string]rootSnapshot, 2)
 	if options.Policy.SessionRetentionDays > 0 {
@@ -285,6 +290,8 @@ func inspectCandidate(root, id, kind string) (Candidate, bool, error) {
 	addFingerprint(h, ".", info)
 	safe, seenFiles := true, 0
 	hasRendered, hasCaptures := false, false
+	var durableManifest *session.Manifest
+	hasFrameSnapshot := false
 	add := func(name string, fileInfo os.FileInfo) {
 		addFingerprint(h, name, fileInfo)
 		if fileInfo.ModTime().After(candidate.LastModified) {
@@ -309,6 +316,25 @@ func inspectCandidate(root, id, kind string) (Candidate, bool, error) {
 				return Candidate{}, false, statErr
 			}
 			switch entry.Name() {
+			case session.ManifestFileName:
+				if item.Mode()&os.ModeSymlink != 0 || !item.Mode().IsRegular() || item.Size() <= 0 || item.Size() > 64<<10 {
+					safe = false
+					continue
+				}
+				manifest, manifestErr := session.ReadManifest(path)
+				if manifestErr != nil || manifest.SessionID != id {
+					safe = false
+					continue
+				}
+				durableManifest = &manifest
+				add(entry.Name(), item)
+			case session.FrameSnapshotFileName:
+				if item.Mode()&os.ModeSymlink != 0 || !item.Mode().IsRegular() || item.Size() <= 0 || item.Size() > 1<<20 {
+					safe = false
+					continue
+				}
+				hasFrameSnapshot = true
+				add(entry.Name(), item)
 			case "rendered.jpg":
 				if item.Mode()&os.ModeSymlink != 0 || !item.Mode().IsRegular() || item.Size() == 0 {
 					safe = false
@@ -364,6 +390,25 @@ func inspectCandidate(root, id, kind string) (Candidate, bool, error) {
 		// Incomplete sessions may still be diagnostics/recovery material or an
 		// in-flight capture. Only finalized session layouts are retention candidates.
 		safe = false
+	}
+	if kind == KindSession && hasFrameSnapshot && durableManifest == nil {
+		// A snapshot without its declaring manifest is ambiguous; preserve it.
+		safe = false
+	}
+	if kind == KindSession && durableManifest != nil {
+		// Never expire a session that still has a recovery action available.
+		if durableManifest.Phase != session.PhaseOutputFinalized {
+			safe = false
+		}
+		if hasFrameSnapshot {
+			if durableManifest.FrameSnapshotFile == "" {
+				safe = false
+			} else if _, _, snapshotErr := session.ReadFrameSnapshot(path, *durableManifest); snapshotErr != nil {
+				safe = false
+			}
+		} else if durableManifest.FrameSnapshotFile != "" {
+			safe = false
+		}
 	}
 	if !safe || seenFiles == 0 {
 		return Candidate{}, false, nil

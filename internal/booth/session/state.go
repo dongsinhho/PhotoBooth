@@ -29,7 +29,9 @@ func CanTransition(from, to State) bool {
 	case Idle:
 		return to == Preflight
 	case Preflight:
-		return to == AwaitingPayment || to == Capturing || to == Failed || to == Cancelled || to == TimedOut
+		// A crash-recovered session with every capture already persisted can
+		// continue directly to rendering without reopening the camera.
+		return to == AwaitingPayment || to == Capturing || to == Rendering || to == Failed || to == Cancelled || to == TimedOut
 	case AwaitingPayment:
 		return to == Capturing || to == Failed || to == Cancelled || to == TimedOut
 	case Capturing:

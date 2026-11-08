@@ -1,12 +1,19 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
+
+	stationconfig "github.com/dongsinhho/PhotoBooth/internal/booth/config"
+	"github.com/dongsinhho/PhotoBooth/internal/booth/session"
 )
 
 func TestResolveFrameConfigExplicitPath(t *testing.T) {
@@ -185,6 +192,142 @@ func TestExtractSkipCameraWarmup(t *testing.T) {
 			}
 			if !reflect.DeepEqual(gotArgs, tt.wantArgs) {
 				t.Fatalf("args=%v, want %v", gotArgs, tt.wantArgs)
+			}
+		})
+	}
+}
+
+func TestRunUsesLocalDeliveryAndDisabledPaymentEndToEnd(t *testing.T) {
+	root := t.TempDir()
+	framePath := filepath.Join("..", "..", "examples", "frames", "photo-strip-v1.json")
+	absoluteFrame, err := filepath.Abs(framePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := stationconfig.Defaults()
+	cfg.Camera.Provider = "fake"
+	cfg.Capture.Shots = 3
+	cfg.Capture.Countdown = "0s"
+	cfg.Capture.Interval = "0s"
+	cfg.Frame.ConfigPath = absoluteFrame
+	cfg.Storage.SessionsDir = filepath.Join(root, "sessions")
+	cfg.Storage.OutputDir = filepath.Join(root, "photos")
+	cfg.MediaDelivery.Mode = stationconfig.MediaDeliveryModeLocal
+	cfg.Payment.Mode = stationconfig.PaymentModeDisabled
+	configPath := filepath.Join(root, "store-config-v1.json")
+	if err := stationconfig.Save(configPath, cfg); err != nil {
+		t.Fatalf("save station config: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if err := run(context.Background(), []string{"--config", configPath}, &stdout, &stderr); err != nil {
+		t.Fatalf("run local/offline session: %v\nstderr: %s", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "synthetic images") ||
+		!strings.Contains(stdout.String(), "Locally saved output:") {
+		t.Fatalf("CLI output does not show the synthetic/local path: %s", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("unexpected stderr for successful local/free session: %s", stderr.String())
+	}
+
+	sessions, err := os.ReadDir(cfg.Storage.SessionsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 || !sessions[0].IsDir() {
+		t.Fatalf("created session workspaces=%d, want exactly one: %+v", len(sessions), sessions)
+	}
+	sessionDir := filepath.Join(cfg.Storage.SessionsDir, sessions[0].Name())
+	manifest, err := session.ReadManifest(sessionDir)
+	if err != nil {
+		t.Fatalf("read durable session manifest: %v", err)
+	}
+	if manifest.Version != session.ManifestVersion ||
+		manifest.MediaDeliveryMode != stationconfig.MediaDeliveryModeLocal ||
+		manifest.PaymentMode != stationconfig.PaymentModeDisabled ||
+		manifest.Phase != session.PhaseOutputFinalized {
+		t.Fatalf("manifest did not persist the selected local/free policies and finalized state: %+v", manifest)
+	}
+	if len(manifest.FrameSnapshotFile) == 0 || manifest.OutputPath == "" {
+		t.Fatalf("session manifest is missing its durable frame/output references: %+v", manifest)
+	}
+	outputSessionDir := filepath.Join(cfg.Storage.OutputDir, manifest.SessionID)
+	if filepath.Clean(filepath.Dir(manifest.OutputPath)) != filepath.Clean(outputSessionDir) {
+		t.Fatalf("output escaped its session-local directory: %q", manifest.OutputPath)
+	}
+	if err := session.ValidateJPEGFile(manifest.OutputPath); err != nil {
+		t.Fatalf("local output is missing or invalid: %v", err)
+	}
+	captures, err := os.ReadDir(filepath.Join(sessionDir, "captures"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(captures) != 3 {
+		t.Fatalf("committed captures=%d, want 3", len(captures))
+	}
+}
+
+func TestResolveSettingsRejectsUnsupportedPoliciesBeforeCreatingSessionWorkspace(t *testing.T) {
+	root := t.TempDir()
+	framePath, err := filepath.Abs(filepath.Join("..", "..", "examples", "frames", "photo-strip-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		edit func(*stationconfig.StoreConfig)
+		want string
+	}{
+		{
+			name: "LAN delivery",
+			edit: func(cfg *stationconfig.StoreConfig) { cfg.MediaDelivery.Mode = "lan" },
+			want: "unsupported media_delivery.mode",
+		},
+		{
+			name: "cloud delivery",
+			edit: func(cfg *stationconfig.StoreConfig) { cfg.MediaDelivery.Mode = "cloud" },
+			want: "unsupported media_delivery.mode",
+		},
+		{
+			name: "QR payment",
+			edit: func(cfg *stationconfig.StoreConfig) { cfg.Payment.Mode = "qr" },
+			want: "unsupported payment.mode",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := stationconfig.Defaults()
+			cfg.Camera.Provider = "fake"
+			cfg.Frame.ConfigPath = framePath
+			cfg.Storage.SessionsDir = filepath.Join(root, tc.name, "sessions")
+			cfg.Storage.OutputDir = filepath.Join(root, tc.name, "photos")
+			tc.edit(&cfg)
+			configPath := filepath.Join(root, tc.name, "store-config-v1.json")
+			if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := stationconfig.Save(configPath, cfg); err == nil {
+				t.Fatal("unsupported policy was persisted")
+			}
+			// Simulate an operator-edited/externally supplied invalid profile. Save
+			// correctly refuses it, while Load/resolveSettings must reject it too.
+			data, err := json.Marshal(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(configPath, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+			runErr := run(context.Background(), []string{"--config", configPath}, &stdout, &stderr)
+			if runErr == nil || !strings.Contains(runErr.Error(), tc.want) {
+				t.Fatalf("CLI run error=%v, want %q", runErr, tc.want)
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("unsupported policy reached the run/capture path: %s", stdout.String())
+			}
+			if _, err := os.Stat(cfg.Storage.SessionsDir); !os.IsNotExist(err) {
+				t.Fatalf("unsupported policy created the sessions root: %v", err)
 			}
 		})
 	}

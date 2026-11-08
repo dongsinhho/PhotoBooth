@@ -19,7 +19,9 @@ import (
 	fakecamera "github.com/dongsinhho/PhotoBooth/internal/booth/camera/fake"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/camera/recovery"
 	stationconfig "github.com/dongsinhho/PhotoBooth/internal/booth/config"
+	"github.com/dongsinhho/PhotoBooth/internal/booth/delivery"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/output"
+	"github.com/dongsinhho/PhotoBooth/internal/booth/payment"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/render"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/session"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/workflow"
@@ -28,6 +30,12 @@ import (
 
 //go:embed assets/photo-strip-v1.json
 var embeddedSampleFrame []byte
+
+const syntheticOnlyEnv = "PHOTOBOOTH_SYNTHETIC_ONLY"
+
+func syntheticOnlyMode() bool {
+	return os.Getenv(syntheticOnlyEnv) == "1"
+}
 
 type playerRuntimeConfig struct {
 	stationConfig stationconfig.StoreConfig
@@ -79,6 +87,12 @@ const (
 // StartPhotoSession starts real Windows webcam capture, rendering and local output.
 // It returns immediately; the UI receives progress via the "photo-session" event.
 func (a *App) StartPhotoSession() (PlayerSession, error) {
+	// Keep synthetic-only enforcement consistent across platforms. On Linux or
+	// macOS the following platform guard still rejects real capture when the
+	// synthetic-only test mode is not active.
+	if syntheticOnlyMode() {
+		return PlayerSession{}, errors.New("real-camera capture is disabled for this synthetic-only run")
+	}
 	if runtime.GOOS != "windows" {
 		return PlayerSession{}, errors.New("real webcam capture in this UI build is currently supported on Windows only")
 	}
@@ -91,6 +105,9 @@ func (a *App) StartDemoPhotoSession() (PlayerSession, error) {
 }
 
 func (a *App) startPhotoSession(demo bool) (PlayerSession, error) {
+	if !demo && syntheticOnlyMode() {
+		return PlayerSession{}, errors.New("real-camera capture is disabled for this synthetic-only run")
+	}
 	a.cameraLifecycleMu.Lock()
 	defer a.cameraLifecycleMu.Unlock()
 	if err := a.stopCameraPreviewLocked(); err != nil {
@@ -172,6 +189,10 @@ func (a *App) ContinuePhotoSession(sessionID string) (PlayerSession, error) {
 		a.mu.Unlock()
 		return PlayerSession{}, errors.New("session ID does not match the current photo session")
 	}
+	if syntheticOnlyMode() && !a.player.DemoMode {
+		a.mu.Unlock()
+		return PlayerSession{}, errors.New("continuing a real-camera session is disabled for this synthetic-only run")
+	}
 	if a.player.State != string(session.Failed) && a.player.State != string(session.TimedOut) {
 		a.mu.Unlock()
 		return PlayerSession{}, fmt.Errorf("cannot continue a session in state %q", a.player.State)
@@ -215,6 +236,10 @@ func (a *App) RestartPhotoSession(sessionID string) (PlayerSession, error) {
 	if sessionID == "" || sessionID != a.player.ID {
 		a.mu.Unlock()
 		return PlayerSession{}, errors.New("session ID does not match the current photo session")
+	}
+	if syntheticOnlyMode() && !a.player.DemoMode {
+		a.mu.Unlock()
+		return PlayerSession{}, errors.New("restarting a real-camera session is disabled for this synthetic-only run")
 	}
 	if a.player.State != string(session.Failed) && a.player.State != string(session.TimedOut) {
 		a.mu.Unlock()
@@ -285,8 +310,24 @@ func (a *App) CurrentPhotoSession() PlayerSession {
 // the camera or rerunning the renderer. It is only available after all shots
 // and the rendered image are present but the local output is still missing.
 func (a *App) RetryPhotoOutput(sessionID string) (PlayerSession, error) {
+	return a.retryPhotoOutput(sessionID, nil)
+}
+
+// retryPhotoOutput claims the retry operation under the app mutex before it
+// releases the lock, so a fresh session cannot race an interrupted-session retry.
+func (a *App) retryPhotoOutput(sessionID string, recovered *session.RecoveryItem) (PlayerSession, error) {
 	if err := a.preparePlayerPaths(); err != nil {
 		return PlayerSession{}, err
+	}
+
+	var recoveredPreviews []string
+	recoveredRenderedPreview := ""
+	if recovered != nil {
+		recoveredPreviews = make([]string, len(recovered.CapturePaths))
+		for i, path := range recovered.CapturePaths {
+			recoveredPreviews[i], _ = fileImageDataURL(path)
+		}
+		recoveredRenderedPreview, _ = fileImageDataURL(recovered.RenderedPath)
 	}
 
 	a.mu.Lock()
@@ -302,29 +343,54 @@ func (a *App) RetryPhotoOutput(sessionID string) (PlayerSession, error) {
 		a.mu.Unlock()
 		return PlayerSession{}, errors.New("wait for settings/package/retention operations to finish before retrying local output")
 	}
-	if sessionID == "" || sessionID != a.player.ID || !isPlayerSessionID(sessionID) {
+	if sessionID == "" || !isPlayerSessionID(sessionID) {
 		a.mu.Unlock()
-		return PlayerSession{}, errors.New("session ID does not match the current photo session")
+		return PlayerSession{}, errors.New("invalid session ID for local output retry")
 	}
-	if a.player.State == string(session.Completed) || a.player.OutputPath != "" {
-		a.mu.Unlock()
-		return PlayerSession{}, errors.New("this session already has a finalized local output")
-	}
-	if a.player.State != string(session.Failed) && a.player.State != string(session.PartialSuccess) && a.player.State != string(session.TimedOut) {
-		state := a.player.State
-		a.mu.Unlock()
-		return PlayerSession{}, fmt.Errorf("cannot retry local output for session state %q", state)
-	}
-	if a.player.Total < 1 || a.player.Captured != a.player.Total {
-		captured, total := a.player.Captured, a.player.Total
-		a.mu.Unlock()
-		return PlayerSession{}, fmt.Errorf("local output retry requires all photos to be captured (captured %d of %d)", captured, total)
-	}
-	expectedRendered := filepath.Join(a.workDir, sessionID, "rendered.jpg")
-	if strings.TrimSpace(a.workDir) == "" || strings.TrimSpace(a.player.RenderedPath) == "" ||
-		!sameLocalPath(a.player.RenderedPath, expectedRendered) {
-		a.mu.Unlock()
-		return PlayerSession{}, errors.New("the preserved rendered image for this session is unavailable")
+	if recovered != nil {
+		if recovered.SessionID != sessionID || recovered.Status != session.RecoveryOutputPending ||
+			recovered.Manifest == nil || recovered.CompletedShots != recovered.ExpectedShots ||
+			recovered.ExpectedShots < 1 {
+			a.mu.Unlock()
+			return PlayerSession{}, errors.New("the recovered session is no longer eligible for local-output retry")
+		}
+		expectedRendered := filepath.Join(a.workDir, sessionID, "rendered.jpg")
+		if strings.TrimSpace(a.workDir) == "" || !sameLocalPath(recovered.RenderedPath, expectedRendered) {
+			a.mu.Unlock()
+			return PlayerSession{}, errors.New("the preserved rendered image for this recovered session is unavailable")
+		}
+		a.player = PlayerSession{
+			ID: sessionID, State: string(session.Failed), Captured: recovered.ExpectedShots,
+			Total: recovered.ExpectedShots, Message: "All photos were captured and rendered. Retrying only the preserved local output…",
+			ErrorMessage: "Recovered after application restart", RenderedPath: recovered.RenderedPath,
+			PreviewDataURL: recoveredRenderedPreview, CapturePreviews: recoveredPreviews,
+			CameraMode: "Recovered session", DemoMode: recovered.Manifest.DemoMode,
+		}
+	} else {
+		if sessionID != a.player.ID {
+			a.mu.Unlock()
+			return PlayerSession{}, errors.New("session ID does not match the current photo session")
+		}
+		if a.player.State == string(session.Completed) || a.player.OutputPath != "" {
+			a.mu.Unlock()
+			return PlayerSession{}, errors.New("this session already has a finalized local output")
+		}
+		if a.player.State != string(session.Failed) && a.player.State != string(session.PartialSuccess) && a.player.State != string(session.TimedOut) {
+			state := a.player.State
+			a.mu.Unlock()
+			return PlayerSession{}, fmt.Errorf("cannot retry local output for session state %q", state)
+		}
+		if a.player.Total < 1 || a.player.Captured != a.player.Total {
+			captured, total := a.player.Captured, a.player.Total
+			a.mu.Unlock()
+			return PlayerSession{}, fmt.Errorf("local output retry requires all photos to be captured (captured %d of %d)", captured, total)
+		}
+		expectedRendered := filepath.Join(a.workDir, sessionID, "rendered.jpg")
+		if strings.TrimSpace(a.workDir) == "" || strings.TrimSpace(a.player.RenderedPath) == "" ||
+			!sameLocalPath(a.player.RenderedPath, expectedRendered) {
+			a.mu.Unlock()
+			return PlayerSession{}, errors.New("the preserved rendered image for this session is unavailable")
+		}
 	}
 
 	a.outputRetrying = true
@@ -339,6 +405,23 @@ func (a *App) RetryPhotoOutput(sessionID string) (PlayerSession, error) {
 
 	savedPath, retryErr := output.RetryLocalFromSession(ctx, sessionsRoot, outputRoot, sessionID, captureCount)
 	cancel()
+	var manifestErr error
+	if retryErr == nil {
+		manifest, readErr := session.ReadManifest(filepath.Join(sessionsRoot, sessionID))
+		if readErr != nil {
+			manifestErr = fmt.Errorf("read recovery manifest after output publication: %w", readErr)
+		} else if manifest.Phase != session.PhaseRendered {
+			manifestErr = fmt.Errorf("session manifest phase %q cannot be finalized by local-output retry", manifest.Phase)
+		} else {
+			manifest.Phase = session.PhaseOutputFinalized
+			manifest.OutputPath = savedPath
+			manifest.OutputFinalizedAt = time.Now().UTC()
+			manifest.UpdatedAt = manifest.OutputFinalizedAt
+			if writeErr := session.WriteManifest(filepath.Join(sessionsRoot, sessionID), manifest); writeErr != nil {
+				manifestErr = fmt.Errorf("persist output-finalized recovery manifest: %w", writeErr)
+			}
+		}
+	}
 
 	a.mu.Lock()
 	a.outputRetrying = false
@@ -356,8 +439,13 @@ func (a *App) RetryPhotoOutput(sessionID string) (PlayerSession, error) {
 	} else {
 		a.player.State = string(session.Completed)
 		a.player.OutputPath = savedPath
-		a.player.ErrorMessage = ""
-		a.player.Message = fmt.Sprintf("All %d photos were captured, rendered, and saved locally.", captureCount)
+		if manifestErr != nil {
+			a.player.ErrorMessage = manifestErr.Error()
+			a.player.Message = fmt.Sprintf("The local photo was saved, but recovery metadata could not be finalized. Inspect this session before another retry: %s", manifestErr)
+		} else {
+			a.player.ErrorMessage = ""
+			a.player.Message = fmt.Sprintf("All %d photos were captured, rendered, and saved locally.", captureCount)
+		}
 	}
 	snapshot = clonePlayerSession(a.player)
 	a.mu.Unlock()
@@ -391,24 +479,33 @@ func (a *App) OpenPhotoOutputFolder(sessionID string) error {
 }
 
 func (a *App) runPhotoSession(ctx context.Context, sessionID string, resumeCount int, demo bool, resumeExisting bool, runConfig playerRuntimeConfig) {
+	workflowConfig := playerWorkflowConfig(runConfig, sessionID, resumeCount, demo, resumeExisting)
+	fullCaptureRecovery := resumeExisting && resumeCount == runConfig.shotCount
 	var provider camera.Provider
-	if demo {
-		provider = fakecamera.New()
+	if !fullCaptureRecovery {
+		if demo {
+			provider = fakecamera.New()
+		} else {
+			provider = newConfiguredCameraProvider(runConfig.stationConfig, func(event recovery.Event) {
+				a.handleRecoveryEvent(sessionID, event)
+			})
+		}
+	}
+	dispatcher, dispatchErr := delivery.NewDispatcher(runConfig.stationConfig.MediaDelivery, runConfig.outputDir)
+	paymentGate, paymentErr := payment.NewGate(runConfig.stationConfig.Payment)
+	var runErr error
+	var result workflow.Result
+	if dispatchErr != nil {
+		runErr = fmt.Errorf("configure media delivery: %w", dispatchErr)
+	} else if paymentErr != nil {
+		runErr = fmt.Errorf("configure payment policy: %w", paymentErr)
 	} else {
-		provider = newConfiguredCameraProvider(runConfig.stationConfig, func(event recovery.Event) {
-			a.handleRecoveryEvent(sessionID, event)
-		})
+		runner := &workflow.Runner{
+			Camera: provider, Renderer: render.New(), Output: dispatcher, PaymentGate: paymentGate,
+			OnEvent: func(event workflow.Event) { a.handleWorkflowEvent(sessionID, event) },
+		}
+		result, runErr = runner.Run(ctx, workflowConfig)
 	}
-	runner := &workflow.Runner{
-		Camera: provider, Renderer: render.New(), Output: output.NewLocal(runConfig.outputDir),
-		OnEvent: func(event workflow.Event) { a.handleWorkflowEvent(sessionID, event) },
-	}
-	result, runErr := runner.Run(ctx, workflow.Config{
-		FrameConfigPath: runConfig.framePath, WorkDir: runConfig.workDir, OutputDir: runConfig.outputDir, CaptureCount: runConfig.shotCount,
-		CaptureWidth: runConfig.stationConfig.Camera.Width, CaptureHeight: runConfig.stationConfig.Camera.Height,
-		SessionID: sessionID, ResumeSession: resumeExisting, ResumeCaptureCount: resumeCount,
-		Countdown: runConfig.countdown, Interval: runConfig.interval,
-	})
 	previews := make([]string, len(result.CapturePaths))
 	for i, path := range result.CapturePaths {
 		previews[i], _ = fileImageDataURL(path)

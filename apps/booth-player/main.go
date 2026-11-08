@@ -19,7 +19,9 @@ import (
 	"github.com/dongsinhho/PhotoBooth/internal/booth/camera/recovery"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/camera/windowsmf"
 	stationconfig "github.com/dongsinhho/PhotoBooth/internal/booth/config"
+	"github.com/dongsinhho/PhotoBooth/internal/booth/delivery"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/output"
+	"github.com/dongsinhho/PhotoBooth/internal/booth/payment"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/render"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/session"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/workflow"
@@ -115,10 +117,19 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("unsupported camera provider %q (choose fake or windowsmf)", *cameraFlag)
 	}
 
+	dispatcher, err := delivery.NewDispatcher(effective.MediaDelivery, *outputDir)
+	if err != nil {
+		return fmt.Errorf("configure media delivery: %w", err)
+	}
+	paymentGate, err := payment.NewGate(effective.Payment)
+	if err != nil {
+		return fmt.Errorf("configure payment policy: %w", err)
+	}
 	runner := &workflow.Runner{
-		Camera:   cameraProvider,
-		Renderer: render.New(),
-		Output:   output.NewLocal(*outputDir),
+		Camera:      cameraProvider,
+		Renderer:    render.New(),
+		Output:      dispatcher,
+		PaymentGate: paymentGate,
 		OnEvent: func(event workflow.Event) {
 			switch event.Type {
 			case "state":
@@ -153,14 +164,20 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		},
 	}
 	result, err := runner.Run(ctx, workflow.Config{
-		FrameConfigPath: framePath,
-		WorkDir:         *workDir,
-		OutputDir:       *outputDir,
-		CaptureCount:    *shots,
-		Countdown:       *countdown,
-		Interval:        *interval,
-		CaptureWidth:    *width,
-		CaptureHeight:   *height,
+		FrameConfigPath:     framePath,
+		WorkDir:             *workDir,
+		OutputDir:           *outputDir,
+		CaptureCount:        *shots,
+		Countdown:           *countdown,
+		Interval:            *interval,
+		CaptureWidth:        *width,
+		CaptureHeight:       *height,
+		ConfigSchemaVersion: effective.SchemaVersion,
+		CameraProvider:      effective.Camera.Provider,
+		CameraDevice:        effective.Camera.Device,
+		CameraFPS:           effective.Camera.FPS,
+		MediaDeliveryMode:   effective.MediaDelivery.Mode,
+		PaymentMode:         effective.Payment.Mode,
 	})
 	if err != nil {
 		if result.State == session.Failed || result.State == session.Cancelled || result.State == session.TimedOut {
