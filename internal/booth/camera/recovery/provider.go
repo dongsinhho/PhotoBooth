@@ -12,6 +12,8 @@ import (
 	"github.com/dongsinhho/PhotoBooth/internal/booth/camera"
 )
 
+const maxRecoveryAttempts = 180
+
 type Factory func() camera.Provider
 
 type Event struct {
@@ -57,8 +59,8 @@ func New(factory Factory, options Options) *Provider {
 	if options.RecoveryAttempts < 1 {
 		options.RecoveryAttempts = options.OpenAttempts
 	}
-	if options.RecoveryAttempts > 120 {
-		options.RecoveryAttempts = 120
+	if options.RecoveryAttempts > maxRecoveryAttempts {
+		options.RecoveryAttempts = maxRecoveryAttempts
 	}
 	if options.RetryDelay <= 0 {
 		options.RetryDelay = 250 * time.Millisecond

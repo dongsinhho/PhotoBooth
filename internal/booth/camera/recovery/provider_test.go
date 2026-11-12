@@ -156,6 +156,24 @@ func (s *recoveryProbeStubProvider) ProbeAfterRecoveryFailure() (string, error) 
 	return "status=camera_found devices=1", nil
 }
 
+func TestNewBoundsRecoveryAttemptsAtExtendedLimit(t *testing.T) {
+	factory := func() camera.Provider { return &stubProvider{name: "test camera"} }
+
+	configured := New(factory, Options{OpenAttempts: 3, RecoveryAttempts: maxRecoveryAttempts})
+	if configured.options.RecoveryAttempts != 180 {
+		t.Fatalf("configured recovery attempts=%d, want 180", configured.options.RecoveryAttempts)
+	}
+
+	aboveLimit := New(factory, Options{OpenAttempts: 3, RecoveryAttempts: 999})
+	if aboveLimit.options.RecoveryAttempts != maxRecoveryAttempts {
+		t.Fatalf("recovery attempts above limit=%d, want capped at %d", aboveLimit.options.RecoveryAttempts, maxRecoveryAttempts)
+	}
+
+	defaulted := New(factory, Options{OpenAttempts: 4})
+	if defaulted.options.RecoveryAttempts != 4 {
+		t.Fatalf("default recovery attempts=%d, want OpenAttempts (4)", defaulted.options.RecoveryAttempts)
+	}
+}
 func TestPreviewRecoveryProbeRunsBeforeRetryableProviderCleanup(t *testing.T) {
 	t.Setenv("PHOTOBOOTH_MF_POST_RECOVERY_PROBE", "1")
 	provider := &recoveryProbeStubProvider{stubProvider: &stubProvider{name: "probe camera"}}

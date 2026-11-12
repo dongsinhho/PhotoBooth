@@ -3,7 +3,8 @@ param(
     [string]$Device = 'B525 HD Webcam',
     [ValidateRange(15,60)][int]$StartupTimeoutSeconds = 30,
     [ValidateRange(15,90)][int]$PreviewReadyTimeoutSeconds = 35,
-    [ValidateRange(10,180)][int]$UnplugObservationTimeoutSeconds = 45,
+    [ValidateRange(10,300)][int]$UnplugObservationTimeoutSeconds = 45,
+    [ValidateRange(0,600)][int]$MinimumUnplugHoldSeconds = 0,
     [ValidateRange(5,45)][int]$RecoveryStateTimeoutSeconds = 20,
     [ValidateRange(15,120)][int]$ReconnectTimeoutSeconds = 60,
     [ValidateRange(15,120)][int]$PreviewResumeTimeoutSeconds = 45,
@@ -55,6 +56,9 @@ $forcedStop = $false
 $dataCleaned = $false
 $unplugObserved = $false
 $replugObserved = $false
+$unplugObservedAt = $null
+$replugObservedAt = $null
+$pnpAbsenceDurationSeconds = $null
 $reconnectingStatusObserved = $false
 $recoveryReadyObserved = $false
 $initialMetrics = $null
@@ -354,6 +358,7 @@ if ($PreflightOnly) {
         require_different_port = [bool]$RequireDifferentPort
         baseline_location_path = $BaselineLocationPath
         require_same_port_on_reconnect = [bool]$RequireSamePortOnReconnect
+        minimum_unplug_hold_seconds = $MinimumUnplugHoldSeconds
         baseline_port_different = if ($BaselineLocationPath) { @($preflightCameraTopology = Get-CameraTopology ([string]$preflightCamera[0].InstanceId); $preflightCameraTopology.location_paths | Where-Object { $_ -eq $BaselineLocationPath }).Count -eq 0 } else { $null }
         physical_unplug_replug_required = $true
         opens_camera = $false
@@ -463,6 +468,7 @@ try {
     while ((Get-Date) -lt $unplugDeadline) {
         if (@(Get-B525ByInstanceId $cameraInstanceId).Count -eq 0) {
             $unplugObserved = $true
+            $unplugObservedAt = Get-Date
             $checks.Add('Windows PnP observed the original B525 instance disappear') | Out-Null
             Write-Host 'USB_UNPLUG_OBSERVED=True'
             break
@@ -478,6 +484,21 @@ try {
     $checks.Add('Wails backend emitted reconnecting state while idle preview owned the camera') | Out-Null
     Write-Host ("PREVIEW_RECONNECTING_STATUS=OBSERVED index={0} message={1}" -f $reconnectingStatus.index,$reconnectingStatus.event.message)
 
+
+    if ($MinimumUnplugHoldSeconds -gt 0) {
+        $minimumHoldDeadline = $unplugObservedAt.AddSeconds($MinimumUnplugHoldSeconds)
+        Write-Host ("MINIMUM_UNPLUG_HOLD=START seconds={0} pnp_unplug_utc={1}" -f $MinimumUnplugHoldSeconds,$unplugObservedAt.ToUniversalTime().ToString('o'))
+        $lastReportedRemaining = -1
+        while ((Get-Date) -lt $minimumHoldDeadline) {
+            $remaining = [int][Math]::Ceiling(($minimumHoldDeadline - (Get-Date)).TotalSeconds)
+            if ($remaining -ne $lastReportedRemaining -and ($remaining -eq $MinimumUnplugHoldSeconds -or $remaining % 10 -eq 0 -or $remaining -le 5)) {
+                Write-Host ("MINIMUM_UNPLUG_HOLD_REMAINING_SECONDS={0}" -f $remaining)
+                $lastReportedRemaining = $remaining
+            }
+            Start-Sleep -Milliseconds 250
+        }
+        Write-Host ("MINIMUM_UNPLUG_HOLD=SATISFIED seconds={0} elapsed={1:N3}" -f $MinimumUnplugHoldSeconds,((Get-Date)-$unplugObservedAt).TotalSeconds)
+    }
     Write-Host ''
     Write-Host '======================================================================'
     Write-Host 'RECONNECT_B525_NOW: plug the B525 USB cable back in now.'
@@ -499,6 +520,12 @@ try {
         throw "Windows did not observe a healthy B525 within $ReconnectTimeoutSeconds seconds after reconnect."
     }
     $replugObserved = $true
+    $replugObservedAt = Get-Date
+    $pnpAbsenceDurationSeconds = [Math]::Round(($replugObservedAt - $unplugObservedAt).TotalSeconds,3)
+    Write-Host ("USB_PNP_ABSENCE_DURATION_SECONDS={0}" -f $pnpAbsenceDurationSeconds)
+    if ($MinimumUnplugHoldSeconds -gt 0 -and $pnpAbsenceDurationSeconds -lt $MinimumUnplugHoldSeconds) {
+        throw ("B525 returned to Windows PnP after {0:N3}s, shorter than the required {1}s unplug hold." -f $pnpAbsenceDurationSeconds,$MinimumUnplugHoldSeconds)
+    }
     $reconnectedInstanceId = [string]$returnedCamera[0].InstanceId
     $cameraTopologyAfter = Get-CameraTopology $reconnectedInstanceId
     $checks.Add('Windows PnP observed a healthy B525 after reconnect') | Out-Null
@@ -625,6 +652,11 @@ try {
         different_port_verified = $differentPortVerified
         physical_unplug_observed = $unplugObserved
         physical_replug_observed = $replugObserved
+        minimum_unplug_hold_seconds = $MinimumUnplugHoldSeconds
+        pnp_unplug_observed_utc = if ($unplugObservedAt) { $unplugObservedAt.ToUniversalTime().ToString('o') } else { $null }
+        pnp_replug_observed_utc = if ($replugObservedAt) { $replugObservedAt.ToUniversalTime().ToString('o') } else { $null }
+        pnp_absence_duration_seconds = $pnpAbsenceDurationSeconds
+        minimum_unplug_hold_satisfied = if ($MinimumUnplugHoldSeconds -gt 0 -and $pnpAbsenceDurationSeconds -ne $null) { $pnpAbsenceDurationSeconds -ge $MinimumUnplugHoldSeconds } else { $null }
         reconnecting_status_observed = $reconnectingStatusObserved
         ready_status_after_reconnecting_observed = $recoveryReadyObserved
         automatic_recovery_status = $audit.automatic_recovery_status

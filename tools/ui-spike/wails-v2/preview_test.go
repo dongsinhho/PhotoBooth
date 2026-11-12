@@ -13,6 +13,14 @@ import (
 	"github.com/dongsinhho/PhotoBooth/internal/booth/camera/recovery"
 )
 
+func TestCameraPreviewRecoveryBudgetCoversSlowXHC1Reenumeration(t *testing.T) {
+	if cameraPreviewRecoveryAttempts != 180 {
+		t.Fatalf("idle preview recovery attempts=%d, want 180", cameraPreviewRecoveryAttempts)
+	}
+	if cameraPreviewRecoveryRetryDelay != 250*time.Millisecond {
+		t.Fatalf("idle preview retry delay=%s, want 250ms", cameraPreviewRecoveryRetryDelay)
+	}
+}
 func TestStartCameraPreviewDisabledSkipsProviderAndProfileInitialization(t *testing.T) {
 	t.Setenv(cameraPreviewDisabledEnv, "1")
 	app := NewApp()
@@ -71,7 +79,7 @@ func TestHandlePreviewRecoveryEventRecordsAttemptErrorDetails(t *testing.T) {
 	app.handlePreviewRecoveryEvent(recovery.Event{
 		Type:    "recovery_open_attempt_failed",
 		Attempt: 7,
-		Total:   30,
+		Total:   cameraPreviewRecoveryAttempts,
 		Err:     wantErr,
 	})
 
@@ -88,8 +96,9 @@ func TestHandlePreviewRecoveryEventRecordsAttemptErrorDetails(t *testing.T) {
 	if err := json.Unmarshal(lines[0], &event); err != nil {
 		t.Fatalf("decode recovery event: %v", err)
 	}
-	if event.Event != "recovery_open_attempt_failed" || event.Attempt != 7 || event.Total != 30 || event.Message != wantErr.Error() {
-		t.Fatalf("recovery diagnostic=%+v, want attempt 7/30 and full open error", event)
+	if event.Event != "recovery_open_attempt_failed" || event.Attempt != 7 ||
+		event.Total != cameraPreviewRecoveryAttempts || event.Message != wantErr.Error() {
+		t.Fatalf("recovery diagnostic=%+v, want attempt 7/%d and full open error", event, cameraPreviewRecoveryAttempts)
 	}
 
 	var status cameraPreviewDiagnosticRecord

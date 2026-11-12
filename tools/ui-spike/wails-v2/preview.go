@@ -24,7 +24,12 @@ const (
 	cameraPreviewInterval        = 200 * time.Millisecond // maximum 5 published frames per second
 	cameraPreviewAckTimeout      = 2 * time.Second
 	cameraPreviewStopTimeout     = 7 * time.Second
-	maxCameraPreviewBytes        = 8 << 20
+	// A controlled 60-second unplug took 110.35 seconds for Windows PnP to report the B525 again;
+	// Media Foundation enumerated it after about 111s, and the provider opened on attempt 114/120.
+	// 180 attempts provide about 177.5 seconds of retry backoff, leaving additional headroom.
+	cameraPreviewRecoveryAttempts   = 180
+	cameraPreviewRecoveryRetryDelay = 250 * time.Millisecond
+	maxCameraPreviewBytes           = 8 << 20
 )
 
 type CameraPreviewStatus struct {
@@ -545,8 +550,8 @@ func newConfiguredCameraProvider(config stationconfig.StoreConfig, onEvent func(
 	}
 	return recovery.New(func() camera.Provider { return windowsmf.New(options) }, recovery.Options{
 		OpenAttempts:     3,
-		RecoveryAttempts: 30,
-		RetryDelay:       250 * time.Millisecond,
+		RecoveryAttempts: cameraPreviewRecoveryAttempts,
+		RetryDelay:       cameraPreviewRecoveryRetryDelay,
 		OnEvent:          onEvent,
 	})
 }

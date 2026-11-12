@@ -82,6 +82,16 @@ On 2026-10-31, 3 sessions / 9 captures passed. All captures were 1280x720; all r
 
 Physical B525 unplug/replug during an active Wails session also passed one cycle on 2026-10-31; Windows PnP and Wails recovery state were observed and the same three-shot session auto-completed without Continue. Repeat cycles/ports and representative booth portrait lighting remain open; see [CAMERA_RELIABILITY_RESULTS.md](../../../docs/knowledge-base/CAMERA_RELIABILITY_RESULTS.md).
 
+## Physical same-port idle-preview hotplug recovery smoke
+
+Build the current Windows executable, connect the reference B525, then run this from the Wails v2 directory:
+
+~~~powershell
+.\ui-idle-preview-hotplug-smoke.ps1 -ExecutablePath .\build\bin\PhotoBooth.exe -UnplugObservationTimeoutSeconds 240 -ReconnectTimeoutSeconds 120 -PreviewResumeTimeoutSeconds 120 -RequireSamePortOnReconnect
+~~~
+
+For a duration-controlled disconnect, add -MinimumUnplugHoldSeconds 60. The harness starts this timer only after Windows PnP confirms the original B525 instance has disappeared. It waits for the configured minimum before printing RECONNECT_B525_NOW, then records the PnP-unplug and PnP-return UTC timestamps plus the observed absence duration in its JSON report. If Windows sees the camera return before the required duration, the run fails instead of counting as a valid duration test. This smoke exercises idle preview only: it does not start a photo session and cleans its temporary station profile.
+
 
 ## Windows kiosk-mode smoke
 

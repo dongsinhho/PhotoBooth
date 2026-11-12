@@ -236,3 +236,54 @@ Focused camera/recovery tests, full root tests, vendored camera tests, Wails sub
 - A separate fresh PhotoBooth Wails process was then launched against an isolated disposable profile while that same B525 remained on XHC1. It reached `FRESH_PROCESS_PREVIEW_READY=True` with 30 frames / 30 decoded / 30 ACK, 4.99 FPS, zero ACK failures and zero decode failures. No photo session directory was created. The app closed gracefully and the temporary profile was cleaned; smoke process exit code 0.
 - This confirms a fresh PhotoBooth process can open a capture stream after the delayed device return. It does not prove the original long-lived process could have recovered automatically, and it does not establish whether the camera returned just after or later than the harness's 60-second replug observation limit.
 - The remaining discriminating experiment is one controlled physical cycle with a standalone MF observer started before unplug, recording the first post-return `camera_found` timestamp, and a longer 120-second harness reconnect-observation window. Keep the 30-attempt policy unchanged until the correlated timeline is available.
+
+
+## Follow-up — 2026-11-12: first validated automatic XHC1 recovery with the extended idle-preview budget
+
+A controlled physical same-port cycle on ShinPc / Windows 11 Pro / Logitech B525 used a standalone MF observer started before unplug and the rebuilt Wails Preview binary.
+
+- PnP observed removal and return of the exact B525 MI_02 instance. Both recorded LocationPaths before and after were identical and identify the alternate AMD XHC1 path (PCI(0801)#PCI(0004)#...; ACPI path contains XHC1). Harness report: same_port_reconnect_verified=true.
+- The independent observer's primary locked OS thread reported zero_sources at 2026-11-12T16:27:44.797Z and first returned camera_found at 16:28:00.297Z (about 15.5 seconds later). It continued sampling the same primary thread and kept finding B525. A subsequently triggered, serialized secondary locked-thread probe also returned camera_found. The probe is sequential, not simultaneous; this run does not reproduce a persistent primary-thread-only failure.
+- Wails detected MF_E_VIDEO_RECORDING_DEVICE_INVALIDATED at 16:27:44.534Z and entered reconnecting. Attempts 1–17 returned MFEnumDeviceSources returned zero video capture sources; attempt 18 opened the replacement provider at 16:28:06.704Z. Wails emitted recovery_provider_opened, ready, recovery_succeeded, and continued idle preview without a manual Retry Connect.
+- Harness result: WAILS_IDLE_PREVIEW_HOTPLUG=PASS, process exit 0, elapsed 44.73s. Report %TEMP%\photobooth-idle-preview-hotplug-a106d15aae484b6db3911887c59b420d.json; JSONL %TEMP%\photobooth-idle-preview-hotplug-a106d15aae484b6db3911887c59b420d.jsonl. Independent observer %TEMP%\photobooth-mf-xhc1-extended-recovery-20261112-232713.jsonl.
+- Preview metrics after reconnect: 58 received / 58 decoded / 58 ACKed, 1.71 FPS at the harness sample. Full JSONL audit: 59 publishes, 58 ACKs and one intentional cancellation during shutdown; zero ACK timeouts, decode failures, invalid JSON lines, duplicate/orphan terminal events or unmatched publications. No photo session started, no forced app termination occurred and the isolated TEMP profile was cleaned.
+- To accommodate the measured delay, only the Wails idle-preview recovery budget changed from 30 to 120 attempts. Initial-open attempts remain 3; retry delay remains 250ms with the existing bounded linear backoff. No root recovery decorator policy, Windows MF implementation, port validation or XHC0 behavior was changed.
+- Wails module go test -count=1 ./... and go vet ./... passed after the change. The Windows Preview was rebuilt successfully with run-photobooth.ps1 -NoLaunch (Wails CLI v2.17.0 / Go 1.25.0).
+- This is one confirmed automatic recovery PASS on this B525/XHC1/Windows host, not repeated-reliability certification. The earlier failures remain valid evidence that the 30-attempt budget could expire before Media Foundation enumeration recovered. The observer shows that enumeration availability is time-dependent after hotplug; it does not establish a single deterministic hardware/driver cause. Repeat cycles across detach durations and separate sessions/days remain open.
+
+
+## Follow-up — 2026-11-12: second physical XHC1 same-port recovery cycle
+
+A second controlled physical B525 unplug/replug cycle on ShinPc / Windows 11 Pro passed with the rebuilt Wails Preview binary and 120-attempt idle-preview recovery budget.
+
+- Windows PnP and the harness observed the exact B525 MI_02 instance disappear and return to identical before/after LocationPaths; the ACPI path identifies XHC1. Post-test PnP status was OK.
+- Wails entered reconnecting after MF_E_VIDEO_RECORDING_DEVICE_INVALIDATED at 2026-11-12T16:34:51.704Z. Attempts 1-80 returned zero video capture sources; attempt 81 opened the provider at 16:36:16.670Z and recovery_succeeded followed at 16:36:16.734Z. No manual Retry Connect, app restart or forced preview restart occurred.
+- The independent 500ms MF observer's primary locked thread first returned zero_sources at 16:34:51.657Z and camera_found at 16:36:10.157Z (about 78.5 seconds later). A sequential secondary locked-thread probe also found B525 at 16:37:21.662Z. This supports delayed/time-dependent enumeration, not a deterministic hardware/driver diagnosis.
+- WAILS_IDLE_PREVIEW_HOTPLUG=PASS, process exit 0, runtime 120.98s. Preview resumed with 120 received/decoded/ACKed frames. Audit: 121 published and 121 acknowledged; zero ACK timeouts, decode failures, invalid JSON, duplicate, unmatched or orphan events. No photo session; temporary profile cleaned.
+- Artifacts: %TEMP%\photobooth-idle-preview-hotplug-9d0c48b422c94065823c39c648bbade4.json and its .jsonl; independent observer %TEMP%\photobooth-mf-xhc1-repeat30-20261112-233407.jsonl.
+- Together with the earlier same-port PASS (provider opened on attempt 18), this is the second physical XHC1 PASS and directly exercises a slower recovery window. The 120-attempt Wails idle-preview budget is supported by two physical successes, but cross-day/duration/camera/port reliability remains unproven. Continue the campaign before closing the repeated-reliability gate.
+
+
+## Follow-up — 2026-11-12: third physical XHC1 same-port recovery cycle
+
+A third controlled physical B525 unplug/replug cycle on ShinPc / Windows 11 Pro passed automatic Wails idle-preview recovery with the 120-attempt budget.
+
+- Harness/PnP confirmed physical unplug and replug of the same B525 MI_02 instance and identical before/after XHC1 LocationPaths. Post-test PnP status was OK.
+- Wails detected MF_E_VIDEO_RECORDING_DEVICE_INVALIDATED at 16:40:08.433Z. Attempts 1-26 returned zero capture sources; attempt 27 opened the provider at 16:40:39.591Z and recovery_succeeded followed at 16:40:39.655Z. No manual Retry Connect, app restart or preview restart occurred.
+- Independent 500ms MF observer returned zero_sources at 16:40:08.322Z and camera_found at 16:40:32.822Z (24.5 seconds later); a sequential secondary-thread probe also found B525. The observer does not prove the exact physical replug timestamp, but it does not support a 60-second disconnect. Therefore this run counts as a third same-port automatic recovery PASS only; the intended 60-second detach-duration subtest is NOT VERIFIED / NOT COUNTED.
+- Harness WAILS_IDLE_PREVIEW_HOTPLUG=PASS, exit 0, runtime 92.97s. Preview resumed with 244/244 frames received/decoded/ACKed. Audit: 246 published / 246 ACKed, zero timeout/decode/invalid JSON/duplicate/orphan/unmatched events. No photo session; temporary profile cleaned.
+- Artifacts: %TEMP%\photobooth-idle-preview-hotplug-637c5bb43bbd423f8e81d98ec3429107.json and its .jsonl; MF observer %TEMP%\photobooth-mf-xhc1-repeat60-20261112-233858.jsonl.
+- Three physical same-port XHC1 automatic recovery cycles have now passed (provider open attempts 18, 81 and 27). The 120-attempt budget is supported for this B525/host/path; cross-day and controlled detach-duration reliability remain OPEN. Do not claim that the 60-second hold has passed.
+
+
+## Follow-up — 2026-11-12: guarded 60-second unplug passed; recovery budget extended
+
+A duration-controlled same-port physical B525 unplug/replug on ShinPc / Windows 11 Pro / AMD XHC1 passed. The harness used `-MinimumUnplugHoldSeconds 60`, starting only after PnP confirmed the original MI_02 instance absent.
+
+- PnP unplug observed at 16:45:53.1267176Z; replug observed at 16:47:43.4765293Z. Total PnP absence 110.35s, with the harness reporting `MINIMUM_UNPLUG_HOLD=SATISFIED` after 60.155s. Exact instance and XHC1 LocationPaths matched before/after.
+- Wails recovery started after MF_E_VIDEO_RECORDING_DEVICE_INVALIDATED at 16:45:52.530Z. Attempts 1-113 found zero MF capture sources; provider opened at attempt 114/120 and recovery_succeeded followed. No manual retry, restart or preview restart.
+- Independent 500ms MF observer reported zero_sources at 16:45:52.613Z and camera_found at 16:47:43.612Z (~111s later).
+- Harness PASS, exit 0, 155.67s. Post-reconnect preview 131/131 frames decoded and ACKed. Event audit 133/133 published/ACKed, zero ACK timeouts, decode failures, invalid JSON, duplicates, unmatched or orphan events. No photo session; temp profile cleaned.
+- Artifacts: %TEMP%\photobooth-idle-preview-hotplug-2ebe3f82e6f746a684ee29ec04209bb3.json and .jsonl; observer %TEMP%\photobooth-mf-xhc1-guarded60-20261112-234509.jsonl.
+- Since this exhausted 114 of the 120 configured recovery attempts, raised the recovery package cap and Wails idle-preview budget to 180 (about 177.5s retry backoff). Initial open remains 3; 250ms base retry delay and existing bounded linear backoff remain unchanged. Added tests for the package cap/default and Wails preview budget. Harness now supports a PnP-observed minimum unplug hold and records unplug/replug timestamps and duration; reconnect prompt appears only after the hold completes.
+- Root tests/vet, Wails tests/vet, Windows build and diff check passed after the source change. Cross-day reliability and broader port/camera/session acceptance remain OPEN. Native Ubuntu direct-USB remains pending; Linux V4L2 remains experimental/unselectable.
