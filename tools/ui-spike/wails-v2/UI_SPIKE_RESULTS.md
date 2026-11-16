@@ -829,3 +829,19 @@ This closes one physical automatic XHC1 recovery cycle for the tested B525/host/
 - Artifacts: %TEMP%\photobooth-idle-preview-hotplug-2ebe3f82e6f746a684ee29ec04209bb3.json, corresponding .jsonl, and %TEMP%\photobooth-mf-xhc1-guarded60-20261112-234509.jsonl.
 - Attempt 114 left six attempts of margin. The recovery package cap and Wails idle-preview recovery budget are now 180 attempts (~177.5s configured backoff); initial open remains 3 attempts, 250ms retry delay and existing bounded linear backoff unchanged. Root/Wails tests and vet plus Windows Preview build passed after the change.
 - The harness now records the PnP unplug/replug UTC timestamps and absence duration and enforces a configurable minimum before showing the reconnect prompt. Cross-day and other port/camera reliability remain OPEN. Native Ubuntu direct-USB remains pending; Linux V4L2 remains experimental.
+
+
+## Linux local-storage mount runtime revalidation (2026-11-16)
+
+This follow-up supersedes the earlier **pending** Linux runtime/mount statements for the specific WSL2 local-storage guard; those older notes remain historical snapshots of what had been tested at their dates.
+
+Environment: ShinPc / Ubuntu 26.04.1 WSL2, kernel `6.18.58.1-microsoft-standard-WSL2`, x86_64, Go 1.24.8. The current source checkout was mounted from Windows at `/mnt/c`; the test placed disposable fixtures on local Linux mounts and invoked the production config path APIs.
+
+- `/tmp` (tmpfs) and a future child path beneath `/home` (ext4) passed `ValidateLocalStoragePath`.
+- `/mnt/c` (9p) and a symlink redirecting to that mount were rejected as network-backed local-media roots.
+- A regular file was rejected as a storage root.
+- `ValidateStorageChild` accepted a direct child and rejected a child symlink redirecting outside its assigned root.
+- Runtime probe: `LINUX_STORAGE_MOUNT_RUNTIME_PASS`, exit 0; temporary probe source and fixtures were removed.
+- Root `go test -count=1 ./...`, `go vet ./...`, and Linux/amd64 `CGO_ENABLED=0 go build ./...`: PASS.
+
+Scope: this closes only the WSL2 local-storage/mount runtime sub-gate. It does not validate native Ubuntu direct-USB, physical camera/printer, unknown remote FUSE providers, or a production Linux desktop. No camera, USB, guest session or photo content was accessed in this follow-up. Stage 2 remains open pending the elevated Windows firewall/SMB audit and an independent trusted-host reachability check.

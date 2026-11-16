@@ -71,3 +71,17 @@ Default policy:
 - Documented guest-photo retention and delivery policy.
 - Player, provider and content update/rollback process.
 
+
+
+## Windows booth SMB server policy (accepted 2026-11-16)
+
+- SMB Server (LanmanServer) and workstation administrative shares are disabled by default for deployed Windows booth images when no local workflow dependency requires them. Do not disable the SMB client service or add outbound SMB blocks as part of this policy.
+- The booth's supported media delivery remains local-only. SMB remote administration is a separate operator-maintenance capability, never a guest-photo delivery mechanism.
+- Explicit opt-in requires Windows UAC elevation, an already Private-classified physical adapter, and a literal allowlist of individually trusted RFC1918 remote IPv4 sources. The helper must not reclassify a Public network.
+- Allow only direct-hosted SMB TCP 445 on the selected local address and Private profile. Legacy NetBIOS TCP 137/139 and UDP 137/138 remain blocked. Do not enable SMB1, guest/anonymous SMB, router port-forwarding, or broad inbound scopes.
+- The network allowlist is not authentication or authorization. Existing Windows SMB authentication and share/NTFS ACLs still apply; opening TCP 445 does not grant access to PhotoBooth directories.
+- State-changing actions preflight sessions, dependencies, custom shares and conflicting firewall rules; abort on blockers rather than force-stop or alter unrelated policy. The helper owns only its named firewall rules and does not delete custom shares or rewrite ACLs.
+- The Server service also supports file, print and named-pipe/RPC sharing. Inventory dependencies and validate that local PhotoBooth capture/render/output works with LanmanServer disabled before deploying this baseline. The helper prototype is not yet VM-validated or integrated into the operator UI/provisioner; see [ADR 0031](../adr/0031-opt-in-windows-smb-administration.md) and [self-service helper docs](../../tools/self-service/README.md).
+
+
+**2026-11-16 SMB-off local regression:** the real Wails B525 preview/capture smoke passed with LanmanServer Stopped/Disabled. It verified preview before capture, exclusive camera handoff, 3/3 real captures, render, local output and preview restoration. Temporary test data was removed; only the JSON report remained. See NETWORK_EXPOSURE_AUDIT.md and HANDOFF_2026-11-16.md.

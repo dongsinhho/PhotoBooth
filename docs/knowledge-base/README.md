@@ -81,8 +81,11 @@ Never turn a proposal into an asserted fact.
 68. [../../tools/ui-spike/wails-v2/cmd/recovery-fixture/](../../tools/ui-spike/wails-v2/cmd/recovery-fixture/) - deterministic temporary session/manifest/JPEG fixtures for the UI smoke.
 69. [../adr/0029-media-delivery-and-payment-policy-boundaries.md](../adr/0029-media-delivery-and-payment-policy-boundaries.md) - local delivery factory and disabled-payment gate boundaries; capture remains provider-independent, and LAN/QR modes fail closed until implemented.
 70. [NETWORK_EXPOSURE_AUDIT.md](NETWORK_EXPOSURE_AUDIT.md) - read-only Windows host audit for local storage roots, NTFS ACLs, SMB shares, listeners and firewall profile; records the current Stage 2 partial result.
-71. [../adr/0030-linux-v4l2-backend-evaluation.md](../adr/0030-linux-v4l2-backend-evaluation.md) - V4L2 is the selected Linux UVC API; provider implementation waits for a real V4L2 device node in WSL.
-72. [../../tools/camera-poc/v4l2-preflight/README.md](../../tools/camera-poc/v4l2-preflight/README.md) - read-only Linux V4L2 device/module/permission preflight; no camera node is opened.
+71. [NETWORK_EXPOSURE_AUDIT_RUNBOOK.md](NETWORK_EXPOSURE_AUDIT_RUNBOOK.md) - operator steps for elevated audit and scoped second-device SMB reachability/access checks without opening photo contents.
+72. [../adr/0030-linux-v4l2-backend-evaluation.md](../adr/0030-linux-v4l2-backend-evaluation.md) - V4L2 is the selected Linux UVC API; provider implementation waits for a real V4L2 device node in WSL.
+73. [../../tools/camera-poc/v4l2-preflight/README.md](../../tools/camera-poc/v4l2-preflight/README.md) - read-only Linux V4L2 device/module/permission preflight; no camera node is opened.
+74. [../adr/0031-opt-in-windows-smb-administration.md](../adr/0031-opt-in-windows-smb-administration.md) - accepted policy for SMB Server/admin shares off by default with UAC-controlled opt-in maintenance access.
+75. [../../tools/self-service/manage-smb-remote-admin.ps1](../../tools/self-service/manage-smb-remote-admin.ps1) - standalone PowerShell Status/Enable/Disable helper prototype for restricted Windows SMB administration.
 
 ## Current status as of 2026-11-08
 
@@ -130,3 +133,10 @@ Never turn a proposal into an asserted fact.
 - Host preflight for the Ubuntu Linux evaluation is now available at tools/release/windows/linux-evaluation-host-preflight.ps1. It is read-only; current ShinPc result: WSL absent, Docker Linux engine unavailable, so Linux runtime gate is blocked pending elevated WSL setup/reboot or an existing Ubuntu desktop. See HANDOFF_2026-11-02.md.
 
 - Stage 2 policy-boundary follow-up (2026-11-08): full CLI local/free acceptance now verifies three synthetic captures, session-scoped local output and manifest policy metadata; unsupported LAN/cloud/QR profiles fail at entrypoint before session-root creation; payment-gate requests are checked for stable session ID/Resume behavior; Wails saves preserve non-UI policy fields. This adds acceptance evidence but does not close Stage 2 or enable network/payment modes. See STORE_CONFIG.md, ADR 0029 and the latest HANDOFF_2026-11-08.md.
+
+
+## Continuation status (2026-11-16)
+
+- The WSL2 Ubuntu 26.04.1 local-storage mount/runtime sub-gate has been revalidated against the current source: tmpfs/ext4 paths pass; 9p and symlink redirects to 9p fail closed; direct session-child identity passes while redirected-child identity fails. Root tests, vet and Linux/amd64 compile pass. See [the Linux evaluation runbook](../QUICKSTART_LINUX_EVALUATION.md) and [the roadmap](ROADMAP.md).
+- Stage 2 is still OPEN: elevated Windows firewall/SMB evidence and a separate trusted LAN host are missing. Stage 0/1 still need a printer target and acceptance, hardware matrix decision, production UI decision, and signed deployment/update policy. The accepted reference XHC1 recovery campaign is closed for its defined scope; the requested 8 GiB and longer soak tests remain skipped.
+- Current checkpoint: [HANDOFF_2026-11-16.md](../../HANDOFF_2026-11-16.md).

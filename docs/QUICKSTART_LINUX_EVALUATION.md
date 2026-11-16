@@ -210,3 +210,16 @@ A successful build is compile evidence only. A successful UI launch is a basic s
 - Ubuntu release table: https://ubuntu.com/project/docs/release-team/list-of-releases/
 - Wails v2.17.0 installation guide: https://v2.wails.io/docs/gettingstarted/installation/
 - Ubuntu 26.04 \`libwebkit2gtk-4.1-dev\`: https://packages.ubuntu.com/resolute-updates/libwebkit2gtk-4.1-dev
+
+
+## Follow-up storage runtime validation (2026-11-16)
+
+Revalidated on ShinPc / Ubuntu 26.04.1 WSL2, kernel `6.18.58.1-microsoft-standard-WSL2`, x86_64, root Go 1.24.8. This follow-up used the current Windows repository checkout mounted at `/mnt/c` for source execution, while directing all storage fixtures to local Linux mounts:
+
+- `findmnt` identified `/tmp` as tmpfs, `/home` as ext4 and `/mnt/c` as 9p.
+- The production `config.ValidateLocalStoragePath` accepted paths under tmpfs and ext4 and rejected the 9p checkout mount. A symlink to the 9p mount was also rejected after canonical path resolution.
+- A regular file was rejected as a storage root. `ValidateStorageChild` accepted an immediate child with the expected identity and rejected a symlink redirected outside the assigned root.
+- The disposable Go probe emitted `LINUX_STORAGE_MOUNT_RUNTIME_PASS` (exit 0) and its temporary source/fixtures were removed.
+- Root `go test -count=1 ./...`, `go vet ./...` and Linux/amd64 CGO-disabled `go build ./...` passed on this WSL2 run.
+
+This is repeatable Linux mount/runtime evidence for the WSL2 environment only. It does not validate a native Ubuntu USB controller, physical Linux camera capture, printer output, unknown remote FUSE types, or production Linux deployment. Keep guest sessions/photos on distro ext4 (for example under `/home`), not under `/mnt/c`.

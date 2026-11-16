@@ -137,49 +137,62 @@ try {
         Add-Check 'Storage-root separation' 'PASS' 'Session and photo-output roots are distinct and non-overlapping'
     }
 
-    $shares = @(Get-SmbShare -ErrorAction Stop | Where-Object { ![string]::IsNullOrWhiteSpace([string]$_.Path) })
-    $overlappingShares = [System.Collections.Generic.List[object]]::new()
-    foreach ($share in $shares) {
-        try { $sharePath = Normalize-DirectoryPath ([string]$share.Path) } catch { continue }
-        foreach ($root in $normalizedRoots) {
-            if (Test-PathOverlap $sharePath $root.Path) {
-                $access = Get-ResolvedShareAccess ([string]$share.Name)
-                $overlappingShares.Add([pscustomobject]@{
-                    Name = [string]$share.Name
-                    Path = $sharePath
-                    Special = [bool]$share.Special
-                    Root = $root.Name
-                    Access = $access
-                })
+    $serverServiceForShares = Get-Service -Name LanmanServer -ErrorAction Stop
+    if ($serverServiceForShares.Status -eq 'Running') {
+        try {
+            $shares = @(Get-SmbShare -ErrorAction Stop | Where-Object { ![string]::IsNullOrWhiteSpace([string]$_.Path) })
+            $overlappingShares = [System.Collections.Generic.List[object]]::new()
+            foreach ($share in $shares) {
+                try { $sharePath = Normalize-DirectoryPath ([string]$share.Path) } catch { continue }
+                foreach ($root in $normalizedRoots) {
+                    if (Test-PathOverlap $sharePath $root.Path) {
+                        $access = Get-ResolvedShareAccess ([string]$share.Name)
+                        $overlappingShares.Add([pscustomobject]@{
+                            Name = [string]$share.Name
+                            Path = $sharePath
+                            Special = [bool]$share.Special
+                            Root = $root.Name
+                            Access = $access
+                        })
+                    }
+                }
             }
-        }
-    }
 
-    if ($overlappingShares.Count -eq 0) {
-        Add-Check 'SMB share overlap' 'PASS' 'No configured SMB share path contains or is contained by either PhotoBooth storage root'
-    } else {
-        foreach ($group in ($overlappingShares | Group-Object Name,Path)) {
-            $share = $group.Group[0]
-            $rootNames = ($group.Group | Select-Object -ExpandProperty Root -Unique) -join ', '
-            $detail = "Share=$($share.Name); share_path=$($share.Path); storage_roots=$rootNames; special=$($share.Special); ACL=$($share.Access)"
-            if ($share.Special) {
-                Add-Check 'SMB administrative-share overlap' 'WARN' "$detail. Administrative shares are not ordinary guest shares, but privileged remote access may reach this storage tree."
+            if ($overlappingShares.Count -eq 0) {
+                Add-Check 'SMB share overlap' 'PASS' 'No configured SMB share path contains or is contained by either PhotoBooth storage root'
             } else {
-                Add-Check 'SMB non-administrative-share overlap' 'FAIL' "$detail. A normal SMB share overlaps PhotoBooth storage."
+                foreach ($group in ($overlappingShares | Group-Object Name,Path)) {
+                    $share = $group.Group[0]
+                    $rootNames = ($group.Group | Select-Object -ExpandProperty Root -Unique) -join ', '
+                    $detail = "Share=$($share.Name); share_path=$($share.Path); storage_roots=$rootNames; special=$($share.Special); ACL=$($share.Access)"
+                    if ($share.Special) {
+                        Add-Check 'SMB administrative-share overlap' 'WARN' "$detail. Administrative shares are not ordinary guest shares, but privileged remote access may reach this storage tree."
+                    } else {
+                        Add-Check 'SMB non-administrative-share overlap' 'FAIL' "$detail. A normal SMB share overlaps PhotoBooth storage."
+                    }
+                }
             }
+        } catch {
+            Add-Check 'SMB share overlap' 'WARN' "Could not inspect active SMB shares: $($_.Exception.Message)"
         }
+    } else {
+        Add-Check 'SMB share overlap' 'PASS' "LanmanServer is $($serverServiceForShares.Status); SMB shares are not being served. Persistent share definitions, if any, are left untouched."
     }
 
-    try {
-        $server = Get-SmbServerConfiguration -ErrorAction Stop
-        if ($server.EnableSMB1Protocol) {
-            Add-Check 'SMB1 protocol' 'WARN' 'SMB1 is enabled; review whether it is required'
-        } else {
-            Add-Check 'SMB1 protocol' 'PASS' 'SMB1 is disabled'
+    if ($serverServiceForShares.Status -eq 'Running') {
+        try {
+            $server = Get-SmbServerConfiguration -ErrorAction Stop
+            if ($server.EnableSMB1Protocol) {
+                Add-Check 'SMB1 protocol' 'WARN' 'SMB1 is enabled; review whether it is required'
+            } else {
+                Add-Check 'SMB1 protocol' 'PASS' 'SMB1 is disabled'
+            }
+            Add-Check 'SMB2 protocol' 'PASS' ("SMB2 enabled={0}; SMB1 disabled={1}" -f [bool]$server.EnableSMB2Protocol, -not [bool]$server.EnableSMB1Protocol)
+        } catch {
+            Add-Check 'SMB server configuration' 'WARN' "Could not read SMB server configuration: $($_.Exception.Message)"
         }
-        Add-Check 'SMB2 protocol' 'PASS' ("SMB2 enabled={0}; SMB1 disabled={1}" -f [bool]$server.EnableSMB2Protocol, -not [bool]$server.EnableSMB1Protocol)
-    } catch {
-        Add-Check 'SMB server configuration' 'WARN' "Could not read SMB server configuration: $($_.Exception.Message)"
+    } else {
+        Add-Check 'SMB1 server protocol availability' 'PASS' "LanmanServer is $($serverServiceForShares.Status); no SMB Server endpoint is active. The opt-in helper checks SMB1/SMB2 before starting the service."
     }
 
     try {
@@ -251,12 +264,17 @@ try {
                 $serviceFilter = Get-NetFirewallServiceFilter -AssociatedNetFirewallRule $rule -ErrorAction Stop
                 $service = if ($serviceFilter) { [string]$serviceFilter.Service } else { 'unknown' }
                 $isKnownSMBPort = ($localPorts | Where-Object { $_ -in @('445','139','137','138') }).Count -gt 0
-                $isBroadServerRule = ($localPorts -contains 'Any') -and
-                    ($service -eq 'Any' -or $service -match '(?i)lanmanserver')
+                # Do not classify a program-specific Any-port rule as SMB exposure.
+                # Any-port rules bound to LanmanServer or all/system programs can also cover SMB.
+                $appFilter = Get-NetFirewallApplicationFilter -AssociatedNetFirewallRule $rule -ErrorAction Stop
+                $program = if ($appFilter) { [string]$appFilter.Program } else { 'unknown' }
+                $isBroadServerRule = ($localPorts -contains 'Any') -and (
+                    $service -match '(?i)lanmanserver' -or $program -in @('Any', 'System', '*')
+                )
                 if ($isKnownSMBPort -or $isBroadServerRule) {
                     $addressFilter = Get-NetFirewallAddressFilter -AssociatedNetFirewallRule $rule -ErrorAction Stop
                     $allowedRules.Add(
-                        "$($rule.DisplayName) [Profile=$ruleProfiles; Protocol=$($portFilter.Protocol); Ports=$($localPorts -join ','); Service=$service; RemoteAddress=$($addressFilter.RemoteAddress -join ',')]"
+                        "$($rule.DisplayName) [Profile=$ruleProfiles; Protocol=$($portFilter.Protocol); Ports=$($localPorts -join ','); Service=$service; Program=$program; RemoteAddress=$($addressFilter.RemoteAddress -join ',')]"
                     )
                 }
             }
@@ -264,7 +282,7 @@ try {
         if ($allowedRules.Count -gt 0) {
             Add-Check 'Effective inbound SMB firewall allow rules' 'FAIL' ($allowedRules -join '; ')
         } else {
-            Add-Check 'Effective inbound SMB firewall allow rules' 'PASS' 'No enabled inbound Allow rule for TCP/UDP 445/139/137/138 or broad Any-port Any/LanmanServer service matched an active profile'
+            Add-Check 'Effective inbound SMB firewall allow rules' 'PASS' 'No enabled inbound Allow rule for TCP/UDP 445/139/137/138 or broad Any-port rule bound to LanmanServer/Any/System matched an active profile'
         }
     } catch {
         Add-Check 'Effective inbound SMB firewall allow rules' 'WARN' "Could not enumerate the effective firewall port-filter inventory (an elevated session may be required): $($_.Exception.Message)"
@@ -283,16 +301,20 @@ try {
         Add-Check 'SMB TCP listeners' 'WARN' "Could not inspect TCP listeners: $($_.Exception.Message)"
     }
 
-    try {
-        $sessions = @(Get-SmbSession -ErrorAction Stop)
-        if ($sessions.Count -gt 0) {
-            $clients = ($sessions | ForEach-Object { "$($_.ClientComputerName)\$($_.ClientUserName)" }) -join '; '
-            Add-Check 'Current SMB sessions' 'WARN' "$($sessions.Count) SMB session(s) currently visible: $clients. This does not establish that PhotoBooth files were opened."
-        } else {
-            Add-Check 'Current SMB sessions' 'PASS' 'No current SMB client sessions were reported'
+    if ($serverServiceForShares.Status -ne 'Running') {
+        Add-Check 'Current SMB sessions' 'PASS' "LanmanServer is $($serverServiceForShares.Status); no SMB Server sessions can be served."
+    } else {
+        try {
+            $sessions = @(Get-SmbSession -ErrorAction Stop)
+            if ($sessions.Count -gt 0) {
+                $clients = ($sessions | ForEach-Object { "$($_.ClientComputerName)\$($_.ClientUserName)" }) -join '; '
+                Add-Check 'Current SMB sessions' 'WARN' "$($sessions.Count) SMB session(s) currently visible: $clients. This does not establish that PhotoBooth files were opened."
+            } else {
+                Add-Check 'Current SMB sessions' 'PASS' 'No current SMB client sessions were reported'
+            }
+        } catch {
+            Add-Check 'Current SMB sessions' 'WARN' "Cannot enumerate SMB sessions with this identity: $($_.Exception.Message)"
         }
-    } catch {
-        Add-Check 'Current SMB sessions' 'WARN' "Cannot enumerate SMB sessions with this identity: $($_.Exception.Message)"
     }
 }
 catch {

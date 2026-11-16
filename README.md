@@ -6,13 +6,14 @@ Status: A Windows MVP UI candidate is runnable for local evaluation; production 
 
 ## Current engineering handoff
 
-The latest implementation state, verified test results, environment constraints and next acceptance gates are tracked in [HANDOFF_2026-11-08.md](HANDOFF_2026-11-08.md). It supersedes the earlier handoffs for current status.
+The latest implementation state, verified test results, environment constraints and next acceptance gates are tracked in [HANDOFF_2026-11-16.md](HANDOFF_2026-11-16.md). It supersedes the earlier handoffs for current status.
 
 ## Self-service setup and support
 
 - [Windows development quickstart](docs/QUICKSTART_WINDOWS.md) — verified synthetic path first, optional experimental B525 capture second.
 - [Windows troubleshooting](docs/troubleshooting/WINDOWS_TROUBLESHOOTING.md) — camera busy/disconnect, image quality, frame mismatch, output and Wails profile issues.
 - [Read-only environment inspection](tools/self-service/README.md) — checks Go, config/frame, local storage paths and optional Windows PnP camera names without opening the camera or modifying files.
+- [Stage 2 network-exposure audit runbook](docs/knowledge-base/NETWORK_EXPOSURE_AUDIT_RUNBOOK.md) — elevated Windows audit and trusted second-device SMB checks; read-only and does not open guest photos.
 - [Compatibility report template](docs/COMPATIBILITY_REPORT_TEMPLATE.md) and [GitHub issue forms](.github/ISSUE_TEMPLATE/) — report exact hardware/software evidence without uploading guest images or secrets.
 - [Local output recovery](docs/knowledge-base/LOCAL_STORAGE_RECOVERY.md) — disk-full behavior and save-only recovery with `go run ./apps/output-retry --config <config> --session-id <id>`.
 - [Session crash/restart recovery](docs/knowledge-base/SESSION_CRASH_RECOVERY.md) — schema-v2 manifest-backed, read-only discovery and explicit operator recovery; new sessions preserve a frame snapshot, while legacy or inconsistent sessions retain conservative inspection rules.
