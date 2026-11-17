@@ -111,7 +111,21 @@ try {
     $checks.Add('temporary install root is outside operator data') | Out-Null
 
     $packageV1 = New-FixturePackage -Version '0.1.0-alpha.1' -Marker 1 -Destination (Join-Path $packageRoot 'v1.zip')
-    & $installScript -PackagePath $packageV1 -InstallRoot $installRoot | Out-Null
+
+    $legacyFreshRoot = Join-Path $tempRoot 'legacy-fresh-install'
+    $legacyFreshRejected = $false
+    try {
+        & $installScript -PackagePath $packageV1 -InstallRoot $legacyFreshRoot | Out-Null
+    } catch {
+        $legacyFreshRejected = $_.Exception.Message -match 'requires the packaged SMB administration helper'
+        Write-Host "EXPECTED_LEGACY_FRESH_INSTALL_REJECTION=$($_.Exception.Message)"
+    }
+    if (!$legacyFreshRejected -or (Test-Path (Join-Path $legacyFreshRoot 'active.json'))) {
+        throw 'Installer did not fail closed for a fresh legacy package without the SMB default-off helper.'
+    }
+    $checks.Add('reject a helper-less legacy package for a fresh first install without activating it') | Out-Null
+
+    & $installScript -PackagePath $packageV1 -InstallRoot $installRoot -SkipMachineProvisioning | Out-Null
     Assert-Equal (Read-ActiveVersion $installRoot) '0.1.0-alpha.1' 'initial active version'
     $checks.Add('install first immutable release and activate it') | Out-Null
 

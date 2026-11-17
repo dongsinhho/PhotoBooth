@@ -12,6 +12,7 @@ Assert-PhotoBoothVersion $Version
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $uiDirectory = Join-Path $repoRoot 'tools\ui-spike\wails-v2'
 $executable = Join-Path $uiDirectory 'build\bin\PhotoBooth.exe'
+$smbAdminHelper = Join-Path $repoRoot 'tools\self-service\manage-smb-remote-admin.ps1'
 $launcher = Join-Path $repoRoot 'run-photobooth.ps1'
 
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
@@ -35,6 +36,9 @@ else {
 
 if (!(Test-Path -LiteralPath $executable -PathType Leaf)) {
     throw "Build output is missing: $executable"
+}
+if (!(Test-Path -LiteralPath $smbAdminHelper -PathType Leaf)) {
+    throw "Windows SMB administration helper is missing: $smbAdminHelper"
 }
 Assert-PhotoBoothPE -Path $executable
 Assert-PhotoBoothNotRunning -InstallRoot (Split-Path -Parent $executable)
@@ -96,6 +100,11 @@ try {
             size = [long]$binaryInfo.Length
             sha256 = $binaryHash
         }
+        smb_admin_helper = [ordered]@{
+            file = 'manage-smb-remote-admin.ps1'
+            size = [long](Get-Item -LiteralPath $smbAdminHelper).Length
+            sha256 = Get-PhotoBoothSha256 -Path $smbAdminHelper
+        }
         source = [ordered]@{
             git_revision = $revision
             working_tree_dirty = $workingTreeDirty
@@ -132,7 +141,13 @@ promise for every Windows camera or computer.
 Requirements:
 - Windows 10/11 x64
 - Microsoft Edge WebView2 Runtime
+- PowerShell 5.1 and Windows NetSecurity module
 - A camera/driver combination explicitly validated by the project
+
+First installation:
+- The installer requests UAC approval and applies the PhotoBooth SMB Server default-off baseline.
+- If existing SMB sessions, custom shares or service dependencies block safe application, installation stops and explains the blocker.
+- Upgrades preserve the machine's existing SMB administration choice.
 
 Install:
 1. Extract this ZIP to a temporary folder.
@@ -171,6 +186,7 @@ Licensing:
         [Text.UTF8Encoding]::new($false)
     )
     Copy-Item -LiteralPath $executable -Destination (Join-Path $stagingRoot 'PhotoBooth.exe')
+    Copy-Item -LiteralPath $smbAdminHelper -Destination (Join-Path $stagingRoot 'manage-smb-remote-admin.ps1')
 
     Compress-Archive -Path (Join-Path $stagingRoot '*') -DestinationPath $zipPath -CompressionLevel Optimal
     $zipHash = Get-PhotoBoothSha256 -Path $zipPath

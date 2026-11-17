@@ -1,6 +1,6 @@
 # ADR 0031: Disable Windows SMB administration by default
 
-- **Status:** Accepted policy; a standalone PowerShell management helper is implemented as an unvalidated prototype. Deployment-default application and UI integration remain pending.
+- **Status:** Accepted policy; integrated in the Windows Preview operator Settings panel and first-install release provisioning. The Enable/Disable cycle was accepted on the tested ShinPc/Unix path; broader Windows VM/network qualification is not claimed.
 - **Date:** 2026-11-16
 - **Decision owner:** Product owner
 
@@ -89,3 +89,63 @@ Until the default is applied by deployment and these checks pass, the decision i
 - [Microsoft Learn — Secure SMB Traffic in Windows Server (applies to Windows 11)](https://learn.microsoft.com/en-us/windows-server/storage/file-server/smb-secure-traffic)
 - [Microsoft Learn — Remove administrative shares](https://learn.microsoft.com/en-us/troubleshoot/windows-server/networking/remove-administrative-shares)
 - [Google Cloud Threat Intelligence — Proactive Preparation and Hardening Against Destructive Attacks: 2026 Edition](https://cloud.google.com/blog/topics/threat-intelligence/preparation-hardening-destructive-attacks)
+
+
+## Implementation integration and acceptance update — 2026-11-17
+
+The original implementation gates above are updated by this dated record.
+
+### Operator UI
+
+The Windows Preview **Settings & frame → Remote administration** panel is now connected to the helper:
+
+- It reads the actual LanmanServer state/start mode, AutoShareWks value, PhotoBooth-owned effective SMB/NetBIOS Block rules, Allow-rule scope, and listener count. It does not store or infer machine security state through StoreConfig.
+- It lists active physical network adapters and their IPv4 addresses, including the Windows network profile.
+- Enable requires a selected adapter whose current profile is already Private, one local IPv4 address, and explicit RFC1918 remote IPv4 addresses. The UI explains the machine-wide scope and asks for confirmation.
+- Enable and Disable delegate all machine-wide changes to the PowerShell helper through UAC. The Go app does not directly edit Windows services, registry values, shares or firewall rules.
+- Status is read again after an action; a helper error or failed refresh is presented as unverified rather than shown as success.
+- Non-Windows builds expose an explicit Windows-only unavailable result.
+
+### Fresh-install provisioning and release packaging
+
+- New Windows Preview ZIPs contain four root-level files: PhotoBooth.exe, the helper, release-manifest.json and README.txt.
+- The helper file size and SHA-256 are recorded in the manifest and checked by the installer before a release is activated.
+- A first-time install invokes helper Disable through UAC before switching active.json. It fails closed when the helper is absent or when the helper refuses to change state due to active SMB sessions, custom shares, service dependencies or another blocker.
+- An upgrade with an existing active pointer preserves the operator's existing SMB maintenance choice. It does not automatically disable a deliberately enabled configuration.
+- `-SkipMachineProvisioning` exists for synthetic/isolated tests only; it is not for a real first booth installation.
+- Source-checkout Preview builds find the helper under tools/self-service; installed releases find the colocated copy beside PhotoBooth.exe.
+
+### Verification performed
+
+- The operator's real Enable → authenticated allowlisted SMB share-list → Disable cycle on ShinPc passed as recorded in HANDOFF_2026-11-17.md. The final host state remains default-off with Wi-Fi Public.
+- PowerShell helper AST parse and JSON read-only Status/ListInterfaces commands passed on ShinPc.
+- Wails Go package `go test ./...` and `go vet ./...` passed, including RFC1918 validation, allowlist parsing/deduplication, status/interface JSON parsing, and helper command routing.
+- Wails bindings regenerated, frontend production bundle built, and the Windows Preview executable built successfully.
+- The extended Settings UI Automation smoke passed: status reported LanmanServer Stopped/Disabled, AutoShareWks=0 and the managed TCP 445 Block; adapter/IP/allowlist controls and Enable/Disable/Refresh actions were present. The test did not press a state-changing SMB button, save station settings or create a photo session.
+- The synthetic release lifecycle smoke passed, including rejection of a helper-less legacy package for a fresh install, first-install test bypass, upgrade without reapplying machine provisioning, rollback, integrity rejection and cleanup.
+- A real Windows Preview ZIP build/isolated installation smoke verified all four ZIP entries, colocated helper, manifest hash and the installed helper's JSON Status output. It used the explicit test-only provisioning bypass and did not mutate host SMB state.
+
+### Accepted scope and limitations
+
+The product owner accepted the tested ShinPc Enable/Disable scope as sufficient to proceed with this integration. The live Enable test used only the allowlisted Unix source. A separate unlisted source, reboot persistence, IPv6, other network profiles, and disposable-VM behavior were not tested in this continuation. Do not claim those as verified or silently expand the allowlist. The helper still fails closed on the checks it implements; additional platform qualification can be reopened if a target deployment requires it.
+
+Stage 2 is not a blanket Windows security certification. This ADR's SMB default-off policy, helper, Windows Preview operator panel and first-install provisioning path are implemented for the current internal Preview flow; signed production packaging and broader OS/hardware/deployment qualification remain separate product gates.
+
+
+## Product-owner scope decision — 2026-11-18
+
+The product owner considers the current Remote administration feature sufficient and is pausing further feature qualification here.
+
+### Intended use case
+
+Remote administration is an **operator / maintainer convenience for authorized remote maintenance of a Windows Booth**, not a guest-facing feature and not the PhotoBooth photo-delivery mechanism. When explicitly enabled, a trusted maintenance computer can use authenticated Windows SMB administrative shares (for example `C$`, `ADMIN$`, and `IPC$`) to perform permitted maintenance tasks such as retrieving diagnostic logs, inspecting or updating application/configuration files, or using compatible Windows administration tools. Actual access remains subject to Windows credentials, share permissions and NTFS permissions.
+
+The feature does not create a guest share, publish session photos, grant anonymous access, or replace a future session-scoped LAN delivery design. It is optional; if no remote maintenance is needed, leave it disabled.
+
+### Accepted validation scope
+
+- Happy path only: Enable on the selected already-Private physical adapter with explicit trusted RFC1918 source address(es); authenticate from the allowlisted maintenance device and confirm SMB administrative shares are listed; Disable and confirm default-off state is restored.
+- The operator tested this lifecycle on ShinPc with the Unix maintenance host and accepted it as sufficient for the current product scope.
+- Do not require additional non-allowlisted-source, reboot-persistence, IPv6, failure/rollback, NetBIOS UDP, or disposable-VM qualification to consider this feature complete for the current Preview scope. These are unverified, not passed; do not make claims that they were tested.
+- Keep SMB Server default-off on fresh installs. Do not automatically enable it, broaden the allowlist, or change network profiles.
+- Reopen additional qualification only if a concrete deployment requirement or reproducible issue makes it necessary.

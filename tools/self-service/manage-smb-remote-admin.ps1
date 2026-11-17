@@ -1,15 +1,18 @@
 #requires -Version 5.1
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
 param(
-    [ValidateSet('Status', 'Enable', 'Disable')]
+    [ValidateSet('Status', 'ListInterfaces', 'Enable', 'Disable')]
     [string]$Action = 'Status',
     [string]$InterfaceAlias,
     [string]$LocalAddress,
-    [string[]]$RemoteAddress = @()
+    [string[]]$RemoteAddress = @(),
+    [switch]$JsonOutput,
+    [switch]$WaitForElevation
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ($JsonOutput) { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) }
 
 $script:RuleGroup = 'PhotoBooth Remote Administration'
 $script:AllowRuleName = 'PhotoBooth-SMB-RemoteAdmin-Allow'
@@ -36,7 +39,7 @@ function Start-ElevatedCopy {
     $tokens.Add('-NoProfile')
     $tokens.Add('-ExecutionPolicy')
     $tokens.Add('Bypass')
-    $tokens.Add('-NoExit')
+    if (!$WaitForElevation) { $tokens.Add('-NoExit') }
     $tokens.Add('-File')
     $tokens.Add((ConvertTo-QuotedArgument $PSCommandPath))
     $tokens.Add('-Action')
@@ -54,7 +57,14 @@ function Start-ElevatedCopy {
         $tokens.Add('-RemoteAddress')
         foreach ($address in $RemoteAddress) { $tokens.Add((ConvertTo-QuotedArgument $address)) }
     }
+    if ($JsonOutput) { $tokens.Add('-JsonOutput') }
+    if ($WaitForElevation) { $tokens.Add('-WaitForElevation') }
     if ($WhatIfPreference) { $tokens.Add('-WhatIf') }
+
+    if ($WaitForElevation) {
+        $process = Start-Process -FilePath $powerShellExe -Verb RunAs -ArgumentList ($tokens -join ' ') -Wait -PassThru
+        exit [int]$process.ExitCode
+    }
 
     Start-Process -FilePath $powerShellExe -Verb RunAs -ArgumentList ($tokens -join ' ')
 }
@@ -186,8 +196,8 @@ function Assert-NoCustomShares {
     if ($Action -eq 'Enable') {
         $shareKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Shares'
         if (Test-Path -LiteralPath $shareKey) {
-            $shareProperties = (Get-ItemProperty -LiteralPath $shareKey -ErrorAction Stop).PSObject.Properties |
-                Where-Object { $_.Name -notmatch '^PS' -and $_.Name -notmatch $allowedSystemShares }
+            $shareProperties = @((Get-ItemProperty -LiteralPath $shareKey -ErrorAction Stop).PSObject.Properties |
+                Where-Object { $_.Name -notmatch '^PS' -and $_.Name -notmatch $allowedSystemShares })
             if ($shareProperties.Count -gt 0) {
                 $names = ($shareProperties | Select-Object -ExpandProperty Name) -join ', '
                 throw "Persistent custom SMB share definition(s) exist: $names. The helper will not start LanmanServer or expose them implicitly."
@@ -215,29 +225,45 @@ function Test-ProfileApplies {
 
 function Get-ExistingSmbPortRules {
     $portFilters = @(Get-NetFirewallPortFilter -PolicyStore ActiveStore -ErrorAction Stop)
-    $found = New-Object 'System.Collections.Generic.List[object]'
+    $registryPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules'
+    $found = @()
 
     foreach ($filter in $portFilters) {
         $ports = @($filter.LocalPort | ForEach-Object { [string]$_ })
         $protocol = [string]$filter.Protocol
         $isTcp445 = ($ports -contains '445') -and ($protocol -in @('TCP', '6', 'Any'))
         $isAnyPort = $ports -contains 'Any'
-        if (!$isTcp445 -and !$isAnyPort) { continue }
+        $isSmbRelevantAnyPortProtocol = $protocol -in @('TCP', '6', 'Any')
+        if (!$isTcp445 -and !($isAnyPort -and $isSmbRelevantAnyPortProtocol)) { continue }
 
         $rules = @(Get-NetFirewallRule -AssociatedNetFirewallPortFilter $filter -ErrorAction Stop | Where-Object {
             $_.Direction -eq 'Inbound' -and $_.Enabled -eq 'True' -and (Test-ProfileApplies -Profile ([string]$_.Profile))
         })
 
         foreach ($rule in $rules) {
+            # Some Windows rules carry package identity or a WFD trust-tuple keyword
+            # in their raw registry definition. NetSecurity's application filter may
+            # show Program=Any / Package empty for these, so do not treat them as
+            # host-wide SMB allows merely because their port filter says Any.
+            $rawRule = $null
+            $rawRuleItem = Get-ItemProperty -LiteralPath $registryPath -Name ([string]$rule.Name) -ErrorAction SilentlyContinue
+            if ($null -ne $rawRuleItem) {
+                $rawRuleProperty = $rawRuleItem.PSObject.Properties[[string]$rule.Name]
+                if ($null -ne $rawRuleProperty) { $rawRule = [string]$rawRuleProperty.Value }
+            }
+            $isPackageScopedRule = $rawRule -match '(?i)(?:^|\|)(?:PFN|AppPkgId)=[^|]+'
+            $isWifiDirectKernelRule = $rawRule -match '(?i)(?:^|\|)TTK2_27=WFDKmDriver(?:\||$)'
+            if ($isAnyPort -and ($isPackageScopedRule -or $isWifiDirectKernelRule)) { continue }
+
             $serviceFilter = Get-NetFirewallServiceFilter -AssociatedNetFirewallRule $rule -ErrorAction SilentlyContinue | Select-Object -First 1
             $appFilter = Get-NetFirewallApplicationFilter -AssociatedNetFirewallRule $rule -ErrorAction SilentlyContinue | Select-Object -First 1
             $serviceName = if ($serviceFilter) { [string]$serviceFilter.Service } else { 'unknown' }
             $program = if ($appFilter) { [string]$appFilter.Program } else { 'unknown' }
-            $isBroadAnyPortServer = $isAnyPort -and (
+            $isBroadAnyPortServer = $isAnyPort -and $isSmbRelevantAnyPortProtocol -and (
                 $serviceName -match '(?i)LanmanServer' -or $program -in @('Any', 'System', '*')
             )
             if ($isTcp445 -or $isBroadAnyPortServer) {
-                $found.Add([pscustomobject]@{
+                $found += [pscustomobject]@{
                     Name = [string]$rule.Name
                     DisplayName = [string]$rule.DisplayName
                     Action = [string]$rule.Action
@@ -246,11 +272,11 @@ function Get-ExistingSmbPortRules {
                     LocalPort = ($ports -join ',')
                     Service = $serviceName
                     Program = $program
-                })
+                }
             }
         }
     }
-    return @($found)
+    return $found
 }
 
 function Assert-NoConflictingSmbRules {
@@ -286,8 +312,10 @@ function Ensure-ManagedBlockRule {
         New-NetFirewallRule -Name $script:BlockRuleName -DisplayName 'PhotoBooth - Block inbound SMB by default' -Group $script:RuleGroup -Description 'PhotoBooth default-off policy: block inbound direct-hosted SMB except the explicitly allowlisted Private interface during opt-in administration.' -Direction Inbound -Action Block -Enabled True -Profile $Profiles -Protocol TCP -LocalPort 445 -LocalAddress Any -RemoteAddress Any -EdgeTraversalPolicy Block | Out-Null
     } else {
         Set-NetFirewallRule -Name $script:BlockRuleName -Enabled True -Direction Inbound -Action Block -Profile $Profiles -EdgeTraversalPolicy Block | Out-Null
-        Set-NetFirewallPortFilter -AssociatedNetFirewallRule $rule -Protocol TCP -LocalPort 445 | Out-Null
-        Set-NetFirewallAddressFilter -AssociatedNetFirewallRule $rule -LocalAddress Any -RemoteAddress Any | Out-Null
+        $portFilter = Get-NetFirewallPortFilter -AssociatedNetFirewallRule $rule -ErrorAction Stop
+        Set-NetFirewallPortFilter -InputObject $portFilter -Protocol TCP -LocalPort 445 | Out-Null
+        $addressFilter = Get-NetFirewallAddressFilter -AssociatedNetFirewallRule $rule -ErrorAction Stop
+        Set-NetFirewallAddressFilter -InputObject $addressFilter -LocalAddress Any -RemoteAddress Any | Out-Null
     }
 }
 
@@ -297,8 +325,10 @@ function Ensure-ManagedNetbiosBlockRules {
         New-NetFirewallRule -Name $script:TcpNetbiosBlockRuleName -DisplayName 'PhotoBooth - Block legacy NetBIOS SMB over TCP' -Group $script:RuleGroup -Description 'Block legacy NetBIOS name/session ports; opt-in administration uses direct-hosted SMB TCP 445 only.' -Direction Inbound -Action Block -Enabled True -Profile Any -Protocol TCP -LocalPort @('137', '139') -LocalAddress Any -RemoteAddress Any -EdgeTraversalPolicy Block | Out-Null
     } else {
         Set-NetFirewallRule -Name $script:TcpNetbiosBlockRuleName -Enabled True -Direction Inbound -Action Block -Profile Any -EdgeTraversalPolicy Block | Out-Null
-        Set-NetFirewallPortFilter -AssociatedNetFirewallRule $tcpRule -Protocol TCP -LocalPort @('137', '139') | Out-Null
-        Set-NetFirewallAddressFilter -AssociatedNetFirewallRule $tcpRule -LocalAddress Any -RemoteAddress Any | Out-Null
+        $tcpPortFilter = Get-NetFirewallPortFilter -AssociatedNetFirewallRule $tcpRule -ErrorAction Stop
+        Set-NetFirewallPortFilter -InputObject $tcpPortFilter -Protocol TCP -LocalPort @('137', '139') | Out-Null
+        $tcpAddressFilter = Get-NetFirewallAddressFilter -AssociatedNetFirewallRule $tcpRule -ErrorAction Stop
+        Set-NetFirewallAddressFilter -InputObject $tcpAddressFilter -LocalAddress Any -RemoteAddress Any | Out-Null
     }
 
     $udpRule = Get-ManagedRule -Name $script:UdpNetbiosBlockRuleName
@@ -306,8 +336,10 @@ function Ensure-ManagedNetbiosBlockRules {
         New-NetFirewallRule -Name $script:UdpNetbiosBlockRuleName -DisplayName 'PhotoBooth - Block legacy NetBIOS datagram ports' -Group $script:RuleGroup -Description 'Block legacy NetBIOS name/datagram ports; opt-in administration uses direct-hosted SMB TCP 445 only.' -Direction Inbound -Action Block -Enabled True -Profile Any -Protocol UDP -LocalPort @('137', '138') -LocalAddress Any -RemoteAddress Any -EdgeTraversalPolicy Block | Out-Null
     } else {
         Set-NetFirewallRule -Name $script:UdpNetbiosBlockRuleName -Enabled True -Direction Inbound -Action Block -Profile Any -EdgeTraversalPolicy Block | Out-Null
-        Set-NetFirewallPortFilter -AssociatedNetFirewallRule $udpRule -Protocol UDP -LocalPort @('137', '138') | Out-Null
-        Set-NetFirewallAddressFilter -AssociatedNetFirewallRule $udpRule -LocalAddress Any -RemoteAddress Any | Out-Null
+        $udpPortFilter = Get-NetFirewallPortFilter -AssociatedNetFirewallRule $udpRule -ErrorAction Stop
+        Set-NetFirewallPortFilter -InputObject $udpPortFilter -Protocol UDP -LocalPort @('137', '138') | Out-Null
+        $udpAddressFilter = Get-NetFirewallAddressFilter -AssociatedNetFirewallRule $udpRule -ErrorAction Stop
+        Set-NetFirewallAddressFilter -InputObject $udpAddressFilter -LocalAddress Any -RemoteAddress Any | Out-Null
     }
 }
 
@@ -367,8 +399,10 @@ function Ensure-ManagedAllowRule {
         New-NetFirewallRule -Name $script:AllowRuleName -DisplayName 'PhotoBooth - Allow restricted SMB remote administration' -Group $script:RuleGroup -Description 'PhotoBooth opt-in rule: TCP 445 from explicit trusted RFC1918 IPv4 addresses, on one Private interface only.' -Direction Inbound -Action Allow -Enabled True -Profile Private -Protocol TCP -LocalPort 445 -LocalAddress $SelectedLocalAddress -RemoteAddress $SelectedRemoteAddresses -EdgeTraversalPolicy Block | Out-Null
     } else {
         Set-NetFirewallRule -Name $script:AllowRuleName -Enabled True -Direction Inbound -Action Allow -Profile Private -EdgeTraversalPolicy Block | Out-Null
-        Set-NetFirewallPortFilter -AssociatedNetFirewallRule $rule -Protocol TCP -LocalPort 445 | Out-Null
-        Set-NetFirewallAddressFilter -AssociatedNetFirewallRule $rule -LocalAddress $SelectedLocalAddress -RemoteAddress $SelectedRemoteAddresses | Out-Null
+        $portFilter = Get-NetFirewallPortFilter -AssociatedNetFirewallRule $rule -ErrorAction Stop
+        Set-NetFirewallPortFilter -InputObject $portFilter -Protocol TCP -LocalPort 445 | Out-Null
+        $addressFilter = Get-NetFirewallAddressFilter -AssociatedNetFirewallRule $rule -ErrorAction Stop
+        Set-NetFirewallAddressFilter -InputObject $addressFilter -LocalAddress $SelectedLocalAddress -RemoteAddress $SelectedRemoteAddresses | Out-Null
     }
 
     $effective = @(Get-NetFirewallRule -PolicyStore ActiveStore -Name $script:AllowRuleName -ErrorAction Stop | Where-Object {
@@ -464,7 +498,81 @@ function Get-SmbRemoteAdminStatus {
     }
 }
 
+function Get-PhotoBoothSmbStatusObject {
+    $service = Get-CimInstance Win32_Service -Filter "Name='LanmanServer'" -ErrorAction Stop
+    $autoShare = Get-AutoShareWksValue
+    $allowRule = Get-ManagedRule -Name $script:AllowRuleName
+    $allowLocal = @()
+    $allowRemote = @()
+    if ($allowRule) {
+        $addressFilter = Get-NetFirewallAddressFilter -AssociatedNetFirewallRule $allowRule -ErrorAction SilentlyContinue
+        if ($addressFilter) {
+            $allowLocal = @($addressFilter.LocalAddress | ForEach-Object { [string]$_ })
+            $allowRemote = @($addressFilter.RemoteAddress | ForEach-Object { [string]$_ })
+        }
+    }
+
+    $activeManaged = @(Get-NetFirewallRule -PolicyStore ActiveStore -ErrorAction SilentlyContinue | Where-Object {
+        $_.Group -eq $script:RuleGroup -and $_.Enabled -eq 'True' -and $_.Direction -eq 'Inbound' -and $_.Action -eq 'Block'
+    })
+    $activeNames = @($activeManaged | Select-Object -ExpandProperty Name -Unique)
+    $listeners = @()
+    try {
+        $listeners = @(Get-NetTCPConnection -State Listen -ErrorAction Stop | Where-Object {
+            $_.LocalPort -in @(445, 139)
+        })
+    } catch { }
+
+    [pscustomobject]@{
+        service_state = [string]$service.State
+        service_start_mode = [string]$service.StartMode
+        auto_share_wks_configured = [bool]$autoShare.Exists
+        auto_share_wks = if ($autoShare.Exists) { [int]$autoShare.Value } else { 1 }
+        allow_rule_present = ($null -ne $allowRule)
+        allow_local_addresses = @($allowLocal)
+        allowed_remote_addresses = @($allowRemote)
+        smb_block_rule_active = ($activeNames -contains $script:BlockRuleName)
+        netbios_tcp_block_rule_active = ($activeNames -contains $script:TcpNetbiosBlockRuleName)
+        netbios_udp_block_rule_active = ($activeNames -contains $script:UdpNetbiosBlockRuleName)
+        listener_count = $listeners.Count
+    }
+}
+
+function Get-PhotoBoothPhysicalInterfaces {
+    $items = @(foreach ($adapter in @(Get-NetAdapter -Physical -ErrorAction Stop | Where-Object { $_.Status -eq 'Up' })) {
+        $profiles = @(Get-NetConnectionProfile -InterfaceIndex $adapter.ifIndex -ErrorAction SilentlyContinue)
+        $profile = if ($profiles.Count -eq 1) { [string]$profiles[0].NetworkCategory } else { 'Unknown' }
+        $addresses = @(Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -AddressState Preferred -ErrorAction SilentlyContinue |
+            Where-Object { $_.IPAddress -notlike '169.254.*' -and $_.IPAddress -ne '0.0.0.0' } |
+            Select-Object -ExpandProperty IPAddress -Unique)
+        if ($addresses.Count -eq 0) { continue }
+        [pscustomobject]@{
+            interface_alias = [string]$adapter.Name
+            description = [string]$adapter.InterfaceDescription
+            network_profile = $profile
+            local_addresses = @($addresses)
+        }
+    })
+    return $items
+}
+
 try {
+    if ($Action -eq 'ListInterfaces') {
+        $interfaces = @(Get-PhotoBoothPhysicalInterfaces)
+        if ($JsonOutput) {
+            Write-Output (ConvertTo-Json -InputObject $interfaces -Depth 5 -Compress)
+        } else {
+            $interfaces | Format-Table -AutoSize
+        }
+        return
+    }
+
+    if ($Action -eq 'Status' -and $JsonOutput) {
+        $status = Get-PhotoBoothSmbStatusObject
+        Write-Output (ConvertTo-Json -InputObject $status -Depth 5 -Compress)
+        return
+    }
+
     if ($Action -in @('Enable', 'Disable') -and !(Test-IsAdministrator)) {
         Write-Host 'Requesting Administrator approval through Windows UAC...'
         Start-ElevatedCopy
@@ -591,6 +699,11 @@ try {
     }
 }
 catch {
+    Write-Host ("ERROR_POSITION: " + $_.InvocationInfo.PositionMessage) -ForegroundColor Red
+    if ($_.ScriptStackTrace) {
+        Write-Host ("ERROR_SCRIPT_STACK: " + $_.ScriptStackTrace) -ForegroundColor Red
+    }
+    Write-Host ("ERROR_EXCEPTION: " + $_.Exception.ToString()) -ForegroundColor Red
     Write-Error $_
     exit 1
 }

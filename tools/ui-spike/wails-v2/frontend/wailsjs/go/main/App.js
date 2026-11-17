@@ -74,6 +74,14 @@ export function GetPlayerSettings() {
   return window['go']['main']['App']['GetPlayerSettings']();
 }
 
+export function GetSmbAdminInterfaces() {
+  return window['go']['main']['App']['GetSmbAdminInterfaces']();
+}
+
+export function GetSmbAdminStatus() {
+  return window['go']['main']['App']['GetSmbAdminStatus']();
+}
+
 export function InstallFramePackage(arg1) {
   return window['go']['main']['App']['InstallFramePackage'](arg1);
 }
@@ -148,6 +156,10 @@ export function RollbackActiveFrame() {
 
 export function SavePlayerSettings(arg1) {
   return window['go']['main']['App']['SavePlayerSettings'](arg1);
+}
+
+export function SetSmbAdminEnabled(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SetSmbAdminEnabled'](arg1, arg2, arg3, arg4);
 }
 
 export function SimulateCameraDisconnect(arg1) {

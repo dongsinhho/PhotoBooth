@@ -38,6 +38,10 @@ export function GetFramePackageState():Promise<main.PlayerFramePackageState>;
 
 export function GetPlayerSettings():Promise<main.PlayerSettings>;
 
+export function GetSmbAdminInterfaces():Promise<Array<main.SMBAdminInterface>>;
+
+export function GetSmbAdminStatus():Promise<main.SMBAdminStatus>;
+
 export function InstallFramePackage(arg1:string):Promise<main.PlayerFramePackage>;
 
 export function IsBenchmarkMode():Promise<boolean>;
@@ -75,6 +79,8 @@ export function RetryRecoveredPhotoOutput(arg1:string):Promise<main.PlayerSessio
 export function RollbackActiveFrame():Promise<main.PlayerSettings>;
 
 export function SavePlayerSettings(arg1:main.PlayerSettings):Promise<main.PlayerSettings>;
+
+export function SetSmbAdminEnabled(arg1:boolean,arg2:string,arg3:string,arg4:string):Promise<void>;
 
 export function SimulateCameraDisconnect(arg1:string):Promise<main.DemoSession>;
 

@@ -358,3 +358,45 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none !important;
   .recovery-card-actions { align-items: stretch; flex-direction: column; }
   .recovery-card-actions button { width: 100%; }
 }
+
+.smb-admin-manager {
+  margin-top: 28px;
+  padding: 22px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 18px;
+  background: rgba(12,16,27,.48);
+}
+.smb-admin-status {
+  margin: 14px 0 18px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.045);
+  color: var(--muted, #a7adbd);
+  font-size: 12px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+.smb-admin-fields {
+  align-items: start;
+}
+.smb-admin-remote-field {
+  grid-column: 1 / -1;
+}
+.smb-admin-remote-field textarea {
+  min-height: 82px;
+  resize: vertical;
+}
+.smb-admin-actions {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.smb-admin-action-spacer {
+  flex: 1 1 auto;
+}
+@media (max-width: 760px) {
+  .smb-admin-manager { padding: 16px; }
+  .smb-admin-actions { align-items: stretch; }
+  .smb-admin-actions button { width: 100%; }
+  .smb-admin-action-spacer { display: none; }
+}

@@ -4,9 +4,10 @@
 
 ## Scope and safety model
 
-This flow packages the isolated Wails Windows Preview as a ZIP containing exactly:
+This flow packages the isolated Wails Windows Preview as a ZIP containing exactly four root-level files:
 
 - PhotoBooth.exe
+- manage-smb-remote-admin.ps1
 - release-manifest.json
 - README.txt
 
@@ -20,7 +21,10 @@ Installation is offline and side-by-side:
 - The installer never terminates an existing process.
 - The scripts reject an installation path that overlaps %LOCALAPPDATA%\PhotoBooth.
 - The app's settings, frames, sessions and photos remain in their separate user-data directory.
-- The installer accepts only three expected root-level ZIP entries; no arbitrary paths, nested files or package scripts are extracted.
+- The installer accepts only the three required root-level files and the optional managed SMB helper; no arbitrary paths, nested files or package scripts are extracted.
+- The helper's size and SHA-256 are included in the release manifest and checked before activation.
+- On a first install, the installer invokes helper Disable through UAC and does not activate the release unless the default-off state is applied. Existing sessions, dependent services or custom shares cause the operation to stop for review rather than be force-changed.
+- On upgrades, the installer preserves the machine's existing SMB administration choice; it does not silently disable a maintenance configuration the operator deliberately enabled.
 
 SHA-256 is not a digital signature. This flow does not authenticate the publisher, download updates, auto-update, migrate config schemas, or certify the Wails UI as production-ready.
 
@@ -44,7 +48,7 @@ Use -SkipBuild only when intentionally packaging the already-built executable. T
 
 Default install root: %LOCALAPPDATA%\Programs\PhotoBooth.
 
-For isolated tests, pass an explicit temporary -InstallRoot outside %LOCALAPPDATA%\PhotoBooth.
+For isolated tests, pass an explicit temporary -InstallRoot outside %LOCALAPPDATA%\PhotoBooth. Synthetic installer tests can use `-SkipMachineProvisioning`; this switch is for test fixtures only and must not be used for a real first booth installation.
 
 ## Launch the selected version
 
@@ -72,7 +76,7 @@ Rollback validates both release folders and their hashes before atomically switc
 .\tools\release\windows\release-lifecycle-smoke.ps1
 ~~~
 
-This creates synthetic tiny MZ-header fixtures in a unique TEMP folder, builds two valid internal package ZIPs, tests install, active version, update, rollback and active verification, then corrupts a package and verifies that the checksum gate rejects it before the active pointer changes. It never launches PhotoBooth or accesses a camera. All fixture files are removed in a finally block.
+This creates synthetic tiny MZ-header fixtures in a unique TEMP folder, tests legacy three-file package install with the explicit test-only provisioning bypass, update, rollback and active verification, then corrupts a package and verifies that the checksum gate rejects it before the active pointer changes. The second install follows the upgrade path and does not reapply machine provisioning. It never launches PhotoBooth or accesses a camera. All fixture files are removed in a finally block.
 
 ## Deliberately deferred
 
@@ -103,3 +107,23 @@ It verifies:
 - No photo capture/session is started. The UI smokes use disposable PHOTOBOOTH_DATA_DIR roots; package, install and temporary player data are removed after graceful app exit. The kiosk and settings JSON reports are retained in TEMP.
 
 This is a Windows Preview deployment/kiosk functional smoke, not physical camera image-quality acceptance, a printer test, recovery test, long-run soak, signed release, Windows shell lockdown, or production certification.
+
+## SMB remote administration in the Windows Preview
+
+Open **Settings & frame -> Remote administration**. The panel reads the current LanmanServer state, AutoShareWks value and PhotoBooth-owned effective firewall rules. It also lists active physical adapters and their IPv4 addresses. It does not infer machine state from StoreConfig.
+
+- The recommended booth baseline is **DEFAULT OFF**: Server Stopped/Disabled, AutoShareWks=0, PhotoBooth inbound Block rules active, and no PhotoBooth Allow rule.
+- Enable requires an already-Private physical adapter, a selected local IPv4 and one or more individually trusted RFC1918 source IPv4 addresses. The UI shows a machine-wide confirmation and the helper requests UAC approval.
+- Disable requests UAC and returns to the default-off state. Existing custom shares or active SMB sessions make the helper abort; it does not delete unrelated shares or ACLs.
+- The UI refreshes status from Windows after either action. A failed refresh is reported as unverified rather than claiming the change succeeded.
+- The helper sits beside PhotoBooth.exe in the release folder and its hash is covered by the manifest. Source-checkout builds locate the same helper under tools\self-service.
+- Fresh package installation applies Disable before active.json is switched. Upgrades preserve the previous operator choice.
+
+Read-only verification commands from the repository root:
+
+~~~powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\self-service\manage-smb-remote-admin.ps1 -Action Status -JsonOutput
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\self-service\manage-smb-remote-admin.ps1 -Action ListInterfaces -JsonOutput
+~~~
+
+The UI acceptance is included in [ui-settings-smoke.ps1](../../tools/ui-spike/wails-v2/ui-settings-smoke.ps1). It verifies the live default-off status and controls without pressing Enable/Disable, saving station settings, or creating a photo session.

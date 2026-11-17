@@ -1,11 +1,14 @@
 export namespace main {
+
 	export class CameraPreviewStatus {
 	    state: string;
 	    message: string;
 	    available: boolean;
+
 	    static createFrom(source: any = {}) {
 	        return new CameraPreviewStatus(source);
 	    }
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.state = source["state"];
@@ -19,9 +22,11 @@ export namespace main {
 	    captured: number;
 	    total: number;
 	    failure_reason?: string;
+
 	    static createFrom(source: any = {}) {
 	        return new DemoSession(source);
 	    }
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -44,9 +49,11 @@ export namespace main {
 	    has_preview: boolean;
 	    already_installed?: boolean;
 	    is_active: boolean;
+
 	    static createFrom(source: any = {}) {
 	        return new PlayerFramePackage(source);
 	    }
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.package_id = source["package_id"];
@@ -68,9 +75,11 @@ export namespace main {
 	    active_frame: string;
 	    can_rollback: boolean;
 	    load_warning?: string;
+
 	    static createFrom(source: any = {}) {
 	        return new PlayerFramePackageState(source);
 	    }
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.packages = this.convertValues(source["packages"], PlayerFramePackage);
@@ -78,6 +87,7 @@ export namespace main {
 	        this.can_rollback = source["can_rollback"];
 	        this.load_warning = source["load_warning"];
 	    }
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -112,9 +122,11 @@ export namespace main {
 	    preview_data_url?: string;
 	    capture_previews?: string[];
 	    demo_mode: boolean;
+
 	    static createFrom(source: any = {}) {
 	        return new PlayerSession(source);
 	    }
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -143,9 +155,11 @@ export namespace main {
 	    frame_path: string;
 	    config_path: string;
 	    load_warning?: string;
+
 	    static createFrom(source: any = {}) {
 	        return new PlayerSettings(source);
 	    }
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.shot_count = source["shot_count"];
@@ -162,9 +176,11 @@ export namespace main {
 	    expected_shots: number;
 	    demo_mode: boolean;
 	    updated_at: string;
+
 	    static createFrom(source: any = {}) {
 	        return new RecoveryManifestView(source);
 	    }
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.expected_shots = source["expected_shots"];
@@ -183,9 +199,11 @@ export namespace main {
 	    manifest?: RecoveryManifestView;
 	    capture_paths?: string[];
 	    rendered_path?: string;
+
 	    static createFrom(source: any = {}) {
 	        return new RecoveryItemView(source);
 	    }
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.session_id = source["session_id"];
@@ -199,6 +217,7 @@ export namespace main {
 	        this.capture_paths = source["capture_paths"];
 	        this.rendered_path = source["rendered_path"];
 	    }
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -217,13 +236,16 @@ export namespace main {
 		    return a;
 		}
 	}
+
 	export class RetentionApplyResult {
 	    removed_candidates: number;
 	    removed_files: number;
 	    removed_bytes: number;
+
 	    static createFrom(source: any = {}) {
 	        return new RetentionApplyResult(source);
 	    }
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.removed_candidates = source["removed_candidates"];
@@ -238,9 +260,11 @@ export namespace main {
 	    last_modified: string;
 	    file_count: number;
 	    size_bytes: number;
+
 	    static createFrom(source: any = {}) {
 	        return new RetentionCandidateView(source);
 	    }
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.kind = source["kind"];
@@ -264,9 +288,11 @@ export namespace main {
 	    plan_digest: string;
 	    truncated: boolean;
 	    candidates: RetentionCandidateView[];
+
 	    static createFrom(source: any = {}) {
 	        return new RetentionPreview(source);
 	    }
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.generated_at = source["generated_at"];
@@ -282,6 +308,7 @@ export namespace main {
 	        this.truncated = source["truncated"];
 	        this.candidates = this.convertValues(source["candidates"], RetentionCandidateView);
 	    }
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -300,5 +327,55 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class SMBAdminInterface {
+	    interface_alias: string;
+	    description: string;
+	    network_profile: string;
+	    local_addresses: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new SMBAdminInterface(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.interface_alias = source["interface_alias"];
+	        this.description = source["description"];
+	        this.network_profile = source["network_profile"];
+	        this.local_addresses = source["local_addresses"];
+	    }
+	}
+	export class SMBAdminStatus {
+	    service_state: string;
+	    service_start_mode: string;
+	    auto_share_wks_configured: boolean;
+	    auto_share_wks: number;
+	    allow_rule_present: boolean;
+	    allow_local_addresses: string[];
+	    allowed_remote_addresses: string[];
+	    smb_block_rule_active: boolean;
+	    netbios_tcp_block_rule_active: boolean;
+	    netbios_udp_block_rule_active: boolean;
+	    listener_count: number;
+
+	    static createFrom(source: any = {}) {
+	        return new SMBAdminStatus(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.service_state = source["service_state"];
+	        this.service_start_mode = source["service_start_mode"];
+	        this.auto_share_wks_configured = source["auto_share_wks_configured"];
+	        this.auto_share_wks = source["auto_share_wks"];
+	        this.allow_rule_present = source["allow_rule_present"];
+	        this.allow_local_addresses = source["allow_local_addresses"];
+	        this.allowed_remote_addresses = source["allowed_remote_addresses"];
+	        this.smb_block_rule_active = source["smb_block_rule_active"];
+	        this.netbios_tcp_block_rule_active = source["netbios_tcp_block_rule_active"];
+	        this.netbios_udp_block_rule_active = source["netbios_udp_block_rule_active"];
+	        this.listener_count = source["listener_count"];
+	    }
+	}
+
 }
-\n

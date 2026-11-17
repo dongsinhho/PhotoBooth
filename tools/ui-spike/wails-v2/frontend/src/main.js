@@ -27,6 +27,9 @@ import {
   OpenPhotoSessionFolder,
   GetPlayerSettings,
   SavePlayerSettings,
+  GetSmbAdminStatus,
+  GetSmbAdminInterfaces,
+  SetSmbAdminEnabled,
   BrowseFrameConfig,
   BrowseFramePackage,
   ValidateFramePackage,
@@ -52,6 +55,9 @@ const appState = {
   bridge: null,
   benchmark: false,
   settings: null,
+  smbAdminInterfaces: [],
+  smbAdminStatus: null,
+  smbAdminBusy: false,
   framePackageCandidate: null,
   framePackageState: null,
   packageBusy: false,
@@ -183,6 +189,45 @@ root.innerHTML = `
             <button id="cancel-settings" class="secondary-button" type="button">Cancel</button>
             <button id="save-settings" class="primary-button" type="button">Save settings <span aria-hidden="true">→</span></button>
           </div>
+          <section class="smb-admin-manager" aria-labelledby="smb-admin-title">
+            <div class="package-manager-heading">
+              <div>
+                <div class="eyebrow accent">WINDOWS SECURITY</div>
+                <h3 id="smb-admin-title">Remote administration</h3>
+                <p>SMB file sharing stays disabled by default. Enable it only for a specific trusted maintenance device; this never shares guest photos as a delivery feature.</p>
+              </div>
+              <span id="smb-admin-policy" class="settings-version">DEFAULT OFF</span>
+            </div>
+            <div id="smb-admin-warning" class="settings-warning hidden" role="alert"></div>
+            <div id="smb-admin-status" class="smb-admin-status" role="status" aria-live="polite">Reading Windows SMB service, registry and firewall state…</div>
+            <div class="settings-grid smb-admin-fields">
+              <label class="settings-field">
+                <span>Physical network adapter</span>
+                <select id="smb-admin-interface">
+                  <option value="">No physical adapter found</option>
+                </select>
+                <small>Only an active physical adapter with a Windows Private profile can be used.</small>
+              </label>
+              <label class="settings-field">
+                <span>Booth local IPv4 address</span>
+                <select id="smb-admin-local-address">
+                  <option value="">Select an adapter first</option>
+                </select>
+              </label>
+              <label class="settings-field smb-admin-remote-field">
+                <span>Trusted maintenance-device IPv4 addresses</span>
+                <textarea id="smb-admin-remote-addresses" rows="3" spellcheck="false" placeholder="192.168.1.20&#10;10.10.10.11"></textarea>
+                <small>Enter explicit RFC1918 IPv4 addresses only, one per line or separated by commas. No wildcard, LocalSubnet, CIDR or public addresses.</small>
+              </label>
+            </div>
+            <div class="settings-actions smb-admin-actions">
+              <button id="refresh-smb-admin" class="secondary-button" type="button">Refresh status</button>
+              <span class="smb-admin-action-spacer"></span>
+              <button id="disable-smb-admin" class="secondary-button" type="button">Disable remote administration</button>
+              <button id="enable-smb-admin" class="primary-button" type="button">Enable for trusted device</button>
+            </div>
+            <p class="settings-footnote">Changing this setting is machine-wide and requires Windows UAC approval. Enable opens TCP 445 only on the selected Private adapter and source allowlist; Disable turns off LanmanServer and restores inbound blocks. Existing custom SMB shares or active sessions cause the helper to stop without force-changing them.</p>
+          </section>
           <section class="package-manager" aria-labelledby="frame-packages-title">
             <div class="package-manager-heading">
               <div>
@@ -838,6 +883,173 @@ function populateSettingsForm(settings) {
   homeWarning.classList.toggle('hidden', !settings.load_warning);
 }
 
+function setSmbAdminWarning(message) {
+  const warning = byId('smb-admin-warning');
+  warning.textContent = message || '';
+  warning.classList.toggle('hidden', !message);
+}
+
+function setSmbAdminBusy(busy) {
+  appState.smbAdminBusy = busy;
+  for (const id of ['refresh-smb-admin', 'enable-smb-admin', 'disable-smb-admin', 'smb-admin-interface', 'smb-admin-local-address', 'smb-admin-remote-addresses']) {
+    const node = byId(id);
+    if (node) node.disabled = busy;
+  }
+}
+
+function populateSmbAdminLocalAddresses() {
+  const interfaceAlias = byId('smb-admin-interface').value;
+  const selected = appState.smbAdminInterfaces.find((item) => item.interface_alias === interfaceAlias);
+  const localSelect = byId('smb-admin-local-address');
+  const previous = localSelect.value;
+  localSelect.replaceChildren();
+  if (!selected || !Array.isArray(selected.local_addresses) || selected.local_addresses.length === 0) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'No IPv4 address found';
+    localSelect.append(option);
+    return;
+  }
+  for (const address of selected.local_addresses) {
+    const option = document.createElement('option');
+    option.value = address;
+    option.textContent = address;
+    localSelect.append(option);
+  }
+  const preferred = appState.smbAdminStatus?.allow_local_addresses?.[0];
+  if (selected.local_addresses.includes(previous)) localSelect.value = previous;
+  else if (preferred && selected.local_addresses.includes(preferred)) localSelect.value = preferred;
+  else localSelect.selectedIndex = 0;
+}
+
+function populateSmbAdminInterfaces(items) {
+  appState.smbAdminInterfaces = Array.isArray(items) ? items : [];
+  const select = byId('smb-admin-interface');
+  const previous = select.value;
+  select.replaceChildren();
+  for (const item of appState.smbAdminInterfaces) {
+    const option = document.createElement('option');
+    option.value = item.interface_alias;
+    const addresses = Array.isArray(item.local_addresses) ? item.local_addresses.join(', ') : '';
+    option.textContent = `${item.interface_alias} — ${addresses} (${item.network_profile})`;
+    select.append(option);
+  }
+  if (appState.smbAdminInterfaces.length === 0) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'No active physical adapter with IPv4 found';
+    select.append(option);
+  } else if (appState.smbAdminInterfaces.some((item) => item.interface_alias === previous)) {
+    select.value = previous;
+  } else {
+    const allowedLocal = appState.smbAdminStatus?.allow_local_addresses?.[0];
+    const allowedInterface = appState.smbAdminInterfaces.find((item) =>
+      Array.isArray(item.local_addresses) && item.local_addresses.includes(allowedLocal)
+    );
+    if (allowedInterface) select.value = allowedInterface.interface_alias;
+  }
+  populateSmbAdminLocalAddresses();
+}
+
+function renderSmbAdminStatus(status) {
+  appState.smbAdminStatus = status;
+  const lines = [
+    `LanmanServer: ${status.service_state} / ${status.service_start_mode}`,
+    `AutoShareWks: ${status.auto_share_wks_configured ? status.auto_share_wks : 'not explicitly configured'}`,
+    `PhotoBooth TCP 445 Block: ${status.smb_block_rule_active ? 'active' : 'not verified'}`,
+    `NetBIOS TCP Block: ${status.netbios_tcp_block_rule_active ? 'active' : 'not verified'}`,
+    `NetBIOS UDP Block: ${status.netbios_udp_block_rule_active ? 'active' : 'not verified'}`,
+  ];
+  if (status.allow_rule_present) {
+    lines.push(`Remote allowlist: ${(status.allowed_remote_addresses || []).join(', ') || 'present; source list unavailable'}`);
+    lines.push(`Allowed local address: ${(status.allow_local_addresses || []).join(', ') || 'unknown'}`);
+  } else {
+    lines.push('PhotoBooth remote Allow rule: absent');
+  }
+  const disabled = status.service_state === 'Stopped' &&
+    status.service_start_mode === 'Disabled' &&
+    status.auto_share_wks === 0 &&
+    !status.allow_rule_present &&
+    status.smb_block_rule_active &&
+    status.netbios_tcp_block_rule_active &&
+    status.netbios_udp_block_rule_active;
+  const enabled = status.service_state === 'Running' &&
+    status.service_start_mode === 'Auto' &&
+    status.auto_share_wks === 1 &&
+    status.allow_rule_present &&
+    status.smb_block_rule_active &&
+    status.netbios_tcp_block_rule_active &&
+    status.netbios_udp_block_rule_active;
+  byId('smb-admin-policy').textContent = disabled ? 'DEFAULT OFF - STATE MATCH' : enabled ? 'OPT-IN - STATE MATCH' : 'REVIEW REQUIRED';
+  byId('smb-admin-status').textContent = lines.join(' | ');
+}
+
+async function refreshSmbAdminState() {
+  setSmbAdminWarning('');
+  setSmbAdminBusy(true);
+  byId('smb-admin-status').textContent = 'Reading Windows SMB service, registry and firewall state…';
+  try {
+    const [status, interfaces] = await Promise.all([GetSmbAdminStatus(), GetSmbAdminInterfaces()]);
+    renderSmbAdminStatus(status);
+    populateSmbAdminInterfaces(interfaces);
+  } catch (error) {
+    appState.smbAdminStatus = null;
+    byId('smb-admin-policy').textContent = 'STATUS UNAVAILABLE';
+    byId('smb-admin-status').textContent = 'Could not verify the Windows SMB service/firewall state.';
+    setSmbAdminWarning(String(error));
+  } finally {
+    setSmbAdminBusy(false);
+  }
+}
+
+async function enableSmbRemoteAdmin() {
+  if (appState.smbAdminBusy) return;
+  const interfaceAlias = byId('smb-admin-interface').value;
+  const selected = appState.smbAdminInterfaces.find((item) => item.interface_alias === interfaceAlias);
+  const localAddress = byId('smb-admin-local-address').value;
+  const remoteAddresses = byId('smb-admin-remote-addresses').value.trim();
+  if (!selected || selected.network_profile !== 'Private') {
+    setSmbAdminWarning('Change the selected trusted Windows network to Private in Windows Settings first. PhotoBooth never changes a Public profile automatically.');
+    return;
+  }
+  if (!localAddress || !remoteAddresses) {
+    setSmbAdminWarning('Select a booth IPv4 address and enter at least one trusted maintenance-device IPv4 address.');
+    return;
+  }
+  const confirmed = window.confirm(
+    `Enable Windows SMB remote administration on ${interfaceAlias} (${localAddress})?\n\nTCP 445 will be allowed only from these explicit source addresses:\n${remoteAddresses}\n\nThis is a machine-wide change and Windows will request Administrator approval.`
+  );
+  if (!confirmed) return;
+  setSmbAdminBusy(true);
+  setSmbAdminWarning('');
+  try {
+    await SetSmbAdminEnabled(true, interfaceAlias, localAddress, remoteAddresses);
+    showToast('Windows SMB remote administration enabled for the selected allowlist.');
+  } catch (error) {
+    setSmbAdminWarning(String(error));
+  } finally {
+    await refreshSmbAdminState();
+  }
+}
+
+async function disableSmbRemoteAdmin() {
+  if (appState.smbAdminBusy) return;
+  const confirmed = window.confirm(
+    'Disable Windows SMB remote administration?\n\nPhotoBooth will block inbound SMB/NetBIOS, remove only its own Allow rule, set AutoShareWks=0 and stop/disable LanmanServer. Existing custom shares are not deleted. Windows will request Administrator approval.'
+  );
+  if (!confirmed) return;
+  setSmbAdminBusy(true);
+  setSmbAdminWarning('');
+  try {
+    await SetSmbAdminEnabled(false, '', '', '');
+    showToast('Windows SMB remote administration disabled.');
+  } catch (error) {
+    setSmbAdminWarning(String(error));
+  } finally {
+    await refreshSmbAdminState();
+  }
+}
+
 async function openSettings() {
   try {
     await StopCameraPreview();
@@ -849,6 +1061,15 @@ async function openSettings() {
     populateSettingsForm(settings);
     await refreshFramePackageState();
     showView('settings');
+    if (appState.bridge?.os === 'windows') {
+      await refreshSmbAdminState();
+    } else {
+      byId('smb-admin-policy').textContent = 'WINDOWS ONLY';
+      byId('smb-admin-status').textContent = 'Windows SMB administration is unavailable on this operating system.';
+      for (const id of ['refresh-smb-admin', 'enable-smb-admin', 'disable-smb-admin', 'smb-admin-interface', 'smb-admin-local-address', 'smb-admin-remote-addresses']) {
+        byId(id).disabled = true;
+      }
+    }
   } catch (error) {
     showToast(`Could not load station settings: ${error}`);
     void ensureCameraPreview();
@@ -1383,6 +1604,10 @@ byId('open-settings').addEventListener('click', openSettings);
 byId('browse-frame').addEventListener('click', browseFrameConfig);
 byId('save-settings').addEventListener('click', saveSettings);
 byId('cancel-settings').addEventListener('click', cancelSettings);
+byId('refresh-smb-admin').addEventListener('click', refreshSmbAdminState);
+byId('smb-admin-interface').addEventListener('change', populateSmbAdminLocalAddresses);
+byId('enable-smb-admin').addEventListener('click', enableSmbRemoteAdmin);
+byId('disable-smb-admin').addEventListener('click', disableSmbRemoteAdmin);
 byId('browse-frame-package').addEventListener('click', browseFramePackage);
 byId('validate-frame-package').addEventListener('click', validateFramePackage);
 byId('install-frame-package').addEventListener('click', installFramePackage);

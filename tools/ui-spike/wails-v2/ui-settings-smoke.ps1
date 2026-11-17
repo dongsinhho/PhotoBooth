@@ -1,13 +1,21 @@
 [CmdletBinding()]
 param(
-    [ValidateRange(5,45)][int]$StartupTimeoutSeconds = 20
+    [ValidateRange(5,45)][int]$StartupTimeoutSeconds = 20,
+    [string]$ExecutablePath
 )
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
-$exe = Join-Path $PSScriptRoot 'build\bin\wails-v2.exe'
+if ([string]::IsNullOrWhiteSpace($ExecutablePath)) {
+    $exe = Join-Path $PSScriptRoot 'build\bin\PhotoBooth.exe'
+    if (!(Test-Path $exe)) {
+        $exe = Join-Path $PSScriptRoot 'build\bin\wails-v2.exe'
+    }
+} else {
+    $exe = (Resolve-Path -LiteralPath $ExecutablePath -ErrorAction Stop).Path
+}
 if (!(Test-Path $exe)) {
-    throw "Wails executable not found: $exe (run wails build -clean -nopackage first)"
+    throw "Wails executable not found: $exe (run run-photobooth.ps1 -NoLaunch first)"
 }
 
 Add-Type -AssemblyName UIAutomationClient
@@ -129,6 +137,9 @@ try {
     Invoke-Button 'Settings & frame*' 'Settings & frame'
     [void](Wait-Text 'OPERATOR CONFIGURATION' 15)
     [void](Wait-Text 'Frame packages' 15)
+    [void](Wait-Text 'Remote administration' 15)
+    [void](Wait-Text 'DEFAULT OFF - STATE MATCH' 15)
+    $verified.Add('SMB helper status is read from Windows and confirms the default-off service/firewall baseline') | Out-Null
 
     $expected = @(
         @{ id = 'settings-shot-count'; type = [System.Windows.Automation.ControlType]::ComboBox; label = 'shot-count selector' },
@@ -147,11 +158,14 @@ try {
         $verified.Add($item.label) | Out-Null
     }
 
-    foreach ($pattern in @('Browse*','Save settings*','Cancel','Validate package*','Refresh')) {
+    foreach ($pattern in @('Browse*','Save settings*','Cancel','Validate package*','Refresh','Refresh status','Disable remote administration','Enable for trusted device')) {
         if (!(Find-Button $pattern)) { throw "Settings UI missing enabled button pattern '$pattern'" }
     }
     foreach ($id in @('frame-package-path','install-frame-package','rollback-frame','frame-package-list')) {
         if (!(Find-ByAutomationID $id)) { throw "Frame-package UI missing control (AutomationId=$id)" }
+    }
+    foreach ($id in @('smb-admin-interface','smb-admin-local-address','smb-admin-remote-addresses')) {
+        if (!(Find-ByAutomationID $id)) { throw "SMB administration UI missing control (AutomationId=$id)" }
     }
     $verified.Add('Browse, Save, Cancel, package validation and refresh controls exposed') | Out-Null
 
@@ -163,7 +177,10 @@ try {
     if (!($allText -match 'store-config-v1\.json')) { throw 'Local configuration path is not shown in the settings view' }
     if (!($allText -match 'Frame packages')) { throw 'Local frame-package manager heading is missing' }
     if (!($allText -match 'Installed frames')) { throw 'Installed frame-package list heading is missing' }
+    if (!($allText -match 'LanmanServer: Stopped / Disabled')) { throw 'SMB service status is not displayed from the Windows helper' }
+    if (!($allText -match 'PhotoBooth TCP 445 Block: active')) { throw 'SMB default inbound block state is not displayed' }
     $verified.Add('settings heading, config path and local package library displayed') | Out-Null
+    $verified.Add('SMB status, adapter/IP/allowlist fields and explicit enable/disable actions displayed') | Out-Null
 
     Invoke-Button 'Cancel' 'Cancel settings'
     Start-Sleep -Milliseconds 300

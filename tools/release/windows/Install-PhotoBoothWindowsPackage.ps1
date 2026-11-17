@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$PackagePath,
-    [string]$InstallRoot
+    [string]$InstallRoot,
+    [switch]$SkipMachineProvisioning
 )
 
 $ErrorActionPreference = 'Stop'
@@ -39,9 +40,10 @@ $archive = $null
 
 try {
     $archive = [IO.Compression.ZipFile]::OpenRead($PackagePath)
-    $allowedNames = @('PhotoBooth.exe', 'release-manifest.json', 'README.txt')
-    if ($archive.Entries.Count -ne $allowedNames.Count) {
-        throw "Package must contain exactly $($allowedNames.Count) root-level files."
+    $requiredNames = @('PhotoBooth.exe', 'release-manifest.json', 'README.txt')
+    $allowedNames = @($requiredNames + 'manage-smb-remote-admin.ps1')
+    if ($archive.Entries.Count -lt $requiredNames.Count -or $archive.Entries.Count -gt $allowedNames.Count) {
+        throw "Package must contain the three required root-level files and at most one managed SMB administration helper."
     }
 
     $seen = @{}
@@ -67,8 +69,11 @@ try {
         if ($name -eq 'README.txt' -and ($entry.Length -le 0 -or $entry.Length -gt 64KB)) {
             throw 'Package README has an invalid or excessive size.'
         }
+        if ($name -eq 'manage-smb-remote-admin.ps1' -and ($entry.Length -le 0 -or $entry.Length -gt 512KB)) {
+            throw 'SMB administration helper has an invalid or excessive size.'
+        }
     }
-    foreach ($name in $allowedNames) {
+    foreach ($name in $requiredNames) {
         if (!$seen.ContainsKey($name)) {
             throw "Package is missing required entry: $name"
         }
@@ -120,6 +125,10 @@ try {
             Copy-Item -LiteralPath (Join-Path $temporaryRoot 'PhotoBooth.exe') -Destination (Join-Path $stagingRelease 'PhotoBooth.exe')
             Copy-Item -LiteralPath (Join-Path $temporaryRoot 'release-manifest.json') -Destination (Join-Path $stagingRelease 'release-manifest.json')
             Copy-Item -LiteralPath (Join-Path $temporaryRoot 'README.txt') -Destination (Join-Path $stagingRelease 'README.txt')
+            $temporaryHelper = Join-Path $temporaryRoot 'manage-smb-remote-admin.ps1'
+            if (Test-Path -LiteralPath $temporaryHelper -PathType Leaf) {
+                Copy-Item -LiteralPath $temporaryHelper -Destination (Join-Path $stagingRelease 'manage-smb-remote-admin.ps1')
+            }
             [void](Assert-PhotoBoothReleaseDirectory -ReleaseDirectory $stagingRelease -ExpectedVersion $version -ExpectedSha256 $sha256)
             [IO.Directory]::Move($stagingRelease, $finalRelease)
         }
@@ -133,6 +142,26 @@ try {
     }
 
     $oldPointer = Get-PhotoBoothActivePointer -InstallRoot $InstallRoot
+
+    # A first install establishes the accepted machine-wide default-off baseline.
+    # Upgrades deliberately preserve the operator's existing SMB maintenance choice.
+    if ($null -eq $oldPointer -and !$SkipMachineProvisioning) {
+        $helperPath = Join-Path $finalRelease 'manage-smb-remote-admin.ps1'
+        if (!(Test-Path -LiteralPath $helperPath -PathType Leaf)) {
+            throw 'A first installation requires the packaged SMB administration helper to establish the default-off Windows baseline. Legacy packages may be upgraded, but cannot be used for a fresh provisioned install.'
+        }
+        $powerShellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $provisionOutput = & $powerShellExe -NoProfile -ExecutionPolicy Bypass -File $helperPath -Action Disable -WaitForElevation 2>&1
+        $provisionExitCode = $LASTEXITCODE
+        if ($provisionExitCode -ne 0) {
+            $details = ($provisionOutput | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
+            throw "PhotoBooth could not establish the SMB default-off baseline. Installation was not activated. $details"
+        }
+        Write-Host 'SMB_DEFAULT_OFF_PROVISIONED=True'
+    } elseif ($null -eq $oldPointer -and $SkipMachineProvisioning) {
+        Write-Warning 'SKIP_MACHINE_PROVISIONING was explicitly selected; this install does not establish the SMB default-off baseline.'
+    }
+
     if ($oldPointer -and $oldPointer.active_version -eq $version) {
         $previousVersion = $oldPointer.previous_version
         $previousSha256 = $oldPointer.previous_sha256

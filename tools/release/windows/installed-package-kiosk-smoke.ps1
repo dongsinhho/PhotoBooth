@@ -59,7 +59,7 @@ try {
     $checks.Add('build versioned package from the current source/binary') | Out-Null
 
     Write-Host 'STEP=install-package-to-disposable-root'
-    & $installScript -PackagePath $package -InstallRoot $installRoot | Out-Null
+    & $installScript -PackagePath $package -InstallRoot $installRoot -SkipMachineProvisioning | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw 'Package installation returned a non-zero exit code.'
     }

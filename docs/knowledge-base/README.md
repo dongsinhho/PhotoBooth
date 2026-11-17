@@ -139,4 +139,20 @@ Never turn a proposal into an asserted fact.
 
 - The WSL2 Ubuntu 26.04.1 local-storage mount/runtime sub-gate has been revalidated against the current source: tmpfs/ext4 paths pass; 9p and symlink redirects to 9p fail closed; direct session-child identity passes while redirected-child identity fails. Root tests, vet and Linux/amd64 compile pass. See [the Linux evaluation runbook](../QUICKSTART_LINUX_EVALUATION.md) and [the roadmap](ROADMAP.md).
 - Stage 2 is still OPEN: elevated Windows firewall/SMB evidence and a separate trusted LAN host are missing. Stage 0/1 still need a printer target and acceptance, hardware matrix decision, production UI decision, and signed deployment/update policy. The accepted reference XHC1 recovery campaign is closed for its defined scope; the requested 8 GiB and longer soak tests remain skipped.
-- Current checkpoint: [HANDOFF_2026-11-16.md](../../HANDOFF_2026-11-16.md).
+- Current checkpoint: [HANDOFF_2026-11-17.md](../../HANDOFF_2026-11-17.md).
+
+
+## Latest continuation status (2026-11-17)
+
+- ShinPc's SMB remote-administration helper completed one real Enable → authenticated allowlisted SMB share-list → Disable cycle. After Disable, LanmanServer is Stopped/Disabled, AutoShareWks=0, the PhotoBooth Allow rule is absent, three managed inbound Block rules remain effective, and Wi-Fi is restored to Public. The trusted Unix test client then observed TCP 445 fail and smbclient time out.
+- This is scoped evidence for the single tested ShinPc/Wi-Fi/Unix path, not disposable-VM, non-allowlisted-source, rollback, reboot-persistence, IPv6 or universal network-boundary certification. Stage 2 remains OPEN pending those gates and provisioning/operator UI integration.
+- Latest engineering checkpoint: [HANDOFF_2026-11-17.md](../../HANDOFF_2026-11-17.md).
+
+
+## SMB operator UI and provisioning integration (2026-11-17)
+
+- The internal Windows Preview Settings & frame screen now contains **Remote administration**, backed by live Windows helper status and active physical adapter/IP discovery. Enable/Disable use the UAC-aware helper; SMB machine state is not persisted in StoreConfig.
+- Fresh Windows Preview package installs run helper Disable through UAC before activation. Upgrades preserve an existing operator choice. The release ZIP ships the helper beside PhotoBooth.exe and validates its manifest SHA-256.
+- The integrated flow passed Wails Go tests/vet, Windows production build, 10-check Settings UI smoke, synthetic release lifecycle tests and isolated real-binary package/helper-hash install smoke. The exact scope and limitations are in [HANDOFF_2026-11-17.md](../../HANDOFF_2026-11-17.md), [ADR 0031](../adr/0031-opt-in-windows-smb-administration.md), and [Windows release tooling](../../tools/release/windows/README.md).
+- Current host remains default-off: LanmanServer Stopped/Disabled, AutoShareWks=0, no PhotoBooth Allow rule, three managed Block rules active, Wi-Fi Public.
+- Unlisted-source, reboot-persistence, IPv6 network, disposable-VM and signed-production-installer validation are not claimed. Stage 3 LAN delivery/payment remains deferred.

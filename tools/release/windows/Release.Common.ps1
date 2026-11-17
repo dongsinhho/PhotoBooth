@@ -124,6 +124,13 @@ function Read-PhotoBoothReleaseManifest {
     if ([long]$manifest.binary.size -le 0 -or [string]$manifest.binary.sha256 -notmatch '^[0-9a-fA-F]{64}$') {
         throw 'Manifest binary size or SHA-256 is invalid.'
     }
+    if ($manifest.PSObject.Properties.Name -contains 'smb_admin_helper') {
+        if ($manifest.smb_admin_helper.file -ne 'manage-smb-remote-admin.ps1' -or
+            [long]$manifest.smb_admin_helper.size -le 0 -or
+            [string]$manifest.smb_admin_helper.sha256 -notmatch '^[0-9a-fA-F]{64}$') {
+            throw 'Manifest SMB administration helper file, size or SHA-256 is invalid.'
+        }
+    }
 
     return $manifest
 }
@@ -155,6 +162,23 @@ function Assert-PhotoBoothReleaseDirectory {
     $actualHash = Get-PhotoBoothSha256 -Path $exePath
     if ($actualHash -ne ([string]$manifest.binary.sha256).ToLowerInvariant()) {
         throw 'Release executable SHA-256 does not match its manifest.'
+    }
+
+    $helperPath = Join-Path $ReleaseDirectory 'manage-smb-remote-admin.ps1'
+    if ($manifest.PSObject.Properties.Name -contains 'smb_admin_helper') {
+        if (!(Test-Path -LiteralPath $helperPath -PathType Leaf)) {
+            throw "Release SMB administration helper is missing: $helperPath"
+        }
+        $helperFile = Get-Item -LiteralPath $helperPath
+        if ([long]$helperFile.Length -ne [long]$manifest.smb_admin_helper.size) {
+            throw 'Release SMB administration helper size does not match its manifest.'
+        }
+        $helperHash = Get-PhotoBoothSha256 -Path $helperPath
+        if ($helperHash -ne ([string]$manifest.smb_admin_helper.sha256).ToLowerInvariant()) {
+            throw 'Release SMB administration helper SHA-256 does not match its manifest.'
+        }
+    } elseif (Test-Path -LiteralPath $helperPath) {
+        throw 'Release contains an unmanaged SMB administration helper that is not declared in its manifest.'
     }
 
     return [pscustomobject]@{
