@@ -42,6 +42,8 @@ export function GetSmbAdminInterfaces():Promise<Array<main.SMBAdminInterface>>;
 
 export function GetSmbAdminStatus():Promise<main.SMBAdminStatus>;
 
+export function InspectPrinterAttempt(arg1:string,arg2:string):Promise<main.PrinterInspectionView>;
+
 export function InstallFramePackage(arg1:string):Promise<main.PlayerFramePackage>;
 
 export function IsBenchmarkMode():Promise<boolean>;
@@ -60,11 +62,15 @@ export function PreviewRetentionCleanup():Promise<main.RetentionPreview>;
 
 export function Ready():Promise<Record<string, any>>;
 
+export function ReconcileOrphanedPrinterLock(arg1:string):Promise<main.PrintLockReconciliationView>;
+
 export function RecordDemoShot(arg1:string):Promise<main.DemoSession>;
 
 export function ReportCameraPreviewDecodeFailure(arg1:number):Promise<void>;
 
 export function ResetDemoSession():Promise<main.DemoSession>;
+
+export function ResolvePrinterAttempt(arg1:string,arg2:string,arg3:string,arg4:string):Promise<main.PrintResolutionView>;
 
 export function RestartDemoSession(arg1:string):Promise<main.DemoSession>;
 

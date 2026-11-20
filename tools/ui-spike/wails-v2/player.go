@@ -19,7 +19,6 @@ import (
 	fakecamera "github.com/dongsinhho/PhotoBooth/internal/booth/camera/fake"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/camera/recovery"
 	stationconfig "github.com/dongsinhho/PhotoBooth/internal/booth/config"
-	"github.com/dongsinhho/PhotoBooth/internal/booth/delivery"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/output"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/payment"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/render"
@@ -60,21 +59,22 @@ func (a *App) playerRuntimeConfigLocked() playerRuntimeConfig {
 }
 
 type PlayerSession struct {
-	ID               string   `json:"id"`
-	OutputRetrying   bool     `json:"output_retrying,omitempty"`
-	State            string   `json:"state"`
-	Captured         int      `json:"captured"`
-	Total            int      `json:"total"`
-	CurrentShot      int      `json:"current_shot"`
-	CountdownSeconds int      `json:"countdown_seconds"`
-	Message          string   `json:"message"`
-	ErrorMessage     string   `json:"error_message,omitempty"`
-	CameraMode       string   `json:"camera_mode"`
-	OutputPath       string   `json:"output_path,omitempty"`
-	RenderedPath     string   `json:"rendered_path,omitempty"`
-	PreviewDataURL   string   `json:"preview_data_url,omitempty"`
-	CapturePreviews  []string `json:"capture_previews,omitempty"`
-	DemoMode         bool     `json:"demo_mode"`
+	ID               string                   `json:"id"`
+	OutputRetrying   bool                     `json:"output_retrying,omitempty"`
+	State            string                   `json:"state"`
+	Captured         int                      `json:"captured"`
+	Total            int                      `json:"total"`
+	CurrentShot      int                      `json:"current_shot"`
+	CountdownSeconds int                      `json:"countdown_seconds"`
+	Message          string                   `json:"message"`
+	ErrorMessage     string                   `json:"error_message,omitempty"`
+	CameraMode       string                   `json:"camera_mode"`
+	OutputPath       string                   `json:"output_path,omitempty"`
+	RenderedPath     string                   `json:"rendered_path,omitempty"`
+	OutputTargets    []PlayerOutputTargetView `json:"output_targets,omitempty"`
+	PreviewDataURL   string                   `json:"preview_data_url,omitempty"`
+	CapturePreviews  []string                 `json:"capture_previews,omitempty"`
+	DemoMode         bool                     `json:"demo_mode"`
 }
 
 const (
@@ -491,7 +491,7 @@ func (a *App) runPhotoSession(ctx context.Context, sessionID string, resumeCount
 			})
 		}
 	}
-	dispatcher, dispatchErr := delivery.NewDispatcher(runConfig.stationConfig.MediaDelivery, runConfig.outputDir)
+	dispatcher, dispatchErr := newPlayerOutputDispatcher(runConfig.stationConfig, runConfig.workDir, runConfig.outputDir, demo)
 	paymentGate, paymentErr := payment.NewGate(runConfig.stationConfig.Payment)
 	var runErr error
 	var result workflow.Result
@@ -525,6 +525,7 @@ func (a *App) runPhotoSession(ctx context.Context, sessionID string, resumeCount
 	a.player.CountdownSeconds = 0
 	a.player.CapturePreviews = previews
 	a.player.RenderedPath, a.player.OutputPath, a.player.PreviewDataURL = result.RenderedPath, result.OutputPath, finalPreview
+	a.player.OutputTargets = playerOutputTargetViews(result.OutputResults)
 	if runErr != nil {
 		state := result.State
 		if state == "" || state == session.Idle || state == session.Preflight || state == session.Capturing {
@@ -532,15 +533,11 @@ func (a *App) runPhotoSession(ctx context.Context, sessionID string, resumeCount
 		}
 		a.player.State = string(state)
 		a.player.ErrorMessage = runErr.Error()
-		a.player.Message = friendlyPlayerError(runErr, demo)
+		a.player.Message = playerFailureMessage(runErr, demo, result)
 	} else {
 		a.player.State = string(result.State)
 		a.player.ErrorMessage = ""
-		if result.State == session.PartialSuccess {
-			a.player.Message = "The photo strip was saved, but one or more output targets did not finish."
-		} else {
-			a.player.Message = fmt.Sprintf("All %d photos were captured, rendered, and saved locally.", runConfig.shotCount)
-		}
+		a.player.Message = playerCompletionMessage(result)
 	}
 	snapshot := clonePlayerSession(a.player)
 	a.mu.Unlock()
@@ -594,6 +591,21 @@ func (a *App) handleWorkflowEvent(sessionID string, event workflow.Event) {
 		a.player.State = string(event.State)
 		if event.Status == string(output.TargetSucceeded) && event.Path != "" {
 			a.player.OutputPath = event.Path
+		}
+		view := PlayerOutputTargetView{
+			Name: event.Target, Status: event.Status, JobID: event.JobID,
+			Error: event.Message, DurationMS: float64(event.Duration.Microseconds()) / 1000,
+		}
+		updated := false
+		for index := range a.player.OutputTargets {
+			if a.player.OutputTargets[index].Name == view.Name {
+				a.player.OutputTargets[index] = view
+				updated = true
+				break
+			}
+		}
+		if !updated {
+			a.player.OutputTargets = append(a.player.OutputTargets, view)
 		}
 	case "failed", "completed", "partial_success":
 		a.mu.Unlock()
@@ -687,6 +699,7 @@ func (a *App) emitPlayerSession(snapshot PlayerSession) {
 
 func clonePlayerSession(source PlayerSession) PlayerSession {
 	source.CapturePreviews = append([]string(nil), source.CapturePreviews...)
+	source.OutputTargets = append([]PlayerOutputTargetView(nil), source.OutputTargets...)
 	return source
 }
 
@@ -741,4 +754,110 @@ func isPlayerSessionID(value string) bool {
 		}
 	}
 	return true
+}
+
+// PlayerOutputTargetView is the JSON-safe output summary shown in the Preview
+// result screen. A printer status of queued means Windows accepted the spool job;
+// it never means that paper was physically produced.
+type PlayerOutputTargetView struct {
+	Name       string  `json:"name"`
+	Status     string  `json:"status"`
+	JobID      string  `json:"job_id,omitempty"`
+	Error      string  `json:"error,omitempty"`
+	DurationMS float64 `json:"duration_ms"`
+}
+
+func playerOutputTargetViews(results []output.TargetResult) []PlayerOutputTargetView {
+	views := make([]PlayerOutputTargetView, 0, len(results))
+	for _, result := range results {
+		views = append(views, PlayerOutputTargetView{
+			Name: result.Name, Status: string(result.Status),
+			JobID: result.JobID, Error: result.Error,
+			DurationMS: float64(result.Duration.Microseconds()) / 1000,
+		})
+	}
+	return views
+}
+
+func playerFailureMessage(err error, demo bool, result workflow.Result) string {
+	message := friendlyPlayerError(err, demo)
+	if demo {
+		return message
+	}
+	for _, target := range result.OutputResults {
+		if target.Name != output.TargetPrinter {
+			continue
+		}
+		var submissionErr *output.PrinterSubmissionError
+		switch {
+		case errors.As(target.Cause, &submissionErr) && submissionErr.Uncertain:
+			message += fmt.Sprintf(" Printer submission outcome is uncertain (job %s). Inspect the Windows queue and physical output; do not resubmit automatically.", submissionErr.JobID)
+		case target.Status == output.TargetQueued:
+			message += fmt.Sprintf(" Windows accepted printer job %s. This does not confirm physical paper output.", target.JobID)
+		case target.Status == output.TargetFailed:
+			message += " Printer output failed: " + target.Error
+		}
+	}
+	return message
+}
+
+func playerCompletionMessage(result workflow.Result) string {
+	localSaved := strings.TrimSpace(result.OutputPath) != ""
+	for _, target := range result.OutputResults {
+		if target.Name != output.TargetPrinter {
+			continue
+		}
+		switch {
+		case target.Status == output.TargetQueued && localSaved:
+			return fmt.Sprintf("All %d photos were saved locally. Windows also accepted printer job %s; this confirms spooler acceptance only, not physical paper output.", len(result.CapturePaths), target.JobID)
+		case target.Status == output.TargetQueued:
+			return fmt.Sprintf("Windows accepted printer job %s, but the independent local save did not complete. Queue acceptance is not proof that paper was produced; inspect the job and physical output.", target.JobID)
+		case target.Status == output.TargetFailed && localSaved:
+			return fmt.Sprintf("All %d photos were saved locally. Printer output failed: %s. The local photo is preserved independently.", len(result.CapturePaths), target.Error)
+		case (target.Status == output.TargetCancelled || target.Status == output.TargetTimedOut) && localSaved:
+			return fmt.Sprintf("All %d photos were saved locally. Printer output ended with status %s; inspect the session recovery record before any further print action.", len(result.CapturePaths), target.Status)
+		case target.Status == output.TargetFailed:
+			return fmt.Sprintf("Printer output failed: %s. The local save also needs recovery; no physical print outcome is claimed.", target.Error)
+		}
+	}
+	if localSaved {
+		return fmt.Sprintf("All %d photos were captured, rendered, and saved locally.", len(result.CapturePaths))
+	}
+	return "The photo strip was rendered, but no local output was published. Inspect the session and retry only the local save if eligible."
+}
+
+// newPlayerOutputDispatcher keeps local save as an independent output. Printer
+// submission is Windows Preview-only, opt-in, and never enabled for demo runs.
+// Local-output recovery uses RetryLocalFromSession directly and never calls this
+// function, so retrying a local save cannot implicitly submit a printer job.
+func newPlayerOutputDispatcher(cfg stationconfig.StoreConfig, sessionsRoot, outputRoot string, demo bool) (output.Dispatcher, error) {
+	local := output.NewLocal(outputRoot)
+	if demo || !cfg.Printer.Enabled {
+		return local, nil
+	}
+	if runtime.GOOS != "windows" {
+		return nil, errors.New("printer output is available only in the Windows Preview")
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("validate operator-managed station configuration before printer submission: %w", err)
+	}
+	if strings.TrimSpace(sessionsRoot) == "" || strings.TrimSpace(outputRoot) == "" {
+		return nil, errors.New("printer output requires configured local session and output directories")
+	}
+	if strings.TrimSpace(cfg.Printer.QueueName) == "" || strings.TrimSpace(cfg.Printer.MediaForm) == "" {
+		return nil, errors.New("printer.enabled requires a configured Windows queue name and exact driver media-form name")
+	}
+	printerTarget, err := output.NewWindowsPrinter(cfg.Printer.QueueName, output.WindowsPrinterOptions{
+		MediaForm:    cfg.Printer.MediaForm,
+		Landscape:    cfg.Printer.Orientation == stationconfig.PrinterOrientationLandscape,
+		FlipVertical: cfg.Printer.Transform.FlipVertical,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("configure Windows printer target: %w", err)
+	}
+	durablePrinter, err := output.NewDurablePrinter(sessionsRoot, cfg.Printer.QueueName, printerTarget)
+	if err != nil {
+		return nil, fmt.Errorf("configure durable Windows printer: %w", err)
+	}
+	return output.NewCoordinator(local, durablePrinter), nil
 }

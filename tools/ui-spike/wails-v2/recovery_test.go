@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -9,10 +10,12 @@ import (
 	"image/jpeg"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/dongsinhho/PhotoBooth/internal/booth/output"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/session"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/workflow"
 )
@@ -539,5 +542,491 @@ func TestRecoveredSessionUsesSnapshotWhenSelectedFrameIsUnavailable(t *testing.T
 	}
 	if _, _, err := session.ReadFrameSnapshot(sessionDir, manifest); err != nil {
 		t.Fatalf("session frame snapshot was not preserved: %v", err)
+	}
+}
+
+func TestRecoveryItemViewConvertsPrintAttemptTimestampsToStrings(t *testing.T) {
+	updated := time.Now().UTC().Truncate(time.Nanosecond)
+	sessionID := "9123456789abcdef0123456789abcdef"
+	attemptID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	attempt := session.PrintAttempt{
+		AttemptID:    attemptID,
+		QueueName:    "DS-RX1",
+		DocumentName: session.PrintDocumentName(sessionID, attemptID),
+		SourceSHA256: strings.Repeat("a", 64),
+		Status:       session.PrintStatusQueued,
+		JobID:        "29",
+		RequestedAt:  updated,
+		UpdatedAt:    updated,
+	}
+	view := recoveryItemView(session.RecoveryItem{
+		SessionID:     sessionID,
+		Status:        session.RecoveryFinalized,
+		PrintAttempts: []session.PrintAttempt{attempt},
+	})
+	if len(view.PrintAttempts) != 1 {
+		t.Fatalf("print attempt views=%d, want 1", len(view.PrintAttempts))
+	}
+	got := view.PrintAttempts[0]
+	if got.AttemptID != attemptID || got.DocumentName != attempt.DocumentName || got.JobID != "29" || got.Status != session.PrintStatusQueued {
+		t.Fatalf("print attempt view=%+v", got)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, got.RequestedAt); err != nil {
+		t.Fatalf("requested_at=%q is not RFC3339: %v", got.RequestedAt, err)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, got.UpdatedAt); err != nil {
+		t.Fatalf("updated_at=%q is not RFC3339: %v", got.UpdatedAt, err)
+	}
+}
+
+func TestPrinterInspectionViewDoesNotInferPaperOutput(t *testing.T) {
+	notFound := printerInspectionView(output.PrinterJobInspection{
+		QueueName: "DS-RX1",
+		Found:     false,
+	})
+	if notFound.Found || !strings.Contains(notFound.Note, "does not prove") {
+		t.Fatalf("not-found inspection overclaims an outcome: %+v", notFound)
+	}
+	found := printerInspectionView(output.PrinterJobInspection{
+		QueueName: "DS-RX1",
+		Found:     true,
+		Jobs: []output.PrinterQueueJob{{
+			JobID: "29", DocumentName: "PhotoBooth-session-attempt",
+			Status: []string{"printing"}, PagesPrinted: 1, TotalPages: 1,
+		}},
+	})
+	if !found.Found || len(found.Jobs) != 1 || found.Jobs[0].JobID != "29" {
+		t.Fatalf("found inspection was not mapped: %+v", found)
+	}
+	if !strings.Contains(found.Note, "not proof") {
+		t.Fatalf("found inspection overclaims physical output: %+v", found)
+	}
+}
+
+func TestRecoveryItemViewIncludesPreManifestPrintLockIdentity(t *testing.T) {
+	createdAt := time.Now().UTC().Truncate(time.Nanosecond)
+	lock := &session.PrintLockInfo{
+		LeaseVersion: session.PrintLockLeaseVersion,
+		OwnerPID:     1234,
+		AttemptID:    "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+		QueueName:    "DS-RX1",
+		DocumentName: session.PrintDocumentName("9123456789abcdef0123456789abcdef", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"),
+		SourceSHA256: strings.Repeat("a", 64),
+		CreatedAt:    createdAt,
+	}
+	view := recoveryItemView(session.RecoveryItem{
+		SessionID:        "9123456789abcdef0123456789abcdef",
+		Status:           session.RecoveryInspectOnly,
+		PrintLockPresent: true,
+		PrintLock:        lock,
+	})
+	if view.PrintLock == nil || view.PrintLock.AttemptID != lock.AttemptID ||
+		view.PrintLock.QueueName != lock.QueueName || view.PrintLock.DocumentName != lock.DocumentName ||
+		view.PrintLock.LeaseVersion != lock.LeaseVersion || view.PrintLock.OwnerPID != lock.OwnerPID ||
+		view.PrintLock.SourceSHA256 != lock.SourceSHA256 {
+		t.Fatalf("print lock view=%+v", view.PrintLock)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, view.PrintLock.CreatedAt); err != nil {
+		t.Fatalf("created_at=%q is not RFC3339: %v", view.PrintLock.CreatedAt, err)
+	}
+}
+
+func seedQueuedPrinterAttemptForResolutionTest(t *testing.T, app *App, sessionID, attemptID string) string {
+	t.Helper()
+	sessionDir, _ := seedInterruptedWailsSession(t, app, sessionID, session.PhaseOutputFinalized, 3, true)
+	manifest, err := session.ReadManifest(sessionDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Use a past rendered/request timestamp so the real queue inspection and
+	// operator resolution calls occur after the persisted attempt update.
+	base := time.Now().UTC().Add(-10 * time.Second)
+	manifest.CreatedAt = base.Add(-time.Minute)
+	manifest.RenderedAt = base
+	manifest.OutputFinalizedAt = base.Add(time.Millisecond)
+	manifest.UpdatedAt = manifest.OutputFinalizedAt
+	requested := manifest.RenderedAt.Add(time.Second)
+	attempt := session.PrintAttempt{
+		AttemptID: attemptID, QueueName: "DS-RX1",
+		DocumentName: session.PrintDocumentName(sessionID, attemptID),
+		SourceSHA256: strings.Repeat("b", 64),
+		Status:       session.PrintStatusSubmitting,
+		RequestedAt:  requested, UpdatedAt: requested,
+	}
+	if err := session.BeginPrintAttempt(&manifest, attempt); err != nil {
+		t.Fatalf("BeginPrintAttempt fixture: %v", err)
+	}
+	if err := session.FinishPrintAttempt(&manifest, attemptID, session.PrintStatusQueued, "501", "", requested.Add(time.Second)); err != nil {
+		t.Fatalf("FinishPrintAttempt fixture: %v", err)
+	}
+	if err := session.WriteManifest(sessionDir, manifest); err != nil {
+		t.Fatalf("persist queued print fixture: %v", err)
+	}
+	return sessionDir
+}
+
+func TestResolvePrinterAttemptRequiresQueueAbsenceAndWritesAudit(t *testing.T) {
+	app := newRecoveryTestApp(t)
+	const sessionID = "a123456789abcdef0123456789abcdef"
+	const attemptID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	sessionDir := seedQueuedPrinterAttemptForResolutionTest(t, app, sessionID, attemptID)
+	calls := 0
+	app.inspectPrinterJob = func(queueName, documentName, jobID string) (output.PrinterJobInspection, error) {
+		calls++
+		if queueName != "DS-RX1" || documentName != session.PrintDocumentName(sessionID, attemptID) || jobID != "501" {
+			t.Fatalf("queue inspection did not use persisted identity: queue=%q document=%q job=%q", queueName, documentName, jobID)
+		}
+		return output.PrinterJobInspection{QueueName: queueName, Found: false}, nil
+	}
+
+	resolved, err := app.ResolvePrinterAttempt(sessionID, attemptID, session.PrintResolutionNotPrinted,
+		"Checked printer output tray: no paper emerged; queue no longer lists the job")
+	if err != nil {
+		t.Fatalf("ResolvePrinterAttempt: %v", err)
+	}
+	if resolved.Decision != session.PrintResolutionNotPrinted || resolved.QueueFound {
+		t.Fatalf("resolution view=%+v", resolved)
+	}
+	if calls != 1 {
+		t.Fatalf("queue inspections=%d, want 1 final server-side recheck", calls)
+	}
+	manifest, err := session.ReadManifest(sessionDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.PrintAttempts) != 1 || manifest.PrintAttempts[0].Status != session.PrintStatusQueued ||
+		manifest.PrintAttempts[0].JobID != "501" {
+		t.Fatalf("operator resolution must preserve the original queued attempt: %+v", manifest.PrintAttempts)
+	}
+	if len(manifest.PrintResolutions) != 1 || manifest.PrintResolutions[0].Decision != session.PrintResolutionNotPrinted ||
+		manifest.PrintResolutions[0].Note != resolved.Note {
+		t.Fatalf("operator decision was not durably saved: %+v", manifest.PrintResolutions)
+	}
+	if _, err := os.Stat(filepath.Join(sessionDir, ".print.lock")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("resolution created or retained a print lock: %v", err)
+	}
+}
+
+func TestResolvePrinterAttemptRefusesWhileQueueJobIsStillListed(t *testing.T) {
+	app := newRecoveryTestApp(t)
+	const sessionID = "b123456789abcdef0123456789abcdef"
+	const attemptID = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	sessionDir := seedQueuedPrinterAttemptForResolutionTest(t, app, sessionID, attemptID)
+	app.inspectPrinterJob = func(queueName, documentName, jobID string) (output.PrinterJobInspection, error) {
+		return output.PrinterJobInspection{QueueName: queueName, Found: true, Jobs: []output.PrinterQueueJob{{
+			JobID: "501", DocumentName: documentName, Status: []string{"printing"},
+		}}}, nil
+	}
+
+	if _, err := app.ResolvePrinterAttempt(sessionID, attemptID, session.PrintResolutionNotPrinted,
+		"no paper seen"); err == nil || !strings.Contains(err.Error(), "still present") {
+		t.Fatalf("ResolvePrinterAttempt error=%v, want queue-still-present refusal", err)
+	}
+	manifest, err := session.ReadManifest(sessionDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.PrintResolutions) != 0 {
+		t.Fatalf("failed resolution changed the manifest: %+v", manifest.PrintResolutions)
+	}
+}
+
+func TestResolvePrinterAttemptKeepsStalePrintLockInspectOnly(t *testing.T) {
+	app := newRecoveryTestApp(t)
+	const sessionID = "c123456789abcdef0123456789abcdef"
+	const attemptID = "cccccccccccccccccccccccccccccccc"
+	sessionDir := seedQueuedPrinterAttemptForResolutionTest(t, app, sessionID, attemptID)
+	lockInfo := session.PrintLockInfo{
+		AttemptID: attemptID, QueueName: "DS-RX1",
+		DocumentName: session.PrintDocumentName(sessionID, attemptID), CreatedAt: time.Now().UTC(),
+	}
+	lockData, err := json.Marshal(lockInfo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockPath := filepath.Join(sessionDir, ".print.lock")
+	if err := os.WriteFile(lockPath, lockData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	queueCalls := 0
+	app.inspectPrinterJob = func(string, string, string) (output.PrinterJobInspection, error) {
+		queueCalls++
+		return output.PrinterJobInspection{Found: false}, nil
+	}
+
+	if _, err := app.ResolvePrinterAttempt(sessionID, attemptID, session.PrintResolutionUnknown,
+		"unable to establish paper outcome"); err == nil || !strings.Contains(err.Error(), "lock remains") {
+		t.Fatalf("ResolvePrinterAttempt error=%v, want stale-lock inspect-only refusal", err)
+	}
+	if queueCalls != 0 {
+		t.Fatalf("queue was inspected %d times despite an unresolved lock; want 0", queueCalls)
+	}
+	if _, err := os.Stat(lockPath); err != nil {
+		t.Fatalf("stale lock was modified or removed: %v", err)
+	}
+	manifest, err := session.ReadManifest(sessionDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.PrintResolutions) != 0 {
+		t.Fatalf("stale lock resolution changed manifest: %+v", manifest.PrintResolutions)
+	}
+}
+
+func TestResolvePrinterAttemptCanCloseAsUnknownEvenWhenQueueJobRemains(t *testing.T) {
+	app := newRecoveryTestApp(t)
+	const sessionID = "d123456789abcdef0123456789abcdef"
+	const attemptID = "dddddddddddddddddddddddddddddddd"
+	sessionDir := seedQueuedPrinterAttemptForResolutionTest(t, app, sessionID, attemptID)
+	app.inspectPrinterJob = func(queueName, documentName, jobID string) (output.PrinterJobInspection, error) {
+		return output.PrinterJobInspection{QueueName: queueName, Found: true}, nil
+	}
+	resolved, err := app.ResolvePrinterAttempt(sessionID, attemptID, session.PrintResolutionUnknown,
+		"Could not establish whether this job produced paper; permanently closing without retry")
+	if err != nil {
+		t.Fatalf("ResolvePrinterAttempt unknown: %v", err)
+	}
+	if resolved.Decision != session.PrintResolutionUnknown || !resolved.QueueFound {
+		t.Fatalf("unknown resolution did not preserve the queue observation: %+v", resolved)
+	}
+	manifest, err := session.ReadManifest(sessionDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.PrintResolutions) != 1 || manifest.PrintResolutions[0].Decision != session.PrintResolutionUnknown {
+		t.Fatalf("unknown resolution was not recorded: %+v", manifest.PrintResolutions)
+	}
+}
+
+func TestRecoveryItemViewIncludesPrintResolutionAuditRecord(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Nanosecond)
+	resolution := session.PrintResolution{
+		AttemptID:      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Decision:       session.PrintResolutionNotPrinted,
+		QueueFound:     false,
+		QueueCheckedAt: now.Add(-time.Second),
+		RecordedAt:     now,
+		Note:           "checked physical output tray; no paper was produced",
+	}
+	view := recoveryItemView(session.RecoveryItem{
+		SessionID:        "a123456789abcdef0123456789abcdef",
+		Status:           session.RecoveryFinalized,
+		PrintResolutions: []session.PrintResolution{resolution},
+	})
+	if len(view.PrintResolutions) != 1 {
+		t.Fatalf("print resolutions=%d, want 1", len(view.PrintResolutions))
+	}
+	got := view.PrintResolutions[0]
+	if got.AttemptID != resolution.AttemptID || got.Decision != resolution.Decision ||
+		got.QueueFound || got.Note != resolution.Note {
+		t.Fatalf("print resolution view=%+v", got)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, got.QueueCheckedAt); err != nil {
+		t.Fatalf("queue_checked_at=%q is not RFC3339: %v", got.QueueCheckedAt, err)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, got.RecordedAt); err != nil {
+		t.Fatalf("recorded_at=%q is not RFC3339: %v", got.RecordedAt, err)
+	}
+}
+
+func createReleasedPrinterLeaseForTest(t *testing.T, sessionDir, sessionID, attemptID string) session.PrintLockInfo {
+	t.Helper()
+	renderedPath := filepath.Join(sessionDir, "rendered.jpg")
+	sourceHash, err := hashRecoveredRenderedFile(renderedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := session.PrintLockInfo{
+		AttemptID: attemptID, QueueName: "DS-RX1",
+		DocumentName: session.PrintDocumentName(sessionID, attemptID),
+		SourceSHA256: sourceHash, CreatedAt: time.Now().UTC(),
+	}
+	lease, err := session.CreatePrintLockLease(session.PrintLockPath(sessionDir), sessionID, info)
+	if err != nil {
+		t.Fatalf("CreatePrintLockLease: %v", err)
+	}
+	if err := lease.Close(); err != nil {
+		t.Fatalf("Close lease to simulate process exit: %v", err)
+	}
+	return info
+}
+
+func TestReconcileOrphanedLockOnlyCrashCreatesUncertainAttempt(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("kernel-held printer lock reconciliation is Windows-only")
+	}
+	app := newRecoveryTestApp(t)
+	const sessionID = "f123456789abcdef0123456789abcdef"
+	const attemptID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	sessionDir, _ := seedInterruptedWailsSession(t, app, sessionID, session.PhaseOutputFinalized, 3, true)
+	lockInfo := createReleasedPrinterLeaseForTest(t, sessionDir, sessionID, attemptID)
+
+	// A point-in-time read should now report orphaned; Reconcile claims it again
+	// and holds the exclusive handle through the manifest write and removal.
+	items, err := app.listInterruptedPhotoSessions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].PrintLockOwner != session.PrintLockOwnerOrphaned {
+		t.Fatalf("orphan lock discovery=%+v", items)
+	}
+
+	reconciled, err := app.ReconcileOrphanedPrinterLock(sessionID)
+	if err != nil {
+		t.Fatalf("ReconcileOrphanedPrinterLock: %v", err)
+	}
+	if reconciled.AttemptID != attemptID || reconciled.Status != session.PrintStatusUncertain ||
+		!reconciled.Created || !reconciled.Removed {
+		t.Fatalf("reconciliation result=%+v", reconciled)
+	}
+	manifest, err := session.ReadManifest(sessionDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.PrintAttempts) != 1 {
+		t.Fatalf("attempt count=%d, want 1", len(manifest.PrintAttempts))
+	}
+	attempt := manifest.PrintAttempts[0]
+	if attempt.AttemptID != lockInfo.AttemptID || attempt.Status != session.PrintStatusUncertain ||
+		attempt.QueueName != lockInfo.QueueName || attempt.DocumentName != lockInfo.DocumentName ||
+		attempt.SourceSHA256 != lockInfo.SourceSHA256 {
+		t.Fatalf("recovered attempt=%+v", attempt)
+	}
+	if _, err := os.Stat(session.PrintLockPath(sessionDir)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("exclusive orphan lock was not removed: %v", err)
+	}
+	items, err = app.listInterruptedPhotoSessions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].PrintLockPresent || len(items[0].PrintAttempts) != 1 ||
+		items[0].PrintAttempts[0].Status != session.PrintStatusUncertain {
+		t.Fatalf("post-reconciliation recovery state=%+v", items)
+	}
+}
+
+func TestReconcileOrphanedLockRefusesWhileOwnerLeaseIsActive(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("kernel-held printer lock reconciliation is Windows-only")
+	}
+	app := newRecoveryTestApp(t)
+	const sessionID = "a223456789abcdef0123456789abcdef"
+	const attemptID = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	sessionDir, _ := seedInterruptedWailsSession(t, app, sessionID, session.PhaseOutputFinalized, 3, true)
+	sourceHash, err := hashRecoveredRenderedFile(filepath.Join(sessionDir, "rendered.jpg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := session.CreatePrintLockLease(session.PrintLockPath(sessionDir), sessionID, session.PrintLockInfo{
+		AttemptID: attemptID, QueueName: "DS-RX1",
+		DocumentName: session.PrintDocumentName(sessionID, attemptID),
+		SourceSHA256: sourceHash, CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Close()
+	items, err := app.listInterruptedPhotoSessions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].PrintLockOwner != session.PrintLockOwnerActive {
+		t.Fatalf("active kernel lease owner state=%+v", items)
+	}
+	if _, err := app.ReconcileOrphanedPrinterLock(sessionID); err == nil || !strings.Contains(err.Error(), "still held") {
+		t.Fatalf("active lock reconciliation error=%v, want active-owner refusal", err)
+	}
+	manifest, err := session.ReadManifest(sessionDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.PrintAttempts) != 0 {
+		t.Fatalf("active lock reconciliation wrote an attempt: %+v", manifest.PrintAttempts)
+	}
+	if _, err := os.Stat(session.PrintLockPath(sessionDir)); err != nil {
+		t.Fatalf("active lock marker was changed: %v", err)
+	}
+}
+
+func TestReconcileOrphanedLockConvertsPersistedSubmittingAttemptWithoutDuplicate(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("kernel-held printer lock reconciliation is Windows-only")
+	}
+	app := newRecoveryTestApp(t)
+	const sessionID = "b223456789abcdef0123456789abcdef"
+	const attemptID = "cccccccccccccccccccccccccccccccc"
+	sessionDir, _ := seedInterruptedWailsSession(t, app, sessionID, session.PhaseOutputFinalized, 3, true)
+	lockInfo := createReleasedPrinterLeaseForTest(t, sessionDir, sessionID, attemptID)
+	manifest, err := session.ReadManifest(sessionDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requested := manifest.UpdatedAt.Add(time.Second)
+	attempt := session.PrintAttempt{
+		AttemptID: attemptID, QueueName: lockInfo.QueueName,
+		DocumentName: lockInfo.DocumentName, SourceSHA256: lockInfo.SourceSHA256,
+		Status: session.PrintStatusSubmitting, RequestedAt: requested, UpdatedAt: requested,
+	}
+	if err := session.BeginPrintAttempt(&manifest, attempt); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.WriteManifest(sessionDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := app.ReconcileOrphanedPrinterLock(sessionID)
+	if err != nil {
+		t.Fatalf("ReconcileOrphanedPrinterLock: %v", err)
+	}
+	if result.Created || result.Status != session.PrintStatusUncertain {
+		t.Fatalf("reconciliation result=%+v; expected conversion of existing intent, not duplicate", result)
+	}
+	manifest, err = session.ReadManifest(sessionDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.PrintAttempts) != 1 || manifest.PrintAttempts[0].Status != session.PrintStatusUncertain {
+		t.Fatalf("reconciliation duplicated or failed to convert the attempt: %+v", manifest.PrintAttempts)
+	}
+}
+
+func TestReconcileOrphanedPrinterLockKeepsLegacyLockUnverifiable(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("kernel-held printer lock reconciliation is Windows-only")
+	}
+	app := newRecoveryTestApp(t)
+	const sessionID = "c223456789abcdef0123456789abcdef"
+	const attemptID = "dddddddddddddddddddddddddddddddd"
+	sessionDir, _ := seedInterruptedWailsSession(t, app, sessionID, session.PhaseOutputFinalized, 3, true)
+	legacy := session.PrintLockInfo{
+		AttemptID: attemptID, QueueName: "DS-RX1",
+		DocumentName: session.PrintDocumentName(sessionID, attemptID),
+		CreatedAt:    time.Now().UTC(),
+	}
+	legacyBytes, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockPath := session.PrintLockPath(sessionDir)
+	if err := os.WriteFile(lockPath, legacyBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.ReconcileOrphanedPrinterLock(sessionID); err == nil || !strings.Contains(err.Error(), "legacy") {
+		t.Fatalf("legacy lock reconciliation error=%v, want legacy refusal", err)
+	}
+	after, err := os.ReadFile(lockPath)
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("legacy lock was modified: err=%v", err)
+	}
+	manifest, err := session.ReadManifest(sessionDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.PrintAttempts) != 0 {
+		t.Fatalf("legacy lock reconciliation wrote a print attempt: %+v", manifest.PrintAttempts)
 	}
 }

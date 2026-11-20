@@ -1,28 +1,30 @@
-# Versioned Store Configuration (Schema v1)
+# Versioned Store Configuration (Schema v2)
 
-**Status:** Implemented in the root Go CLI/core and the isolated Wails Windows Preview player (shot count, timing, frame path, and opt-in session/output retention policy).
+**Status:** Implemented in the root Go CLI/core and the isolated Wails Windows Preview player. Schema v2 adds operator-managed printer queue/media/orientation settings. The Wails Windows Preview now consumes them for an opt-in local-plus-durable-printer output path when `printer.enabled=true`; defaults remain disabled. Physical printer/media acceptance is PENDING because no physical unit is available.
 
 ## Run with the sample config
 
 From the repository root:
 
 ```powershell
-go run ./apps/booth-player --config ./examples/store-config-v1.json
+go run ./apps/booth-player --config ./examples/store-config-v2.json
 ```
 
 The sample intentionally selects `fake` as the camera provider. It is safe for a synthetic demo and does not access the physical webcam.
 
+The legacy `examples/store-config-v1.json` remains available as a schema-v1 migration example. The loader upgrades it in memory to schema v2 and never rewrites the file unless an explicit Save occurs.
+
 For the reference B525 on Windows, explicitly override the provider and desired timings:
 
 ```powershell
-go run ./apps/booth-player --config ./examples/store-config-v1.json --camera=windowsmf --device="B525 HD Webcam" --countdown=0s --interval=0s
+go run ./apps/booth-player --config ./examples/store-config-v2.json --camera=windowsmf --device="B525 HD Webcam" --countdown=0s --interval=0s
 ```
 
 Existing CLI flags still work without a config file. If a config file is supplied, only flags explicitly present on the command line override file settings; flags omitted from the command preserve config values.
 
 ## Shape
 
-The example at `examples/store-config-v1.json` is the canonical sample. Schema v1 contains:
+The canonical current sample is `examples/store-config-v2.json`. Schema v2 contains:
 
 | Section | Fields | Current validation |
 |---|---|---|
@@ -32,25 +34,26 @@ The example at `examples/store-config-v1.json` is the canonical sample. Schema v
 | `storage` | `sessions_dir`, `output_dir`, `session_retention_days`, `output_retention_days` | Required filesystem roots; Windows rejects UNC/network drives and follows existing junctions; Linux classifies the backing mount; retention values are optional integers, 0 disables cleanup, 1–3650 days enables cleanup |
 | `media_delivery` | `mode` | Only `local` is implemented |
 | `payment` | `mode` | Only `disabled` is implemented; this is the free/no-payment path |
-| root | `schema_version` | Required integer; currently must equal `1` |
+| `printer` | `enabled`, `queue_name`, `media_form`, `orientation`, `transform.flip_vertical` | Operator-managed Windows Preview policy. Defaults to disabled/empty queue/empty form/portrait/no flip. If enabled, queue and exact driver DEVMODEW form name are required. Demo sessions remain local-only. Enabling this software path is not physical printer acceptance. |
+| root | `schema_version` | Required integer; v1 is migrated in memory to current v2; current schema is `2` |
 
 Relative paths are resolved from the directory containing the config file. Absolute paths are preserved. Windows local-mode checks follow existing junction/symlink targets and reject UNC/network drives; Linux checks the backing mount from /proc/self/mountinfo and rejects known network filesystem types. Load and Save validate resolved roots, and LocalProvider revalidates output directories immediately before writing. See the limitations in the Local-mode network path guard section below.
 
 ## Defaults and validation
 
-Missing fields inherit the schema-v1 defaults from `internal/booth/config.Defaults()`. Defaults use the synthetic camera, three shots, a 3-second countdown, one-second inter-shot delay, local media delivery, and disabled payment. Both retention values default to `0` (disabled), including older schema-v1 profiles that omit the fields. Storage and frame paths are relative and become absolute when loaded from a file.
+Missing fields inherit the schema-v2 defaults from `internal/booth/config.Defaults()`. Defaults use the synthetic camera, three shots, a 3-second countdown, one-second inter-shot delay, local media delivery, disabled payment and disabled printer. Both retention values default to `0` (disabled). Printer defaults are `enabled=false`, empty `queue_name`, empty `media_form`, `orientation=portrait` and `transform.flip_vertical=false`. Storage and frame paths are relative and become absolute when loaded from a file.
 
-The loader rejects files over 64 KiB, unknown JSON fields, missing or unsupported schema versions, invalid ranges/durations, malformed JSON and unsupported mode values. It does not execute code or fetch remote resources. Credentials and guest photo data do not belong in this config.
+The loader rejects files over 64 KiB, unknown JSON fields, missing or unsupported schema versions, invalid ranges/durations, malformed JSON and unsupported mode values. Schema-v1 files migrate to v2 in memory; `Load` does not rewrite the source. The next explicit `Save` writes schema v2. For enabled printer configuration, queue name and media form are required; queue/form strings are bounded and reject control characters; media form must fit the 31 UTF-16 code units in DEVMODEW.dmFormName; orientation must be `portrait` or `landscape`. `media_form` is the exact form name accepted by the selected Windows driver, not a friendly alias like “6x4”. On the DS-RX1 virtual queue currently installed on ShinPc, read-only driver/registry inspection found names such as `(6x4)`, `(6x8)` and `(5x7)`; these names are evidence for that virtual driver only and must not be copied to a different physical driver without checking its forms. It does not execute code or fetch remote resources. Credentials and guest photo data do not belong in this config.
 
 Unimplemented modes such as cloud delivery or QR payment fail validation rather than silently falling back to local/free behavior.
 
 ## Wails player settings integration
 
-The Wails Windows prototype now reads and writes a station profile through the same root `internal/booth/config` package. Its profile is stored at `%LOCALAPPDATA%\PhotoBooth\store-config-v1.json`. The first launch installs the embedded sample frame at `%LOCALAPPDATA%\PhotoBooth\frames\photo-strip-v1.json` and initializes local `sessions` and `photos` folders.
+The Wails Windows prototype now reads and writes a station profile through the same root `internal/booth/config` package. Its profile remains at the existing path `%LOCALAPPDATA%\PhotoBooth\store-config-v1.json` for location compatibility; the JSON schema stored in that file is now v2. The first launch installs the embedded sample frame at `%LOCALAPPDATA%\PhotoBooth\frames\photo-strip-v1.json` and initializes local `sessions` and `photos` folders.
 
 The **Settings & frame** screen exposes shot count (1–12), countdown, interval, a local frame JSON path, and independent session/output retention days (0 disables; 1–3650 enables). Browse opens a native local file picker. Saving is disabled while a session/output retry or retention preview/apply runs, validates durations and the selected frame schema, and requires the frame's slot count to match the configured shot count. Saving a retention policy never deletes data; the separate Review old local data panel must build a read-only candidate preview before a one-time, explicit Apply confirmation. Settings persist across restarts; invalid existing config is not silently overwritten, shows a warning, and blocks sessions until the operator saves a valid replacement.
 
-This is wired into the Wails **prototype only**. It does not add live-preview, arbitrary frame editing, camera-control options, cloud/LAN delivery, payment processing, hot reload, or production UI certification. The UI settings page does not upload photos or frame files.
+Printer settings remain operator-managed StoreConfig fields and are deliberately not exposed as guest-facing controls on the Wails Settings screen. Saving capture/frame/retention settings preserves the printer policy. In the Windows Preview, real camera sessions use an independent LocalProvider plus DurablePrinter only when an operator explicitly sets `printer.enabled=true`, a Windows queue name and that driver's exact media-form name. Demo sessions are always local-only. Local-output retry uses its dedicated local-only path and can never submit a printer job. The result screen distinguishes a Windows queued job from physical paper output. No automatic print retry, spooler mutation, printer-status polling, or physical-completion claim is added. Printer remains disabled by default. This is prototype software integration, not physical acceptance or production UI certification. It does not add live-preview, arbitrary frame editing, camera-control options, cloud/LAN delivery, payment processing, hot reload, or photo/frame uploads from the UI.
 
 ## Current scope
 
@@ -58,12 +61,12 @@ Implemented: strict JSON load/save, safe defaults, validation, relative path res
 
 Opt-in local session/output retention is implemented in the core and CLI, and surfaced through the Wails Windows Preview Settings UI. CLI cleanup defaults to read-only dry-run and requires a reviewed plan digest plus `--apply`; UI cleanup requires a fully displayed preview, the latest one-use digest and explicit confirmation. Neither path is triggered automatically by the player. See [LOCAL_DATA_RETENTION.md](LOCAL_DATA_RETENTION.md).
 
-Not implemented yet: file-watcher/hot-reload, automatic migration from older schema versions, package signatures/publisher trust, full theme packages, catalog/download sync, arbitrary assets/fonts/animation, LAN/cloud delivery, payment processing, or a policy for locking down config paths on a multi-user PC.
+Not implemented yet: file-watcher/hot-reload, package signatures/publisher trust, full theme packages, catalog/download sync, arbitrary assets/fonts/animation, LAN/cloud delivery, payment processing, a printer settings UI, physical printer/media acceptance and a policy for locking down config paths on a multi-user PC.
 
 
 ## Restart persistence smoke (2026-11-01)
 
-A new isolated Wails UI smoke, `tools/ui-spike/wails-v2/ui-settings-persist-restart-smoke.ps1`, verifies persistence across two separate PhotoBooth.exe processes. It uses a disposable `PHOTOBOOTH_DATA_DIR`, saves shot count 3, countdown 4s and interval 750ms, closes the first process gracefully, starts a second process against the same local profile, opens Settings, and verifies all three values are reloaded. The smoke passed on 2026-11-01: both processes started and exited normally, the second process showed shot count 3 / countdown 4s / interval 750ms, no photo session or capture was created, and the temporary profile was removed. Report: `%TEMP%\photobooth-settings-restart-6d4b3d0f640f448aa8ec9345a4194462.json`. This validates the schema-v1 settings screen persistence path in the experimental Wails player; it is not a production-install/update test.
+A new isolated Wails UI smoke, `tools/ui-spike/wails-v2/ui-settings-persist-restart-smoke.ps1`, verifies persistence across two separate PhotoBooth.exe processes. It uses a disposable `PHOTOBOOTH_DATA_DIR`, saves shot count 3, countdown 4s and interval 750ms, closes the first process gracefully, starts a second process against the same local profile, opens Settings, and verifies all three values are reloaded. The smoke passed on 2026-11-01: both processes started and exited normally, the second process showed shot count 3 / countdown 4s / interval 750ms, no photo session or capture was created, and the temporary profile was removed. Report: `%TEMP%\photobooth-settings-restart-6d4b3d0f640f448aa8ec9345a4194462.json`. This validates the original schema-v1 settings screen persistence path in the experimental Wails player; schema-v1 profiles now migrate in memory to schema v2 when loaded. It is not a production-install/update test.
 
 ## Local-mode network path guard (2026-11-06)
 

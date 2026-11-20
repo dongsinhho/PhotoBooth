@@ -82,6 +82,10 @@ export function GetSmbAdminStatus() {
   return window['go']['main']['App']['GetSmbAdminStatus']();
 }
 
+export function InspectPrinterAttempt(arg1, arg2) {
+  return window['go']['main']['App']['InspectPrinterAttempt'](arg1, arg2);
+}
+
 export function InstallFramePackage(arg1) {
   return window['go']['main']['App']['InstallFramePackage'](arg1);
 }
@@ -118,6 +122,10 @@ export function Ready() {
   return window['go']['main']['App']['Ready']();
 }
 
+export function ReconcileOrphanedPrinterLock(arg1) {
+  return window['go']['main']['App']['ReconcileOrphanedPrinterLock'](arg1);
+}
+
 export function RecordDemoShot(arg1) {
   return window['go']['main']['App']['RecordDemoShot'](arg1);
 }
@@ -128,6 +136,10 @@ export function ReportCameraPreviewDecodeFailure(arg1) {
 
 export function ResetDemoSession() {
   return window['go']['main']['App']['ResetDemoSession']();
+}
+
+export function ResolvePrinterAttempt(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['ResolvePrinterAttempt'](arg1, arg2, arg3, arg4);
 }
 
 export function RestartDemoSession(arg1) {

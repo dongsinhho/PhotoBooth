@@ -2,7 +2,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$PackagePath,
     [string]$InstallRoot,
-    [switch]$SkipMachineProvisioning
+    [switch]$SkipMachineProvisioning,
+    [switch]$AllowUnsignedPreview
 )
 
 $ErrorActionPreference = 'Stop'
@@ -40,10 +41,11 @@ $archive = $null
 
 try {
     $archive = [IO.Compression.ZipFile]::OpenRead($PackagePath)
-    $requiredNames = @('PhotoBooth.exe', 'release-manifest.json', 'README.txt')
-    $allowedNames = @($requiredNames + 'manage-smb-remote-admin.ps1')
-    if ($archive.Entries.Count -lt $requiredNames.Count -or $archive.Entries.Count -gt $allowedNames.Count) {
-        throw "Package must contain the three required root-level files and at most one managed SMB administration helper."
+    $requiredNames = @('PhotoBooth.exe', 'README.txt')
+    $manifestNames = @('release-manifest.json', 'release-manifest.ps1')
+    $allowedNames = @($requiredNames + $manifestNames + 'manage-smb-remote-admin.ps1')
+    if ($archive.Entries.Count -lt 3 -or $archive.Entries.Count -gt 4) {
+        throw 'Package must contain PhotoBooth.exe, README.txt, exactly one manifest and at most one managed SMB administration helper.'
     }
 
     $seen = @{}
@@ -63,7 +65,7 @@ try {
         if ($name -eq 'PhotoBooth.exe' -and ($entry.Length -le 0 -or $entry.Length -gt 512MB)) {
             throw 'Packaged executable has an invalid or excessive uncompressed size.'
         }
-        if ($name -eq 'release-manifest.json' -and ($entry.Length -le 0 -or $entry.Length -gt 64KB)) {
+        if ($manifestNames -contains $name -and ($entry.Length -le 0 -or $entry.Length -gt 128KB)) {
             throw 'Release manifest has an invalid or excessive size.'
         }
         if ($name -eq 'README.txt' -and ($entry.Length -le 0 -or $entry.Length -gt 64KB)) {
@@ -77,6 +79,10 @@ try {
         if (!$seen.ContainsKey($name)) {
             throw "Package is missing required entry: $name"
         }
+    }
+    $presentManifests = @($manifestNames | Where-Object { $seen.ContainsKey($_) })
+    if ($presentManifests.Count -ne 1) {
+        throw 'Package must contain exactly one release manifest, either JSON Preview or signed Authenticode envelope.'
     }
 
     foreach ($entry in $archive.Entries) {
@@ -106,7 +112,7 @@ finally {
 }
 
 try {
-    $releaseCheck = Assert-PhotoBoothReleaseDirectory -ReleaseDirectory $temporaryRoot
+    $releaseCheck = Assert-PhotoBoothReleaseDirectory -ReleaseDirectory $temporaryRoot -AllowUnsignedPreview:$AllowUnsignedPreview
     $manifest = $releaseCheck.Manifest
     $version = [string]$manifest.version
     $sha256 = [string]$manifest.binary.sha256
@@ -115,7 +121,19 @@ try {
 
     New-Item -ItemType Directory -Path $releasesRoot -Force | Out-Null
     if (Test-Path -LiteralPath $finalRelease) {
-        [void](Assert-PhotoBoothReleaseDirectory -ReleaseDirectory $finalRelease -ExpectedVersion $version -ExpectedSha256 $sha256)
+        $existingRelease = Assert-PhotoBoothReleaseDirectory -ReleaseDirectory $finalRelease -ExpectedVersion $version -ExpectedSha256 $sha256 -AllowUnsignedPreview:$AllowUnsignedPreview
+        $existingManifest = $existingRelease.Manifest
+        if ([bool]$existingManifest.distribution.signed -ne [bool]$manifest.distribution.signed) {
+            throw "Release version '$version' already exists with a different signature policy; refusing to treat a signed/unsigned collision as an identical release."
+        }
+        if ([string]$existingManifest.distribution.signer_thumbprint -ne [string]$manifest.distribution.signer_thumbprint) {
+            throw "Release version '$version' already exists with a different publisher identity."
+        }
+        $existingHelperHash = if ($existingManifest.smb_admin_helper) { [string]$existingManifest.smb_admin_helper.sha256 } else { '' }
+        $incomingHelperHash = if ($manifest.smb_admin_helper) { [string]$manifest.smb_admin_helper.sha256 } else { '' }
+        if ($existingHelperHash -ne $incomingHelperHash) {
+            throw "Release version '$version' already exists with a different SMB helper artifact hash."
+        }
         Write-Host "RELEASE_ALREADY_INSTALLED=$version"
     }
     else {
@@ -123,13 +141,15 @@ try {
         New-Item -ItemType Directory -Path $stagingRelease -Force | Out-Null
         try {
             Copy-Item -LiteralPath (Join-Path $temporaryRoot 'PhotoBooth.exe') -Destination (Join-Path $stagingRelease 'PhotoBooth.exe')
-            Copy-Item -LiteralPath (Join-Path $temporaryRoot 'release-manifest.json') -Destination (Join-Path $stagingRelease 'release-manifest.json')
+            foreach ($manifestName in $presentManifests) {
+                Copy-Item -LiteralPath (Join-Path $temporaryRoot $manifestName) -Destination (Join-Path $stagingRelease $manifestName)
+            }
             Copy-Item -LiteralPath (Join-Path $temporaryRoot 'README.txt') -Destination (Join-Path $stagingRelease 'README.txt')
             $temporaryHelper = Join-Path $temporaryRoot 'manage-smb-remote-admin.ps1'
             if (Test-Path -LiteralPath $temporaryHelper -PathType Leaf) {
                 Copy-Item -LiteralPath $temporaryHelper -Destination (Join-Path $stagingRelease 'manage-smb-remote-admin.ps1')
             }
-            [void](Assert-PhotoBoothReleaseDirectory -ReleaseDirectory $stagingRelease -ExpectedVersion $version -ExpectedSha256 $sha256)
+            [void](Assert-PhotoBoothReleaseDirectory -ReleaseDirectory $stagingRelease -ExpectedVersion $version -ExpectedSha256 $sha256 -AllowUnsignedPreview:$AllowUnsignedPreview)
             [IO.Directory]::Move($stagingRelease, $finalRelease)
         }
         catch {

@@ -46,3 +46,21 @@ Frame JSON validation, file existence and capture-count/frame-slot matching rema
 - CLI tests cover config loading, explicit-flag precedence, legacy no-config behavior and rejection of unsupported modes.
 - A synthetic-camera CLI smoke run using `examples/store-config-v1.json` completed capture, render and local save.
 - Root Go tests/vet, Windows build and Linux/amd64 compile-only build passed for the implementation.
+
+
+## Schema v2 follow-up: operator-managed printer configuration (2026-11-19)
+
+The current StoreConfig schema is now v2. Schema v1 is retained as a supported legacy input and migrates in memory to v2 during Load. Load does not rewrite the original JSON. The next explicit Save persists schema v2, so a failed/invalid profile is not silently replaced.
+
+Schema v2 adds an operator-managed printer block:
+- enabled (default false)
+- queue_name (empty unless configured)
+- media_form (empty unless configured)
+- orientation (portrait by default; allowed values portrait/landscape)
+- transform.flip_vertical (default false; virtual-queue compatibility only, not a physical-printer default)
+
+When disabled, empty queue/form values are valid. When enabled, queue name and media form are required, bounded, trimmed and control-character-free. Transform settings round-trip as ordinary local configuration.
+
+This schema work deliberately does not wire StoreConfig.Printer into delivery.NewDispatcher, the CLI workflow or Wails guest sessions. A true value can be stored for operator planning, but printing remains unavailable from the guest flow until the remaining spooler-resolution and physical acceptance gates close. The Wails capture/frame/retention settings API does not expose printer fields; it preserves them when saving its supported controls.
+
+The canonical current sample is examples/store-config-v2.json. examples/store-config-v1.json remains a legacy migration example. StoreConfig schema v2 is independent of session manifest schema v3.

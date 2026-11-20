@@ -11,22 +11,29 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf16"
 )
 
 const (
-	CurrentSchemaVersion   = 1
-	MediaDeliveryModeLocal = "local"
-	PaymentModeDisabled    = "disabled"
-	maxConfigBytes         = 64 << 10
-	maxDimension           = 4096
-	maxCaptureShots        = 12
-	maxDuration            = 5 * time.Minute
+	LegacySchemaVersion         = 1
+	CurrentSchemaVersion        = 2
+	MediaDeliveryModeLocal      = "local"
+	PrinterOrientationPortrait  = "portrait"
+	PrinterOrientationLandscape = "landscape"
+	PaymentModeDisabled         = "disabled"
+	maxConfigBytes              = 64 << 10
+	maxDimension                = 4096
+	maxCaptureShots             = 12
+	maxDuration                 = 5 * time.Minute
 )
 
 // StoreConfig is the versioned, local configuration for one PhotoBooth station.
-// Its initial policy intentionally supports local delivery and disabled payment
-// only; unsupported network/payment modes fail validation instead of silently
-// behaving as local/free mode.
+// Media delivery remains local and payment remains disabled; unsupported
+// network/payment modes fail validation instead of silently behaving as
+// local/free mode. Printer fields are operator-managed and disabled by default.
+// The Wails Windows Preview consumes them only when explicitly enabled; this
+// software path is not evidence of physical printer acceptance.
 type StoreConfig struct {
 	SchemaVersion int                   `json:"schema_version"`
 	Camera        CameraSettings        `json:"camera"`
@@ -35,6 +42,7 @@ type StoreConfig struct {
 	Storage       StorageSettings       `json:"storage"`
 	MediaDelivery MediaDeliverySettings `json:"media_delivery"`
 	Payment       PaymentSettings       `json:"payment"`
+	Printer       PrinterSettings       `json:"printer"`
 }
 
 type CameraSettings struct {
@@ -70,6 +78,25 @@ type PaymentSettings struct {
 	Mode string `json:"mode"`
 }
 
+// PrinterSettings is operator-managed configuration for one station-local
+// printer queue. It remains disabled unless the operator explicitly enables it.
+// QueueName and MediaForm are required only when Enabled is true.
+type PrinterSettings struct {
+	Enabled   bool   `json:"enabled"`
+	QueueName string `json:"queue_name,omitempty"`
+	// MediaForm is the exact form name understood by the selected Windows
+	// printer driver (DEVMODEW.dmFormName), not a friendly size alias.
+	MediaForm   string                   `json:"media_form,omitempty"`
+	Orientation string                   `json:"orientation"`
+	Transform   PrinterTransformSettings `json:"transform"`
+}
+
+// PrinterTransformSettings contains per-queue compatibility transforms.
+// Do not copy values from a virtual port to physical hardware without acceptance.
+type PrinterTransformSettings struct {
+	FlipVertical bool `json:"flip_vertical"`
+}
+
 // Defaults returns current local/offline defaults. Paths remain relative in this
 // value; Load resolves them from the directory containing the config file.
 func Defaults() StoreConfig {
@@ -84,13 +111,17 @@ func Defaults() StoreConfig {
 		},
 		MediaDelivery: MediaDeliverySettings{Mode: MediaDeliveryModeLocal},
 		Payment:       PaymentSettings{Mode: PaymentModeDisabled},
+		Printer: PrinterSettings{
+			Enabled: false, Orientation: PrinterOrientationPortrait,
+		},
 	}
 }
 
 // Load reads a strict JSON config. Unknown properties, multiple JSON documents,
-// oversized files and unsupported schema versions are rejected. Missing
-// fields inherit defaults, and relative paths resolve from the config file's
-// directory.
+// oversized files and unsupported schema versions are rejected. Schema v1 is
+// migrated in memory to the current version; Load never rewrites the source.
+// Missing fields inherit defaults, and relative paths resolve from the config
+// file's directory.
 func Load(path string) (StoreConfig, error) {
 	var cfg StoreConfig
 	path = strings.TrimSpace(path)
@@ -135,8 +166,13 @@ func Load(path string) (StoreConfig, error) {
 	if err := json.Unmarshal(rawVersion, &schemaVersion); err != nil {
 		return cfg, fmt.Errorf("store config schema_version must be an integer: %w", err)
 	}
-	if schemaVersion != CurrentSchemaVersion {
-		return cfg, fmt.Errorf("unsupported store config schema_version %d (supported: %d)", schemaVersion, CurrentSchemaVersion)
+	if schemaVersion != LegacySchemaVersion && schemaVersion != CurrentSchemaVersion {
+		return cfg, fmt.Errorf("unsupported store config schema_version %d (supported: %d and %d)", schemaVersion, LegacySchemaVersion, CurrentSchemaVersion)
+	}
+	if schemaVersion == LegacySchemaVersion {
+		if _, hasPrinter := envelope["printer"]; hasPrinter {
+			return cfg, errors.New("store config schema_version 1 cannot contain printer settings; use schema_version 2")
+		}
 	}
 
 	cfg = Defaults()
@@ -150,6 +186,9 @@ func Load(path string) (StoreConfig, error) {
 			return StoreConfig{}, errors.New("store config must contain exactly one JSON document")
 		}
 		return StoreConfig{}, fmt.Errorf("read trailing store config data: %w", err)
+	}
+	if err := migrateStoreConfig(&cfg, schemaVersion); err != nil {
+		return StoreConfig{}, err
 	}
 	if err := cfg.Validate(); err != nil {
 		return StoreConfig{}, err
@@ -172,6 +211,27 @@ func Load(path string) (StoreConfig, error) {
 		return StoreConfig{}, err
 	}
 	return cfg, nil
+}
+
+// migrateStoreConfig upgrades older supported schemas in memory. Load never
+// rewrites the source file; the next explicit Save persists the current schema.
+func migrateStoreConfig(cfg *StoreConfig, sourceVersion int) error {
+	if cfg == nil {
+		return errors.New("store config is required for migration")
+	}
+	switch sourceVersion {
+	case LegacySchemaVersion:
+		cfg.Printer = PrinterSettings{
+			Enabled: false, Orientation: PrinterOrientationPortrait,
+		}
+		cfg.SchemaVersion = CurrentSchemaVersion
+	case CurrentSchemaVersion:
+		// The decoder starts from Defaults, so omitted v2 printer fields inherit
+		// the disabled, portrait-oriented safe defaults.
+	default:
+		return fmt.Errorf("cannot migrate unsupported store config schema_version %d", sourceVersion)
+	}
+	return nil
 }
 
 // Save validates and atomically persists a station config. Paths contained
@@ -321,7 +381,40 @@ func (cfg StoreConfig) Validate() error {
 	if mode := strings.ToLower(strings.TrimSpace(cfg.Payment.Mode)); mode != PaymentModeDisabled {
 		return fmt.Errorf("unsupported payment.mode %q (only disabled/free mode is implemented)", cfg.Payment.Mode)
 	}
+	if err := validatePrinterSettings(cfg.Printer); err != nil {
+		return err
+	}
 	return nil
+}
+
+func validatePrinterSettings(settings PrinterSettings) error {
+	if settings.QueueName != strings.TrimSpace(settings.QueueName) ||
+		len(settings.QueueName) > 256 || containsControlCharacters(settings.QueueName) {
+		return errors.New("printer.queue_name must be trimmed, contain no control characters and be at most 256 bytes")
+	}
+	formUnits := len(utf16.Encode([]rune(settings.MediaForm)))
+	if settings.MediaForm != strings.TrimSpace(settings.MediaForm) ||
+		len(settings.MediaForm) > 128 || formUnits > 31 || containsControlCharacters(settings.MediaForm) {
+		return errors.New("printer.media_form must be trimmed, contain no control characters and fit within the 31 UTF-16 code units available in DEVMODEW")
+	}
+	switch settings.Orientation {
+	case PrinterOrientationPortrait, PrinterOrientationLandscape:
+	default:
+		return fmt.Errorf("unsupported printer.orientation %q (choose portrait or landscape)", settings.Orientation)
+	}
+	if settings.Enabled {
+		if settings.QueueName == "" {
+			return errors.New("printer.queue_name is required when printer.enabled is true")
+		}
+		if settings.MediaForm == "" {
+			return errors.New("printer.media_form is required when printer.enabled is true")
+		}
+	}
+	return nil
+}
+
+func containsControlCharacters(value string) bool {
+	return strings.IndexFunc(value, unicode.IsControl) >= 0
 }
 
 func (cfg StoreConfig) CountdownDuration() (time.Duration, error) {

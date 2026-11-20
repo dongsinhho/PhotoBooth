@@ -73,7 +73,7 @@ func WriteFrameSnapshot(sessionDir string, data []byte) (string, string, error) 
 // ReadFrameSnapshot validates the declared, bounded snapshot and returns its
 // exact bytes. It never falls back to the mutable original frame path.
 func ReadFrameSnapshot(sessionDir string, manifest Manifest) (string, []byte, error) {
-	if manifest.Version != ManifestVersion || manifest.FrameSnapshotFile != FrameSnapshotFileName ||
+	if manifest.Version < PolicyManifestVersion || manifest.Version > ManifestVersion || manifest.FrameSnapshotFile != FrameSnapshotFileName ||
 		!validSHA256(manifest.FrameSnapshotSHA256) ||
 		manifest.FrameSnapshotSHA256 != manifest.FrameConfigSHA256 {
 		return "", nil, errors.New("manifest frame snapshot declaration is invalid")

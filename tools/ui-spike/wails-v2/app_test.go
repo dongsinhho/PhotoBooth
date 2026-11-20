@@ -986,6 +986,11 @@ func TestPlayerRuntimeConfigIsImmutableSnapshot(t *testing.T) {
 	app.stationConfig.Camera.Width = 1920
 	app.stationConfig.MediaDelivery.Mode = "local"
 	app.stationConfig.Payment.Mode = "disabled"
+	app.stationConfig.Printer = stationconfig.PrinterSettings{
+		Enabled: true, QueueName: "DS-RX1", MediaForm: "6x4",
+		Orientation: stationconfig.PrinterOrientationLandscape,
+		Transform:   stationconfig.PrinterTransformSettings{FlipVertical: true},
+	}
 	app.framePath = filepath.Join(t.TempDir(), "frame-v2.json")
 	app.workDir = filepath.Join(t.TempDir(), "sessions-v2")
 	app.outputDir = filepath.Join(t.TempDir(), "output-v2")
@@ -995,7 +1000,8 @@ func TestPlayerRuntimeConfigIsImmutableSnapshot(t *testing.T) {
 	app.mu.Unlock()
 
 	if snapshot.stationConfig.Capture.Shots != 3 || snapshot.stationConfig.Camera.Width != 1280 ||
-		snapshot.stationConfig.MediaDelivery.Mode != "LOCAL" || snapshot.stationConfig.Payment.Mode != "DISABLED" {
+		snapshot.stationConfig.MediaDelivery.Mode != "LOCAL" || snapshot.stationConfig.Payment.Mode != "DISABLED" ||
+		snapshot.stationConfig.Printer.Enabled {
 		t.Fatalf("station config/policy snapshot changed after app mutation: %+v", snapshot.stationConfig)
 	}
 	if snapshot.shotCount != 3 || snapshot.countdown != 3*time.Second || snapshot.interval != time.Second {
@@ -1035,7 +1041,7 @@ func TestContinuePhotoSessionRejectsConcurrentSettingsSaveOrInvalidProfile(t *te
 	}
 }
 
-func TestSavePlayerSettingsPreservesDeliveryAndPaymentPolicies(t *testing.T) {
+func TestSavePlayerSettingsPreservesOperatorManagedPolicies(t *testing.T) {
 	app := NewApp()
 	app.playerDataDir = t.TempDir()
 	settings, err := app.GetPlayerSettings()
@@ -1045,9 +1051,16 @@ func TestSavePlayerSettingsPreservesDeliveryAndPaymentPolicies(t *testing.T) {
 
 	// These policy fields intentionally are not user-editable controls in this
 	// Preview screen. Saving capture/frame/retention settings must preserve them.
+	// Printer is only a StoreConfig reservation at this stage; it must not
+	// replace the local-only delivery factory used by this guest workflow.
 	app.mu.Lock()
 	app.stationConfig.MediaDelivery.Mode = "LOCAL"
 	app.stationConfig.Payment.Mode = "DISABLED"
+	app.stationConfig.Printer = stationconfig.PrinterSettings{
+		Enabled: true, QueueName: "DS-RX1", MediaForm: "6x4",
+		Orientation: stationconfig.PrinterOrientationLandscape,
+		Transform:   stationconfig.PrinterTransformSettings{FlipVertical: true},
+	}
 	app.mu.Unlock()
 
 	if _, err := app.SavePlayerSettings(settings); err != nil {
@@ -1060,6 +1073,14 @@ func TestSavePlayerSettingsPreservesDeliveryAndPaymentPolicies(t *testing.T) {
 	if persisted.MediaDelivery.Mode != "LOCAL" || persisted.Payment.Mode != "DISABLED" {
 		t.Fatalf("settings save changed policy fields that are outside the UI controls: media=%q payment=%q",
 			persisted.MediaDelivery.Mode, persisted.Payment.Mode)
+	}
+	wantPrinter := stationconfig.PrinterSettings{
+		Enabled: true, QueueName: "DS-RX1", MediaForm: "6x4",
+		Orientation: stationconfig.PrinterOrientationLandscape,
+		Transform:   stationconfig.PrinterTransformSettings{FlipVertical: true},
+	}
+	if persisted.Printer != wantPrinter {
+		t.Fatalf("settings save changed operator-managed printer config: got=%+v want=%+v", persisted.Printer, wantPrinter)
 	}
 	dispatcher, err := delivery.NewDispatcher(persisted.MediaDelivery, persisted.Storage.OutputDir)
 	if err != nil {

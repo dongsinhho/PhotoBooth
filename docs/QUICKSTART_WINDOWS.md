@@ -13,10 +13,10 @@ This guide gets a developer or self-builder from a repository checkout to a synt
 | Synthetic camera → 3 captures → frame render → local JPEG | Implemented in root Go core |
 | Logitech B525 on the reference Windows machine | Experimental Windows Media Foundation provider; repeated tests passed on the stated host |
 | Recovery after camera contention / USB reconnect | Bounded recovery implemented; test evidence is scoped to the recorded B525 runs |
-| Local station config and schema-v1 frame | Implemented |
+| Local station config schema v2 and schema-v1 frame | Implemented; schema-v1 station profiles migrate in memory |
 | Local .pbframe validate/install/activate/rollback/uninstall | Implemented |
 | Wails touch-first kiosk shell | Windows prototype only; not selected as production UI |
-| Physical printer | No printer adapter implemented |
+| Physical printer | Isolated Windows GDI target and DS-RX1 virtual-queue smoke only; not connected to guest sessions and not physically accepted |
 | LAN photo sharing, cloud upload, QR payment | Not implemented |
 | Laptop integrated camera and Linux hardware | Not validated |
 
@@ -37,7 +37,7 @@ The evidence-backed reference configuration is:
 
 The Wails prototype is a separate module: Wails v2.17.0, Go 1.25.0, Node.js 22.12.0 / npm 10.9.0 and WebView2 Runtime. Keep its toolchain separate from the root module. Building Wails on Windows does not establish Linux UI support.
 
-No physical printer is part of the reference configuration. The validated output target is local file storage.
+No physical printer is part of the reference configuration. A separate Windows GDI printer target and durable intent wrapper have only been exercised through the DS-RX1 virtual queue; they are not connected to the guest workflow and have not passed physical printer/media acceptance. The validated guest output target remains local file storage.
 
 ## 3. Prerequisites
 
@@ -53,7 +53,7 @@ From PowerShell, open the repository root and verify:
 ~~~powershell
 go version
 go env GOOS GOARCH
-Test-Path .\examples\store-config-v1.json
+Test-Path .\examples\store-config-v2.json
 Test-Path .\examples\frames\photo-strip-v1.json
 ~~~
 
@@ -64,12 +64,12 @@ The root go.mod declares Go 1.24.8. Do not upgrade the root toolchain just to bu
 Run from the repository root:
 
 ~~~powershell
-go run ./apps/booth-player --config ./examples/store-config-v1.json
+go run ./apps/booth-player --config ./examples/store-config-v2.json
 ~~~
 
 The sample intentionally selects camera.provider = fake. It is safe for a synthetic demo and should not open a physical camera. It captures synthetic images, renders the sample three-photo strip and writes the local output.
 
-The sample config resolves its paths relative to examples/store-config-v1.json:
+The schema-v2 sample resolves its paths relative to examples/store-config-v2.json. The original store-config-v1.json remains a supported legacy migration example:
 
 - Working session files: data/sessions/<session-id>/
 - Final local copy: data/output/<session-id>/photo.jpg
@@ -81,7 +81,7 @@ The command prints the actual paths. Open the rendered/local JPEG locally to con
 Only continue after the synthetic run works. Close every other application that could own the camera.
 
 ~~~powershell
-go run ./apps/booth-player --config ./examples/store-config-v1.json --camera=windowsmf --device="B525 HD Webcam"
+go run ./apps/booth-player --config ./examples/store-config-v2.json --camera=windowsmf --device="B525 HD Webcam"
 ~~~
 
 This uses the sample's three shots, 3-second countdown and 1-second interval, 1280×720 request and 30 FPS. For a controlled operator test with no countdown/delay, explicitly add --countdown=0s --interval=0s.
@@ -103,13 +103,13 @@ wails dev
 
 Use **Try without a webcam** first. It exercises the same workflow with synthetic images. **Start with webcam** opens the physical Windows camera. The result screen shows the saved strip; the current prototype shows the latest captured still during capture, not a continuous live preview.
 
-The Windows Wails profile is stored at %LOCALAPPDATA%\PhotoBooth\store-config-v1.json. If the existing profile is invalid, the UI reports a repair warning instead of silently replacing it. Back up the profile before manual edits.
+The Windows Wails profile remains at %LOCALAPPDATA%\PhotoBooth\store-config-v1.json for path compatibility, but its JSON schema is now v2. Schema-v1 profiles migrate in memory and are only rewritten when settings are explicitly saved. If the existing profile is invalid, the UI reports a repair warning instead of silently replacing it. Back up the profile before manual edits.
 
 When capture and rendering finish but the final local save fails, the result screen offers **Retry local save**. Free space or resolve the storage issue, then use that action; it reuses the preserved render and does not open the camera or repeat capture. The equivalent operator CLI is documented below.
 
 ## 7. Local settings, frames and storage
 
-The canonical sample config is examples/store-config-v1.json. It configures fake camera, three shots, a three-second countdown, one-second interval, local storage, local media delivery and disabled payment.
+The canonical sample config is examples/store-config-v2.json. It configures fake camera, three shots, a three-second countdown, one-second interval, local storage, local media delivery, disabled payment and printer.enabled=false. Schema-v1 sample profiles remain loadable through the in-memory migration.
 
 A frame's slots count must exactly match capture.shots. Use Settings & frame in the Wails prototype or edit a local schema-v1 frame/config pair deliberately. The player does not silently resize or invent missing photo slots.
 
@@ -120,7 +120,7 @@ Both retention settings default to 0 (disabled). Cleanup is a separate opt-in CL
 When local output fails because the volume is full or a storage quota is exceeded, the player preserves captures and rendered.jpg and reports an insufficient-storage error. In the Wails result screen, use **Retry local save** after freeing space. The CLI below is an alternative for operator recovery (without reopening the camera):
 
 ~~~powershell
-go run ./apps/output-retry --config ./examples/store-config-v1.json --session-id 0123456789abcdef0123456789abcdef
+go run ./apps/output-retry --config ./examples/store-config-v2.json --session-id 0123456789abcdef0123456789abcdef
 ~~~
 
 Replace the example ID with the failed session's actual ID. The command verifies all expected captures plus the rendered JPEG and refuses to overwrite an existing photo.jpg. See knowledge-base/LOCAL_STORAGE_RECOVERY.md.

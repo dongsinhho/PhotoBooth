@@ -288,3 +288,112 @@ The product owner considers the Windows SMB Remote administration feature suffic
 - Non-allowlisted-source denial, reboot persistence, IPv6/other interfaces, failure/rollback, NetBIOS UDP, and disposable-VM qualification are not required gates for this current scope. They remain unverified and must not be described as passed. Reopen only for a concrete deployment requirement or reproducible issue.
 
 This closes the Remote administration feature's current Preview scope. It does not close unrelated Stage 0/1 work such as printer selection/acceptance, production UI/deployment and signed installer decisions, nor the separately pending native Ubuntu direct-USB evaluation. Stage 3 LAN photo delivery/payment remains deferred.
+
+
+## 2026-11-18 - Printer selection is the next active Stage 0/1 gate
+
+The current ShinPc printer inventory was rechecked read-only with Get-Printer, Get-PnpDevice -Class Printer and Win32_Printer. It contains only Microsoft Print to PDF and two Microsoft OneNote virtual queues; no physical printer or vendor driver is available. No print job was submitted.
+
+A research shortlist and first acceptance sequence are recorded in [PRINTER_SELECTION_AND_ACCEPTANCE.md](PRINTER_SELECTION_AND_ACCEPTANCE.md). HiTi P525L is the preferred first evaluation candidate (Proposed), not an accepted hardware decision. DNP DS620A remains an alternative where faster 4x6/6x8 output and its listed Windows 11 driver justify the higher observed Vietnam listing price. Linux driver availability for HiTi is only a lead: Ubuntu 26.04.1 build, installation and physical output are unverified.
+
+**Next action:** select the exact printer model/media kit and obtain or borrow the device. Then run the documented Windows 11 USB print acceptance path before implementing the physical output adapter. Keep local storage independent and follow ADR 0010's queued/job-ID and duplicate-print boundaries. Native Ubuntu direct-USB printer validation is a separate later gate. Remote administration remains frozen at its accepted happy path; Stage 3 LAN/payment and cloud/marketplace work remain deferred.
+
+
+## 2026-11-19 - DS-RX1 virtual output target spike
+
+The operator installed a Windows x64 DNP DS-RX1 driver queue on ShinPc. The queue uses the local Multi File Port Monitor Photobooth-port and a locally configured DNP raster-to-JPEG converter; no physical printer is connected.
+
+Implemented a Windows GDI output.Target in internal/booth/output with job-scoped DEVMODE orientation and spooler job ID reporting. It was tested first alone, then through output.Coordinator alongside LocalProvider. A sequential 10-job coordinator run passed: 10/10 local saves byte-identical to the source fixture, 10/10 spooler-queued printer outputs with job IDs, and 10/10 virtual JPEG conversions at 1200x1800 with identical output hashes. Queue ended Normal / JobCount 0. The smoke tool and exact limits are documented in tools/printer-poc/dsrx1-virtual-smoke/README.md and OUTPUT_TARGETS.md.
+
+This closes only the **Windows software virtual-queue integration sub-gate**. It does not close physical printer selection/acceptance or Stage 0/1. The adapter remains isolated: do not wire it into StoreConfig/Wails guest sessions until printer configuration, durable print intent/job status, crash recovery and duplicate-print policy are designed. The virtual-only FlipVertical setting must not be assumed for physical hardware. Native Ubuntu printer validation is separate.
+
+**Next sequence:** (1) decide printer settings/config contract and whether the first app integration should remain Windows Preview-only; (2) design persistent print-intent/job-ID state and conservative recovery before enabling session printing; (3) connect a real printer/media kit and run physical format/color/cut/failure/offline acceptance; (4) only then consider native Ubuntu driver support. Keep Stage 3 LAN/payment and later stages deferred.
+
+
+## 2026-11-19 - Durable printer intent and read-only recovery implemented
+
+The isolated Windows output path now includes a durable wrapper and session manifest v3:
+- Append-only printer attempt records capture unique attempt/document identity, queue, source hash, state, timestamps and returned Windows job ID.
+- The intent is atomically persisted before the GDI target is called. A per-session exclusive .print.lock prevents concurrent submissions and gives read-only recovery a crash marker.
+- Known pre-acceptance failures are persisted failed; only these allow a later explicit attempt. Unknown/post-StartDoc errors and result-persistence failures are uncertain and block resubmission.
+- Manifest v1/v2 compatibility is preserved. Snapshot-backed v2 sessions can be upgraded to v3 when an explicit durable print is first attempted; legacy v1 sessions are not silently upgraded.
+- Wails recovery cards can display queue/document/job/state from a string-safe DTO. No print retry or “mark as completed” action is exposed; local save recovery remains separate.
+
+Validation: output/session unit tests pass, including fault-injection for failed/uncertain/post-acceptance-write-failure/stale-lock paths. Root tests/vet and Windows/Linux builds pass; Wails tests/vet and production build pass without binding-generation warnings. One end-to-end synthetic session through LocalProvider + DurablePrinter against the DS-RX1 virtual queue persisted attempt ID/document/job ID 29 as queued and generated the expected 1200x1800 JPEG. Queue ended Normal / JobCount 0. No paper output occurred.
+
+**Still blocked:** DurablePrinter is not wired into StoreConfig, delivery.NewDispatcher or Wails guest sessions. The UI is read-only. No automated spooler reconciliation or manual uncertain-state resolution exists yet. Do not enable guest printing until configuration defaults, queue/form settings, durable job reconciliation, duplicate handling and physical printer acceptance are complete. Native Ubuntu printer validation is separate. See ADR 0033.
+
+
+## 2026-11-19 - StoreConfig v2 printer policy contract
+
+Implemented StoreConfig schema v2 with an operator-managed printer block: enabled (safe default false), queue_name, media_form, orientation (portrait/landscape) and transform.flip_vertical (false by default). Empty queue/form is valid only while disabled. Enabled profiles require queue and media form; names are bounded, trimmed and reject control characters.
+
+Schema-v1 files migrate in memory when Load is called. Load never rewrites the source profile; an explicit Save persists v2. The canonical example is examples/store-config-v2.json; examples/store-config-v1.json remains a legacy migration fixture.
+
+The Wails guest settings screen does not expose printer options, its SavePlayerSettings path preserves the operator-managed printer block, and delivery.NewDispatcher remains local-only. This is configuration groundwork only; it does not enable guest printing. StoreConfig v2 is independent from session manifest v3. See docs/knowledge-base/STORE_CONFIG.md and ADR 0015.
+
+
+## 2026-11-19 - Operator-controlled printer resolution
+
+Implemented a conservative operator resolution/closure path for persisted manifest-v3 queued/submitting/uncertain attempts.
+
+- Added append-only print_resolutions with decisions printed, not_printed, unknown, exact queue-found observation, timestamps and required operator note. The original attempt is immutable.
+- Wails recovery now offers read-only Inspect Windows queue and explicit confirmed decisions. Resolve re-inspects the exact persisted queue/document/job on the backend, refuses printed/not_printed while the job remains listed, and serializes with capture/output lifecycle operations.
+- Only not_printed makes a separately invoked future DurablePrinter.Execute eligible. printed and unknown remain blocked. No auto retry, spooler mutation, guest dispatcher wiring or print submission UI was added.
+- .print.lock is never cleared. A lock-present or lock-only crash remains inspect-only because current lock metadata cannot prove owner-process liveness. A future safe lock/process-liveness reconciliation remains required.
+
+Validation for this step: session/output/Wails targeted tests passed; root go test ./..., go vet ./..., Windows and Linux/amd64 CGO-disabled builds passed; Wails tests/vet and production -NoLaunch build passed. Linux result is compile-only. See ADR 0033, OUTPUT_TARGETS.md and SESSION_CRASH_RECOVERY.md.
+
+Next gates: (1) safe process-liveness handling for crash-only printer locks; (2) choose/obtain physical printer and media, then complete the physical acceptance protocol; (3) only after those gates decide whether to wire DurablePrinter into the Windows guest workflow. Native Ubuntu printer-driver acceptance remains separate.
+
+
+## 2026-11-19 - Windows kernel-verified printer lock reconciliation
+
+Implemented the next crash-recovery gate for newly created durable printer locks.
+
+- New .print.lock markers are versioned and hold a Windows kernel file handle from pre-intent publication through result persistence. PID is diagnostic only; Windows handle ownership, not PID, is the liveness authority.
+- Read-only discovery uses a compatible read-only Win32 handle and classifies locks active/orphaned/unverifiable. Reconciliation is offered only for orphaned version-1 leases and claims the lock again before acting.
+- Reconciliation verifies the rendered JPEG SHA-256 and manifest/session identity. It converts a matching submitting attempt to uncertain, preserves already-persisted states, or creates one uncertain attempt for a lock-only pre-manifest crash. Snapshot-backed v2 upgrade is verified before use.
+- Manifest persistence precedes lock deletion; deletion is performed through the held exclusive handle to avoid a close/remove race. Reconciliation is idempotent and never checks or resubmits the spooler job.
+- Legacy/unversioned, corrupt/partial and unsupported-platform locks remain inspect-only. PID reuse does not affect the Windows lease result.
+
+Validation: Windows subprocess test proved the kernel handle is released after abrupt child process exit without running defers; active lease cannot be claimed; released lease is exclusively claimed and removed; legacy marker is not modified. Root/Wails tests and vet plus Windows/Linux CGO-disabled builds and Wails production build pass. Linux is compile-only; no Linux runtime lease feature is claimed.
+
+The remaining active hardware gate is physical printer/media selection and acceptance. The DS-RX1 remains a virtual queue only. Do not wire DurablePrinter into guest sessions or enable guest printing before physical acceptance and the duplicate-output policy are accepted. Native Ubuntu printer driver evaluation stays separate.
+
+
+## 2026-11-20 - Windows Preview opt-in printer software path
+
+Implemented the software-only integration step that can be completed without a physical printer.
+
+- Wails Windows Preview now consumes operator-managed StoreConfig v2 printer settings when `printer.enabled=true`, creating an independent LocalProvider + DurablePrinter coordinator for real-camera sessions.
+- Safe default remains disabled. Demo sessions are forced local-only. Root CLI remains local-only. Normal and recovered local-output retries bypass the printer dispatcher entirely and cannot re-submit printer jobs.
+- Wails output snapshots expose one result per target (status/job ID/error/duration). The result screen distinguishes local save from Windows spooler acceptance and never describes a queued job as physical paper.
+- GDI per-job DEVMODE now supports the exact Windows driver `dmFormName`. The value must fit 31 UTF-16 code units and is passed to DocumentPropertiesW for validation. Vendor-private DEVMODE bytes are preserved.
+- Read-only DS-RX1 virtual driver inspection found form names including `(6x4)`, `(6x8)`, `(5x7)`. One synthetic virtual smoke with `(6x4)` passed: spooler job 32, durable manifest queued, local hash matched source, virtual converter produced 1200x1800 JPEG, and the queue returned Normal/no remaining jobs. Queue lookup after converter cleanup returned not-found, not physical success. The new smoke JPEG was removed and pre-existing files were preserved. PhysicalPrintConfirmed=false.
+
+Validation: config/output/Wails targeted tests PASS; full root tests/vet, Windows/Linux CGO-disabled builds, Wails tests/vet and production `run-photobooth.ps1 -NoLaunch` are the final validation gates for this continuation. Linux is compile-only. No physical printer was connected.
+
+**Current gate status:** physical printer/media acceptance = **PENDING / DEFERRED — no physical hardware available**. This is not marked done. Next external dependency is an operator-selected physical model plus media kit; after obtaining it, run PRINTER_SELECTION_AND_ACCEPTANCE.md. Native Ubuntu driver/runtime acceptance remains separate. Keep the canonical StoreConfig printer.disabled default and do not treat the virtual smoke as physical acceptance.
+
+
+## 2026-11-20 - Windows release publisher-authenticity groundwork
+
+Implemented the Windows release authenticity step that does not require booth hardware.
+
+- Unsigned internal Preview packages are now explicit opt-in. Build requires `-AllowUnsignedPreview`; install, start and rollback each require the same switch. The installer refuses unsigned JSON-manifest packages by default and accepts them only on the `internal-alpha` channel.
+- Signed candidates use a separate `release-manifest.ps1` envelope containing base64 JSON; the envelope is Authenticode-signed. The installer validates the envelope's Windows signature and requires its signer thumbprint to be in the PhotoBooth publisher allowlist before it parses trusted release metadata.
+- The builder signs staged copies of `PhotoBooth.exe` and `manage-smb-remote-admin.ps1` with Authenticode SHA-256, signs the manifest envelope, then packages those copies. The repository/build-tree artifacts are never modified by signing.
+- Signed EXE/helper signatures must match the manifest publisher and their size/SHA-256 must match the signed manifest. Mixed JSON+signed manifests, malformed envelope, modified binary/helper/manifest, an empty/untrusted publisher allowlist and signed/unsigned same-version collisions fail closed.
+- Signed candidates use the `signed-candidate` channel. They are not marked production-approved. The production thumbprint allowlist in Release.Common.ps1 remains empty until a genuine publisher-owned Code Signing certificate and timestamp authority are selected and verified externally.
+
+Validation:
+- PowerShell AST parse PASS for all 9 release Windows scripts.
+- Synthetic release lifecycle PASS: unsigned default-deny; explicit Preview opt-in; helper-less first-install refusal; immutable install/update/rollback; active no-launch verification; binary/manifest hash rejection; ZIP sidecar rejection; protected operator-data path rejection; fixture cleanup.
+- Signing smoke PASS with a disposable TEST-ONLY Code Signing certificate: signed EXE/helper/envelope verification; rejection of tampered helper/manifest; rejection with empty or wrong publisher pin; rejection of unsigned Preview by default and acceptance only with explicit opt-in. Test certificate and TEMP files were removed; the test thumbprint was never placed in the production allowlist.
+- Actual unsigned builder -> ZIP -> installer -> `Start-PhotoBooth.ps1 -NoLaunch` smoke PASS in a disposable TEMP install root; temporary package/install removed; app was not launched.
+- Original build-tree PhotoBooth.exe and SMB helper remain NotSigned; signing happened only on copies in TEMP. No production certificate was used.
+
+**Still pending / not claimed complete:** no genuine publisher certificate/TSA selected, no real signed-candidate builder package produced with a production certificate, no production trust pin, no public distribution or automatic update transport. Production UI/deployment decision remains open. Physical printer/media acceptance remains **PENDING / DEFERRED — no hardware available**. Native Ubuntu direct-USB camera acceptance remains separately PENDING; Linux package/install path is not validated on a native Ubuntu desktop. Stage 0/1 are not closed.
+
+**Next dependencies:** choose the organization/legal publisher identity and obtain its Code Signing certificate + approved timestamp authority; independently confirm and pin the thumbprint; obtain/accept physical printer + media; and make the explicit production UI/deployment decision. Do not substitute a self-signed test certificate or virtual queue for these decisions.

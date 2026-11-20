@@ -17,6 +17,7 @@ import (
 	"time"
 
 	stationconfig "github.com/dongsinhho/PhotoBooth/internal/booth/config"
+	boothoutput "github.com/dongsinhho/PhotoBooth/internal/booth/output"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/retention"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -64,6 +65,7 @@ type App struct {
 	retentionPlan        *retention.Plan
 	retentionPlanDigest  string
 	retentionPlanOptions retention.Options
+	inspectPrinterJob    func(string, string, string) (boothoutput.PrinterJobInspection, error)
 	pathsMu              sync.Mutex
 }
 

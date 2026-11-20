@@ -2,12 +2,28 @@
 param(
     [Parameter(Mandatory = $true)][string]$Version,
     [switch]$SkipBuild,
-    [string]$OutputDirectory
+    [string]$OutputDirectory,
+    [switch]$AllowUnsignedPreview,
+    [string]$SigningCertificateThumbprint,
+    [string]$TimestampServer
 )
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Release.Common.ps1')
 Assert-PhotoBoothVersion $Version
+if ([string]::IsNullOrWhiteSpace($SigningCertificateThumbprint) -and !$AllowUnsignedPreview) {
+    throw 'Package creation requires -SigningCertificateThumbprint for a publisher-signed production release or explicit -AllowUnsignedPreview for an unsigned internal Preview.'
+}
+if (![string]::IsNullOrWhiteSpace($SigningCertificateThumbprint) -and $AllowUnsignedPreview) {
+    throw 'Choose either a signed production release or an unsigned Preview package, not both.'
+}
+$signingCertificate = $null
+if (![string]::IsNullOrWhiteSpace($SigningCertificateThumbprint)) {
+    if ([string]::IsNullOrWhiteSpace($TimestampServer)) {
+        throw 'A timestamp server URL is required for production Authenticode signing.'
+    }
+    $signingCertificate = Get-PhotoBoothSigningCertificate -Thumbprint $SigningCertificateThumbprint
+}
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $uiDirectory = Join-Path $repoRoot 'tools\ui-spike\wails-v2'
@@ -43,8 +59,31 @@ if (!(Test-Path -LiteralPath $smbAdminHelper -PathType Leaf)) {
 Assert-PhotoBoothPE -Path $executable
 Assert-PhotoBoothNotRunning -InstallRoot (Split-Path -Parent $executable)
 
-$binaryInfo = Get-Item -LiteralPath $executable
-$binaryHash = Get-PhotoBoothSha256 -Path $executable
+$packageExecutable = $executable
+$packageHelper = $smbAdminHelper
+$signingStageRoot = $null
+if ($signingCertificate) {
+    $signingStageRoot = Join-Path ([IO.Path]::GetTempPath()) ('photobooth-signing-stage-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $signingStageRoot -Force | Out-Null
+    $packageExecutable = Join-Path $signingStageRoot 'PhotoBooth.exe'
+    $packageHelper = Join-Path $signingStageRoot 'manage-smb-remote-admin.ps1'
+    Copy-Item -LiteralPath $executable -Destination $packageExecutable
+    Copy-Item -LiteralPath $smbAdminHelper -Destination $packageHelper
+    try {
+        Write-Host "SIGNING_STAGED_EXECUTABLE=$packageExecutable"
+        [void](Set-PhotoBoothAuthenticodeSignature -Path $packageExecutable -Certificate $signingCertificate -TimestampServer $TimestampServer)
+        Write-Host "SIGNING_STAGED_HELPER=$packageHelper"
+        [void](Set-PhotoBoothAuthenticodeSignature -Path $packageHelper -Certificate $signingCertificate -TimestampServer $TimestampServer)
+    }
+    catch {
+        if (Test-Path -LiteralPath $signingStageRoot) {
+            Remove-Item -LiteralPath $signingStageRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        throw
+    }
+}
+$binaryInfo = Get-Item -LiteralPath $packageExecutable
+$binaryHash = Get-PhotoBoothSha256 -Path $packageExecutable
 $revision = 'unknown'
 $workingTreeDirty = $null
 try {
@@ -73,7 +112,8 @@ finally {
     Pop-Location
 }
 
-$releaseName = "PhotoBooth-WindowsPreview-$Version-windows-amd64"
+$releaseChannel = if ($signingCertificate) { 'signed-candidate' } else { 'internal-alpha' }
+$releaseName = "PhotoBooth-$releaseChannel-$Version-windows-amd64"
 $zipPath = Join-Path $OutputDirectory ($releaseName + '.zip')
 $hashPath = $zipPath + '.sha256'
 if (Test-Path -LiteralPath $zipPath) {
@@ -91,7 +131,7 @@ try {
     $manifest = [ordered]@{
         schema_version = 1
         product = $script:PhotoBoothReleaseProduct
-        channel = $script:PhotoBoothReleaseChannel
+        channel = $releaseChannel
         version = $Version
         target = 'windows-amd64'
         entrypoint = 'PhotoBooth.exe'
@@ -102,8 +142,8 @@ try {
         }
         smb_admin_helper = [ordered]@{
             file = 'manage-smb-remote-admin.ps1'
-            size = [long](Get-Item -LiteralPath $smbAdminHelper).Length
-            sha256 = Get-PhotoBoothSha256 -Path $smbAdminHelper
+            size = [long](Get-Item -LiteralPath $packageHelper).Length
+            sha256 = Get-PhotoBoothSha256 -Path $packageHelper
         }
         source = [ordered]@{
             git_revision = $revision
@@ -115,28 +155,45 @@ try {
             wails_version = '2.17.0'
         }
         distribution = [ordered]@{
-            signed = $false
-            intended_use = 'internal Windows Preview evaluation only'
+            signed = [bool]$signingCertificate
+            signer_thumbprint = if ($signingCertificate) { $signingCertificate.Thumbprint.ToUpperInvariant() } else { $null }
+            signature_type = if ($signingCertificate) { 'Authenticode-SHA256' } else { $null }
+            intended_use = if ($signingCertificate) { 'publisher-signed Windows Preview release candidate; production UI approval remains separate' } else { 'internal Windows Preview evaluation only' }
         }
     }
 
     $manifestJson = $manifest | ConvertTo-Json -Depth 8
-    [IO.File]::WriteAllText(
-        (Join-Path $stagingRoot 'release-manifest.json'),
-        $manifestJson,
-        [Text.UTF8Encoding]::new($false)
-    )
+    $unsignedPreviewSwitch = if ($signingCertificate) { '' } else { ' -AllowUnsignedPreview' }
+    if ($signingCertificate) {
+        $manifestBase64 = [Convert]::ToBase64String([Text.UTF8Encoding]::new($false).GetBytes($manifestJson))
+        $envelopePath = Join-Path $stagingRoot 'release-manifest.ps1'
+        $envelope = '$PhotoBoothReleaseManifestBase64 = ''' + $manifestBase64 + '''' + [Environment]::NewLine
+        [IO.File]::WriteAllText($envelopePath, $envelope, [Text.UTF8Encoding]::new($false))
+        [void](Set-PhotoBoothAuthenticodeSignature -Path $envelopePath -Certificate $signingCertificate -TimestampServer $TimestampServer)
+    }
+    else {
+        [IO.File]::WriteAllText(
+            (Join-Path $stagingRoot 'release-manifest.json'),
+            $manifestJson,
+            [Text.UTF8Encoding]::new($false)
+        )
+    }
 
+    $packageTitle = if ($signingCertificate) { 'PhotoBooth Windows Preview - signed release candidate' } else { 'PhotoBooth Windows Preview - unsigned internal alpha package' }
     $readme = @"
-PhotoBooth Windows Preview - internal alpha package
+$packageTitle
 
 Version: $Version
 Target: Windows 10/11 x64
 Executable: PhotoBooth.exe
 
-This is an unsigned engineering package for internal evaluation. It is not a
-production release, signed installer, automatic updater, or compatibility
-promise for every Windows camera or computer.
+$(
+if ($signingCertificate) {
+    'This package has Authenticode signatures for the executable, SMB helper and release-manifest envelope. It is a signed Windows Preview candidate, not proof of production UI approval or universal hardware compatibility.'
+} else {
+    'This is an unsigned engineering package for internal evaluation only. It is not a production release, signed installer, automatic updater, or compatibility promise for every Windows camera or computer.'
+}
+)
 
 Requirements:
 - Windows 10/11 x64
@@ -152,9 +209,9 @@ First installation:
 Install:
 1. Extract this ZIP to a temporary folder.
 2. From the repository checkout, run:
-   powershell -ExecutionPolicy Bypass -File tools\release\windows\Install-PhotoBoothWindowsPackage.ps1 -PackagePath <this ZIP>
+   powershell -ExecutionPolicy Bypass -File tools\release\windows\Install-PhotoBoothWindowsPackage.ps1 -PackagePath <this ZIP>$unsignedPreviewSwitch
 3. Launch through:
-   powershell -ExecutionPolicy Bypass -File tools\release\windows\Start-PhotoBooth.ps1
+   powershell -ExecutionPolicy Bypass -File tools\release\windows\Start-PhotoBooth.ps1$unsignedPreviewSwitch
 
 Update and rollback:
 - Close PhotoBooth before installing or rolling back.
@@ -185,8 +242,8 @@ Licensing:
         $readme,
         [Text.UTF8Encoding]::new($false)
     )
-    Copy-Item -LiteralPath $executable -Destination (Join-Path $stagingRoot 'PhotoBooth.exe')
-    Copy-Item -LiteralPath $smbAdminHelper -Destination (Join-Path $stagingRoot 'manage-smb-remote-admin.ps1')
+    Copy-Item -LiteralPath $packageExecutable -Destination (Join-Path $stagingRoot 'PhotoBooth.exe')
+    Copy-Item -LiteralPath $packageHelper -Destination (Join-Path $stagingRoot 'manage-smb-remote-admin.ps1')
 
     Compress-Archive -Path (Join-Path $stagingRoot '*') -DestinationPath $zipPath -CompressionLevel Optimal
     $zipHash = Get-PhotoBoothSha256 -Path $zipPath
@@ -194,7 +251,11 @@ Licensing:
     [IO.File]::WriteAllText($hashPath, $checksumLine, [Text.UTF8Encoding]::new($false))
 
     Write-Host "PACKAGE_VERSION=$Version"
+    Write-Host "PACKAGE_CHANNEL=$releaseChannel"
     Write-Host "PACKAGE_EXE_SHA256=$binaryHash"
+    if ($signingCertificate) {
+        Write-Host "PACKAGE_PUBLISHER_THUMBPRINT=$($signingCertificate.Thumbprint)"
+    }
     Write-Host "PACKAGE_ZIP_SHA256=$zipHash"
     Write-Host "PACKAGE_PATH=$zipPath"
     Write-Host "CHECKSUM_PATH=$hashPath"
@@ -208,5 +269,8 @@ catch {
 finally {
     if (Test-Path -LiteralPath $stagingRoot) {
         Remove-Item -LiteralPath $stagingRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if ($signingStageRoot -and (Test-Path -LiteralPath $signingStageRoot)) {
+        Remove-Item -LiteralPath $signingStageRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 }

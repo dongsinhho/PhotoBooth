@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	stationconfig "github.com/dongsinhho/PhotoBooth/internal/booth/config"
 )
@@ -22,11 +23,13 @@ import (
 const (
 	ManifestFileName            = "manifest.json"
 	LegacyManifestVersion       = 1
-	ManifestVersion             = 2
+	PolicyManifestVersion       = 2
+	ManifestVersion             = 3
 	CaptureStagingDirectoryName = ".staging"
+	maxPrintAttempts            = 8
 	maxManifestBytes            = 64 << 10
 	maxRecoveryRootEntries      = 4096
-	maxSessionDirectoryEntries  = 4  // manifest, captures, optional frame snapshot and rendered.jpg
+	maxSessionDirectoryEntries  = 5  // manifest, captures, optional frame snapshot, rendered.jpg and print lock
 	maxCaptureDirectoryEntries  = 13 // up to 12 committed captures plus .staging
 	maxCaptureStagingEntries    = 12
 	maxRecoveryJPEGBytes        = 40 << 20
@@ -44,31 +47,89 @@ const (
 )
 
 type Manifest struct {
-	Version               int       `json:"version"`
-	SessionID             string    `json:"session_id"`
-	Phase                 Phase     `json:"phase"`
-	ExpectedShots         int       `json:"expected_shots"`
-	CompletedShots        int       `json:"completed_shots"`
-	FrameConfigPath       string    `json:"frame_config_path"`
-	FrameConfigSHA256     string    `json:"frame_config_sha256"`
-	FrameSnapshotFile     string    `json:"frame_snapshot_file,omitempty"`
-	FrameSnapshotSHA256   string    `json:"frame_snapshot_sha256,omitempty"`
-	RunConfigFingerprint  string    `json:"run_config_fingerprint"`
-	ConfigSchemaVersion   int       `json:"config_schema_version"`
-	CameraProvider        string    `json:"camera_provider,omitempty"`
-	CameraDevice          string    `json:"camera_device,omitempty"`
-	CaptureWidth          int       `json:"capture_width,omitempty"`
-	CaptureHeight         int       `json:"capture_height,omitempty"`
-	CountdownMilliseconds int64     `json:"countdown_ms,omitempty"`
-	IntervalMilliseconds  int64     `json:"interval_ms,omitempty"`
-	DemoMode              bool      `json:"demo_mode,omitempty"`
-	MediaDeliveryMode     string    `json:"media_delivery_mode,omitempty"`
-	PaymentMode           string    `json:"payment_mode,omitempty"`
-	CreatedAt             time.Time `json:"created_at"`
-	UpdatedAt             time.Time `json:"updated_at"`
-	RenderedAt            time.Time `json:"rendered_at,omitempty"`
-	OutputFinalizedAt     time.Time `json:"output_finalized_at,omitempty"`
-	OutputPath            string    `json:"output_path,omitempty"`
+	Version               int               `json:"version"`
+	SessionID             string            `json:"session_id"`
+	Phase                 Phase             `json:"phase"`
+	ExpectedShots         int               `json:"expected_shots"`
+	CompletedShots        int               `json:"completed_shots"`
+	FrameConfigPath       string            `json:"frame_config_path"`
+	FrameConfigSHA256     string            `json:"frame_config_sha256"`
+	FrameSnapshotFile     string            `json:"frame_snapshot_file,omitempty"`
+	FrameSnapshotSHA256   string            `json:"frame_snapshot_sha256,omitempty"`
+	RunConfigFingerprint  string            `json:"run_config_fingerprint"`
+	ConfigSchemaVersion   int               `json:"config_schema_version"`
+	CameraProvider        string            `json:"camera_provider,omitempty"`
+	CameraDevice          string            `json:"camera_device,omitempty"`
+	CaptureWidth          int               `json:"capture_width,omitempty"`
+	CaptureHeight         int               `json:"capture_height,omitempty"`
+	CountdownMilliseconds int64             `json:"countdown_ms,omitempty"`
+	IntervalMilliseconds  int64             `json:"interval_ms,omitempty"`
+	DemoMode              bool              `json:"demo_mode,omitempty"`
+	MediaDeliveryMode     string            `json:"media_delivery_mode,omitempty"`
+	PaymentMode           string            `json:"payment_mode,omitempty"`
+	PrintAttempts         []PrintAttempt    `json:"print_attempts,omitempty"`
+	PrintResolutions      []PrintResolution `json:"print_resolutions,omitempty"`
+	CreatedAt             time.Time         `json:"created_at"`
+	UpdatedAt             time.Time         `json:"updated_at"`
+	RenderedAt            time.Time         `json:"rendered_at,omitempty"`
+	OutputFinalizedAt     time.Time         `json:"output_finalized_at,omitempty"`
+	OutputPath            string            `json:"output_path,omitempty"`
+}
+
+// PrintAttempt records a single durable attempt to hand a rendered session
+// image to a Windows printer queue. A queued status means the OS spooler
+// accepted the job; it never means that physical paper was confirmed.
+type PrintAttempt struct {
+	AttemptID    string    `json:"attempt_id"`
+	QueueName    string    `json:"queue_name"`
+	DocumentName string    `json:"document_name"`
+	SourceSHA256 string    `json:"source_sha256"`
+	Status       string    `json:"status"`
+	JobID        string    `json:"job_id,omitempty"`
+	Error        string    `json:"error,omitempty"`
+	RequestedAt  time.Time `json:"requested_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// PrintLockInfo is written to .print.lock before the manifest intent is
+// published. It lets recovery inspect the exact Windows queue/document even
+// when a process crashes in the small window before the manifest write.
+// PrintResolution is an append-only operator decision for one queued or
+// ambiguous printer attempt. Queue absence is only a recorded observation;
+// printed/not_printed decisions additionally reflect the operator's physical
+// inspection of the printer output.
+type PrintResolution struct {
+	AttemptID      string    `json:"attempt_id"`
+	Decision       string    `json:"decision"`
+	QueueFound     bool      `json:"queue_found"`
+	QueueCheckedAt time.Time `json:"queue_checked_at"`
+	RecordedAt     time.Time `json:"recorded_at"`
+	Note           string    `json:"note"`
+}
+
+type PrintLockInfo struct {
+	LeaseVersion int       `json:"lease_version,omitempty"`
+	OwnerPID     int       `json:"owner_pid,omitempty"`
+	AttemptID    string    `json:"attempt_id"`
+	QueueName    string    `json:"queue_name"`
+	DocumentName string    `json:"document_name"`
+	SourceSHA256 string    `json:"source_sha256,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+const (
+	PrintStatusSubmitting = "submitting"
+	PrintStatusQueued     = "queued"
+	PrintStatusFailed     = "failed"
+	PrintStatusUncertain  = "uncertain"
+
+	PrintResolutionPrinted    = "printed"
+	PrintResolutionNotPrinted = "not_printed"
+	PrintResolutionUnknown    = "unknown"
+)
+
+func PrintDocumentName(sessionID, attemptID string) string {
+	return "PhotoBooth-" + sessionID + "-" + attemptID
 }
 
 type RecoveryStatus string
@@ -81,17 +142,22 @@ const (
 )
 
 type RecoveryItem struct {
-	SessionID       string         `json:"session_id"`
-	DirectoryPath   string         `json:"directory_path"`
-	Status          RecoveryStatus `json:"status"`
-	Reason          string         `json:"reason,omitempty"`
-	CompletedShots  int            `json:"completed_shots"`
-	ExpectedShots   int            `json:"expected_shots"`
-	Phase           Phase          `json:"phase,omitempty"`
-	Manifest        *Manifest      `json:"manifest,omitempty"`
-	FrameConfigPath string         `json:"frame_config_path,omitempty"`
-	CapturePaths    []string       `json:"capture_paths,omitempty"`
-	RenderedPath    string         `json:"rendered_path,omitempty"`
+	SessionID        string            `json:"session_id"`
+	DirectoryPath    string            `json:"directory_path"`
+	Status           RecoveryStatus    `json:"status"`
+	Reason           string            `json:"reason,omitempty"`
+	CompletedShots   int               `json:"completed_shots"`
+	ExpectedShots    int               `json:"expected_shots"`
+	Phase            Phase             `json:"phase,omitempty"`
+	Manifest         *Manifest         `json:"manifest,omitempty"`
+	FrameConfigPath  string            `json:"frame_config_path,omitempty"`
+	CapturePaths     []string          `json:"capture_paths,omitempty"`
+	RenderedPath     string            `json:"rendered_path,omitempty"`
+	PrintAttempts    []PrintAttempt    `json:"print_attempts,omitempty"`
+	PrintResolutions []PrintResolution `json:"print_resolutions,omitempty"`
+	PrintLockPresent bool              `json:"print_lock_present,omitempty"`
+	PrintLockOwner   string            `json:"print_lock_owner,omitempty"`
+	PrintLock        *PrintLockInfo    `json:"print_lock,omitempty"`
 }
 
 type RecoveryScan struct {
@@ -112,7 +178,7 @@ func NewManifest(sessionID string, expectedShots int, framePath, frameSHA256, fi
 }
 
 func ValidateManifest(m Manifest) error {
-	if m.Version != LegacyManifestVersion && m.Version != ManifestVersion {
+	if m.Version < LegacyManifestVersion || m.Version > ManifestVersion {
 		return fmt.Errorf("unsupported session manifest version %d", m.Version)
 	}
 	if !validSessionID(m.SessionID) {
@@ -137,8 +203,20 @@ func ValidateManifest(m Manifest) error {
 	if m.Version == LegacyManifestVersion && (m.FrameSnapshotFile != "" || m.FrameSnapshotSHA256 != "") {
 		return errors.New("legacy session manifest cannot declare a frame snapshot")
 	}
-	if m.Version == ManifestVersion && m.FrameSnapshotFile == "" {
-		return errors.New("version-2 session manifest requires an immutable frame snapshot")
+	if m.Version >= PolicyManifestVersion && m.FrameSnapshotFile == "" {
+		return fmt.Errorf("version-%d session manifest requires an immutable frame snapshot", m.Version)
+	}
+	if m.Version < ManifestVersion && len(m.PrintAttempts) != 0 {
+		return errors.New("printer attempts require a version-3 session manifest")
+	}
+	if len(m.PrintAttempts) > maxPrintAttempts {
+		return fmt.Errorf("manifest contains more than %d printer attempts", maxPrintAttempts)
+	}
+	if m.Version < ManifestVersion && len(m.PrintResolutions) != 0 {
+		return errors.New("printer resolutions require a version-3 session manifest")
+	}
+	if len(m.PrintResolutions) > maxPrintAttempts {
+		return fmt.Errorf("manifest contains more than %d printer resolutions", maxPrintAttempts)
 	}
 	if m.FrameSnapshotFile == "" {
 		if m.FrameSnapshotSHA256 != "" {
@@ -154,12 +232,25 @@ func ValidateManifest(m Manifest) error {
 	if m.ConfigSchemaVersion < 0 {
 		return errors.New("manifest config_schema_version cannot be negative")
 	}
-	if m.Version == ManifestVersion {
+	if m.Version >= PolicyManifestVersion {
 		if m.MediaDeliveryMode != stationconfig.MediaDeliveryModeLocal {
 			return fmt.Errorf("manifest media_delivery_mode %q is not supported", m.MediaDeliveryMode)
 		}
 		if m.PaymentMode != stationconfig.PaymentModeDisabled {
 			return fmt.Errorf("manifest payment_mode %q is not supported", m.PaymentMode)
+		}
+	}
+	seenPrintAttempts := make(map[string]struct{}, len(m.PrintAttempts))
+	for index, attempt := range m.PrintAttempts {
+		if err := validatePrintAttempt(m, attempt); err != nil {
+			return fmt.Errorf("manifest print_attempts[%d]: %w", index, err)
+		}
+		if _, exists := seenPrintAttempts[attempt.AttemptID]; exists {
+			return fmt.Errorf("manifest print_attempts contains duplicate attempt ID %q", attempt.AttemptID)
+		}
+		seenPrintAttempts[attempt.AttemptID] = struct{}{}
+		if index > 0 && attempt.RequestedAt.Before(m.PrintAttempts[index-1].RequestedAt) {
+			return errors.New("manifest print attempts are not ordered by request time")
 		}
 	}
 	if m.CreatedAt.IsZero() || m.UpdatedAt.IsZero() || m.UpdatedAt.Before(m.CreatedAt) {
@@ -190,7 +281,212 @@ func ValidateManifest(m Manifest) error {
 	} else if !m.OutputFinalizedAt.IsZero() || m.OutputPath != "" {
 		return errors.New("output-finalized metadata is only valid after output publication")
 	}
+	if len(m.PrintAttempts) > 0 && m.Phase != PhaseRendered && m.Phase != PhaseOutputFinalized {
+		return errors.New("printer attempts are only valid after the rendered phase")
+	}
+	for _, attempt := range m.PrintAttempts {
+		if attempt.RequestedAt.Before(m.RenderedAt) || attempt.UpdatedAt.After(m.UpdatedAt) {
+			return errors.New("printer attempt timestamps are inconsistent with the rendered manifest")
+		}
+	}
+	seenResolutions := make(map[string]struct{}, len(m.PrintResolutions))
+	for index, resolution := range m.PrintResolutions {
+		if err := validatePrintResolution(m, resolution); err != nil {
+			return fmt.Errorf("manifest print_resolutions[%d]: %w", index, err)
+		}
+		if _, exists := seenResolutions[resolution.AttemptID]; exists {
+			return fmt.Errorf("manifest print_resolutions contains duplicate attempt ID %q", resolution.AttemptID)
+		}
+		seenResolutions[resolution.AttemptID] = struct{}{}
+		if index > 0 && resolution.RecordedAt.Before(m.PrintResolutions[index-1].RecordedAt) {
+			return errors.New("manifest print resolutions are not ordered by record time")
+		}
+	}
 	return nil
+}
+
+func validatePrintAttempt(m Manifest, attempt PrintAttempt) error {
+	if !validSessionID(attempt.AttemptID) {
+		return errors.New("attempt_id must be a 32-character lowercase hexadecimal identifier")
+	}
+	if strings.TrimSpace(attempt.QueueName) == "" || len(attempt.QueueName) > 256 {
+		return errors.New("queue_name must contain between 1 and 256 bytes")
+	}
+	if attempt.QueueName != strings.TrimSpace(attempt.QueueName) {
+		return errors.New("queue_name must not contain leading or trailing whitespace")
+	}
+	if attempt.DocumentName != PrintDocumentName(m.SessionID, attempt.AttemptID) {
+		return errors.New("document_name does not match the session and attempt IDs")
+	}
+	if !validSHA256(attempt.SourceSHA256) {
+		return errors.New("source_sha256 must be a lowercase SHA-256 digest")
+	}
+	switch attempt.Status {
+	case PrintStatusSubmitting:
+		if attempt.JobID != "" || attempt.Error != "" {
+			return errors.New("submitting attempt cannot contain a job ID or error")
+		}
+	case PrintStatusQueued:
+		if strings.TrimSpace(attempt.JobID) == "" || len(attempt.JobID) > 128 || attempt.Error != "" {
+			return errors.New("queued attempt requires a bounded job ID and no error")
+		}
+	case PrintStatusFailed:
+		if attempt.JobID != "" || strings.TrimSpace(attempt.Error) == "" || len(attempt.Error) > 1024 {
+			return errors.New("failed attempt requires a bounded error and no job ID")
+		}
+	case PrintStatusUncertain:
+		if len(attempt.JobID) > 128 || strings.TrimSpace(attempt.Error) == "" || len(attempt.Error) > 1024 {
+			return errors.New("uncertain attempt requires a bounded error and an optional bounded job ID")
+		}
+	default:
+		return fmt.Errorf("unknown printer attempt status %q", attempt.Status)
+	}
+	if attempt.RequestedAt.IsZero() || attempt.UpdatedAt.IsZero() ||
+		attempt.UpdatedAt.Before(attempt.RequestedAt) || attempt.UpdatedAt.After(m.UpdatedAt) {
+		return errors.New("printer attempt timestamps are invalid")
+	}
+	return nil
+}
+
+func validatePrintResolution(m Manifest, resolution PrintResolution) error {
+	if !validSessionID(resolution.AttemptID) {
+		return errors.New("attempt_id must be a 32-character lowercase hexadecimal identifier")
+	}
+	var attempt *PrintAttempt
+	for index := range m.PrintAttempts {
+		if m.PrintAttempts[index].AttemptID == resolution.AttemptID {
+			attempt = &m.PrintAttempts[index]
+			break
+		}
+	}
+	if attempt == nil {
+		return errors.New("resolution refers to an unknown printer attempt")
+	}
+	if attempt.Status != PrintStatusQueued && attempt.Status != PrintStatusSubmitting && attempt.Status != PrintStatusUncertain {
+		return fmt.Errorf("attempt state %q does not require an operator resolution", attempt.Status)
+	}
+	switch resolution.Decision {
+	case PrintResolutionPrinted, PrintResolutionNotPrinted:
+		if resolution.QueueFound {
+			return errors.New("printed/not_printed decisions require the matching job to be absent from the queue")
+		}
+	case PrintResolutionUnknown:
+	default:
+		return fmt.Errorf("unknown printer resolution decision %q", resolution.Decision)
+	}
+	if resolution.QueueCheckedAt.IsZero() || resolution.QueueCheckedAt.Before(attempt.RequestedAt) ||
+		resolution.RecordedAt.IsZero() || resolution.RecordedAt.Before(resolution.QueueCheckedAt) ||
+		resolution.RecordedAt.Before(attempt.UpdatedAt) || resolution.RecordedAt.After(m.UpdatedAt) {
+		return errors.New("printer resolution timestamps are invalid")
+	}
+	if strings.TrimSpace(resolution.Note) == "" || len(resolution.Note) > 512 ||
+		strings.IndexFunc(resolution.Note, unicode.IsControl) >= 0 {
+		return errors.New("printer resolution note must contain 1 to 512 printable bytes")
+	}
+	return nil
+}
+
+// PrintResolutionFor returns the immutable operator decision for an attempt.
+func PrintResolutionFor(m Manifest, attemptID string) (PrintResolution, bool) {
+	for _, resolution := range m.PrintResolutions {
+		if resolution.AttemptID == attemptID {
+			return resolution, true
+		}
+	}
+	return PrintResolution{}, false
+}
+
+// ResolvePrintAttempt appends one operator decision. It never changes the
+// original PrintAttempt record or claims that the spooler confirmed physical output.
+func ResolvePrintAttempt(m *Manifest, resolution PrintResolution) error {
+	if m == nil {
+		return errors.New("session manifest is required")
+	}
+	if m.Version != ManifestVersion {
+		return fmt.Errorf("printer resolutions require manifest version %d", ManifestVersion)
+	}
+	if len(m.PrintResolutions) >= maxPrintAttempts {
+		return fmt.Errorf("session already has the maximum of %d printer resolutions", maxPrintAttempts)
+	}
+	if _, exists := PrintResolutionFor(*m, resolution.AttemptID); exists {
+		return fmt.Errorf("printer attempt %s already has an operator resolution", resolution.AttemptID)
+	}
+	if resolution.RecordedAt.IsZero() {
+		return errors.New("printer resolution record time is required")
+	}
+	m.PrintResolutions = append(m.PrintResolutions, resolution)
+	m.UpdatedAt = resolution.RecordedAt
+	return ValidateManifest(*m)
+}
+
+// BeginPrintAttempt durably appends a pre-submission intent. A queued,
+// submitting or uncertain previous attempt blocks another submission. Only a
+// known pre-acceptance failure or an operator-confirmed not_printed resolution
+// allows a later explicitly invoked attempt.
+func BeginPrintAttempt(m *Manifest, attempt PrintAttempt) error {
+	if m == nil {
+		return errors.New("session manifest is required")
+	}
+	if m.Version != ManifestVersion {
+		return fmt.Errorf("durable printer attempts require manifest version %d", ManifestVersion)
+	}
+	if m.Phase != PhaseRendered && m.Phase != PhaseOutputFinalized {
+		return errors.New("printer attempts require a rendered session")
+	}
+	if len(m.PrintAttempts) >= maxPrintAttempts {
+		return fmt.Errorf("session already has the maximum of %d printer attempts", maxPrintAttempts)
+	}
+	if len(m.PrintAttempts) > 0 {
+		last := m.PrintAttempts[len(m.PrintAttempts)-1]
+		manualRetryAllowed := last.Status == PrintStatusFailed
+		if resolution, ok := PrintResolutionFor(*m, last.AttemptID); ok {
+			if resolution.Decision == PrintResolutionNotPrinted {
+				manualRetryAllowed = true
+			} else {
+				return fmt.Errorf("previous printer attempt %s has resolution %q; a new attempt is not allowed", last.AttemptID, resolution.Decision)
+			}
+		}
+		if !manualRetryAllowed {
+			return fmt.Errorf("previous printer attempt %s is %q; operator resolution is required before another submission", last.AttemptID, last.Status)
+		}
+	}
+	if attempt.Status != PrintStatusSubmitting || attempt.JobID != "" || attempt.Error != "" {
+		return errors.New("new printer attempt must start in submitting state without a job ID or error")
+	}
+	if attempt.RequestedAt.IsZero() || attempt.UpdatedAt.IsZero() || !attempt.RequestedAt.Equal(attempt.UpdatedAt) {
+		return errors.New("new printer attempt must have matching non-zero request/update timestamps")
+	}
+	m.PrintAttempts = append(m.PrintAttempts, attempt)
+	m.UpdatedAt = attempt.UpdatedAt
+	return ValidateManifest(*m)
+}
+
+// FinishPrintAttempt records the result of one previously persisted submitting
+// intent. A failed manifest write leaves the on-disk state as submitting,
+// which recovery deliberately classifies as uncertain.
+func FinishPrintAttempt(m *Manifest, attemptID, status, jobID, message string, at time.Time) error {
+	if m == nil {
+		return errors.New("session manifest is required")
+	}
+	for index := range m.PrintAttempts {
+		attempt := &m.PrintAttempts[index]
+		if attempt.AttemptID != attemptID {
+			continue
+		}
+		if attempt.Status != PrintStatusSubmitting {
+			return fmt.Errorf("printer attempt %s is already %q", attemptID, attempt.Status)
+		}
+		if status != PrintStatusQueued && status != PrintStatusFailed && status != PrintStatusUncertain {
+			return fmt.Errorf("invalid completed printer attempt status %q", status)
+		}
+		if at.IsZero() || at.Before(attempt.RequestedAt) {
+			return errors.New("printer attempt completion timestamp is invalid")
+		}
+		attempt.Status, attempt.JobID, attempt.Error, attempt.UpdatedAt = status, jobID, message, at
+		m.UpdatedAt = at
+		return ValidateManifest(*m)
+	}
+	return fmt.Errorf("printer attempt %s was not found", attemptID)
 }
 
 func WriteManifest(sessionDir string, m Manifest) error {
@@ -343,6 +639,24 @@ func InspectRecoveryRoot(sessionsRoot string) (RecoveryScan, error) {
 	return scan, nil
 }
 
+func readPrintLock(path, sessionID string) (PrintLockInfo, error) {
+	var lock PrintLockInfo
+	file, err := openPrintLockForRead(path)
+	if err != nil {
+		return lock, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 ||
+		info.Size() <= 0 || info.Size() > PrintLockMaxBytes {
+		if err != nil {
+			return lock, fmt.Errorf("inspect printer lock read handle: %w", err)
+		}
+		return lock, errors.New("printer lock is not a bounded regular file")
+	}
+	return readPrintLockFromFile(file, sessionID)
+}
+
 func inspectSessionDirectory(item *RecoveryItem) {
 	entries, tooMany, err := readDirectoryLimited(item.DirectoryPath, maxSessionDirectoryEntries)
 	if err != nil {
@@ -354,12 +668,34 @@ func inspectSessionDirectory(item *RecoveryItem) {
 		return
 	}
 	known := map[string]bool{
-		ManifestFileName: true, "captures": true, "rendered.jpg": true, FrameSnapshotFileName: true,
+		ManifestFileName: true, "captures": true, "rendered.jpg": true, FrameSnapshotFileName: true, ".print.lock": true,
 	}
+	printLockPresent := false
 	for _, entry := range entries {
 		if !known[entry.Name()] {
 			item.Reason = "The session contains unexpected files or directories. It is available for inspection only."
 			break
+		}
+		if entry.Name() == ".print.lock" {
+			printLockPresent = true
+			info, statErr := os.Lstat(filepath.Join(item.DirectoryPath, entry.Name()))
+			if statErr != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 512 {
+				item.Reason = firstReason(item.Reason, "The printer submission lock is not a bounded regular file.")
+			} else {
+				lockInfo, lockErr := readPrintLock(filepath.Join(item.DirectoryPath, entry.Name()), item.SessionID)
+				if lockErr != nil {
+					item.Reason = firstReason(item.Reason, "The printer submission lock metadata is invalid; inspect the session manually.")
+				} else {
+					item.PrintLock = &lockInfo
+					owner, ownerErr := InspectPrintLockOwner(filepath.Join(item.DirectoryPath, entry.Name()), item.SessionID)
+					if ownerErr != nil {
+						item.PrintLockOwner = PrintLockOwnerUnknown
+						item.Reason = firstReason(item.Reason, "The printer lock owner could not be verified safely.")
+					} else {
+						item.PrintLockOwner = owner
+					}
+				}
+			}
 		}
 		if entry.Name() == FrameSnapshotFileName {
 			info, statErr := os.Lstat(filepath.Join(item.DirectoryPath, entry.Name()))
@@ -369,6 +705,7 @@ func inspectSessionDirectory(item *RecoveryItem) {
 		}
 	}
 
+	item.PrintLockPresent = printLockPresent
 	manifest, manifestErr := ReadManifest(item.DirectoryPath)
 	if manifestErr != nil {
 		if errors.Is(manifestErr, os.ErrNotExist) {
@@ -378,6 +715,8 @@ func inspectSessionDirectory(item *RecoveryItem) {
 		}
 	} else {
 		item.Manifest = &manifest
+		item.PrintAttempts = append([]PrintAttempt(nil), manifest.PrintAttempts...)
+		item.PrintResolutions = append([]PrintResolution(nil), manifest.PrintResolutions...)
 		item.Phase = manifest.Phase
 		item.ExpectedShots = manifest.ExpectedShots
 		item.CompletedShots = manifest.CompletedShots
@@ -495,6 +834,35 @@ func inspectSessionDirectory(item *RecoveryItem) {
 			return
 		}
 		item.Status = RecoveryFinalized
+	}
+	if item.Status != RecoveryInspectOnly {
+		if printLockPresent {
+			item.Reason = firstReason(item.Reason, "A printer submission lock is present. Verify its kernel owner state before any resolution or retry.")
+		}
+		if len(item.PrintAttempts) > 0 {
+			last := item.PrintAttempts[len(item.PrintAttempts)-1]
+			if resolution, resolved := PrintResolutionFor(*m, last.AttemptID); resolved {
+				switch resolution.Decision {
+				case PrintResolutionPrinted:
+					item.Reason = firstReason(item.Reason, "An operator recorded that the physical print was observed. This attempt is closed; do not resubmit it.")
+				case PrintResolutionNotPrinted:
+					item.Reason = firstReason(item.Reason, "An operator recorded that no physical print was observed and the job was absent from the queue. A new attempt requires a separate explicit operator action.")
+				case PrintResolutionUnknown:
+					item.Reason = firstReason(item.Reason, "An operator closed this attempt with an unknown outcome. It remains blocked from resubmission.")
+				}
+			} else {
+				switch last.Status {
+				case PrintStatusSubmitting:
+					item.Reason = firstReason(item.Reason, "A printer submission was interrupted before its result was persisted. Treat it as uncertain; check the Windows queue by document name before taking any action.")
+				case PrintStatusQueued:
+					item.Reason = firstReason(item.Reason, fmt.Sprintf("Windows accepted printer job %s on queue %s. This is not proof of physical printing; do not resubmit automatically.", last.JobID, last.QueueName))
+				case PrintStatusUncertain:
+					item.Reason = firstReason(item.Reason, "The printer submission outcome is uncertain. Check the Windows queue by document name before any manual retry.")
+				case PrintStatusFailed:
+					item.Reason = firstReason(item.Reason, "The last printer attempt was rejected before spooler acceptance. A later retry must be an explicit operator action.")
+				}
+			}
+		}
 	}
 }
 

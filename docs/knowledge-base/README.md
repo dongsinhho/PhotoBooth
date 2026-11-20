@@ -156,3 +156,25 @@ Never turn a proposal into an asserted fact.
 - The integrated flow passed Wails Go tests/vet, Windows production build, 10-check Settings UI smoke, synthetic release lifecycle tests and isolated real-binary package/helper-hash install smoke. The exact scope and limitations are in [HANDOFF_2026-11-17.md](../../HANDOFF_2026-11-17.md), [ADR 0031](../adr/0031-opt-in-windows-smb-administration.md), and [Windows release tooling](../../tools/release/windows/README.md).
 - Current host remains default-off: LanmanServer Stopped/Disabled, AutoShareWks=0, no PhotoBooth Allow rule, three managed Block rules active, Wi-Fi Public.
 - Unlisted-source, reboot-persistence, IPv6 network, disposable-VM and signed-production-installer validation are not claimed. Stage 3 LAN delivery/payment remains deferred.
+
+
+## Addendum - 2026-11-18
+
+- [PRINTER_SELECTION_AND_ACCEPTANCE.md](PRINTER_SELECTION_AND_ACCEPTANCE.md) records the current ShinPc printer inventory, a research-based HiTi P525L / DNP DS620A shortlist, the still-open hardware-selection gate and the proposed first physical print acceptance sequence. No physical printer support is claimed.
+
+
+## Addendum - 2026-11-19
+
+- [DS-RX1 virtual smoke README](../../tools/printer-poc/dsrx1-virtual-smoke/README.md) documents the Windows GDI printer target spike, repeatable synthetic smoke command, local+printer coordinator checks and strict virtual-only scope. Current target implementation: internal/booth/output/printer*.go.
+
+
+- [ADR 0032: Windows GDI printer output target](../adr/0032-windows-gdi-printer-output-target.md) records the internal Windows printer adapter spike, spooler job-ID semantics, virtual-queue evidence and why Wails/session integration is deferred until job-state persistence and duplicate handling are designed.
+
+
+- [ADR 0033: Durable printer intent and conservative recovery](../adr/0033-durable-printer-intent-and-recovery.md) documents manifest-v3 print attempts, unique Windows document names, crash locks, uncertain-state policy and the remaining production gates.
+
+
+- [ADR 0033: Durable printer intent and conservative recovery](../adr/0033-durable-printer-intent-and-recovery.md) covers manifest-v3 attempts, crash locks, conservative no-auto-retry states and read-only Windows queue inspection.
+
+
+- [Store Configuration (schema v2)](STORE_CONFIG.md) defines safe printer defaults, queue/media/orientation/transform fields and in-memory v1-to-v2 migration; guest printing remains disconnected.

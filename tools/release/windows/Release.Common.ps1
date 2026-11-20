@@ -4,6 +4,12 @@ $script:PhotoBoothReleaseProduct = 'PhotoBooth Windows Preview'
 $script:PhotoBoothReleaseChannel = 'internal-alpha'
 $script:PhotoBoothReleaseSchema = 1
 
+# Production trust is deliberately empty until the product owner selects and
+# obtains the real publisher certificate. Never replace this with a self-signed
+# development/test certificate. Pin the approved SHA-1 certificate thumbprint
+# here after confirming it out-of-band with the organization that owns the key.
+$script:PhotoBoothTrustedPublisherThumbprints = @()
+
 function Assert-PhotoBoothVersion {
     param([Parameter(Mandatory = $true)][string]$Version)
 
@@ -96,23 +102,55 @@ function Assert-PhotoBoothPE {
 function Read-PhotoBoothReleaseManifest {
     param([Parameter(Mandatory = $true)][string]$ReleaseDirectory)
 
-    $manifestPath = Join-Path $ReleaseDirectory 'release-manifest.json'
-    if (!(Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
-        throw "Release manifest is missing: $manifestPath"
+    $jsonManifestPath = Join-Path $ReleaseDirectory 'release-manifest.json'
+    $signedManifestPath = Join-Path $ReleaseDirectory 'release-manifest.ps1'
+    $hasJsonManifest = Test-Path -LiteralPath $jsonManifestPath -PathType Leaf
+    $hasSignedManifest = Test-Path -LiteralPath $signedManifestPath -PathType Leaf
+    if ($hasJsonManifest -eq $hasSignedManifest) {
+        throw 'Release must contain exactly one manifest: release-manifest.json (unsigned Preview) or release-manifest.ps1 (signed publisher envelope).'
     }
 
+    $manifestSignerThumbprint = $null
     try {
-        $manifest = Get-Content -LiteralPath $manifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        if ($hasSignedManifest) {
+            $signature = Get-AuthenticodeSignature -FilePath $signedManifestPath -ErrorAction Stop
+            if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid -or !$signature.SignerCertificate) {
+                throw "Signed release manifest has no valid Authenticode signature: $($signature.Status) $($signature.StatusMessage)"
+            }
+            $manifestSignerThumbprint = (($signature.SignerCertificate.Thumbprint -replace '\s', '').ToUpperInvariant())
+            $trusted = @($script:PhotoBoothTrustedPublisherThumbprints | ForEach-Object { ($_ -replace '\s', '').ToUpperInvariant() })
+            if ($trusted.Count -eq 0 -or $trusted -notcontains $manifestSignerThumbprint) {
+                throw "Release manifest signer $manifestSignerThumbprint is not in the pinned PhotoBooth publisher trust list."
+            }
+
+            $envelopeText = Get-Content -LiteralPath $signedManifestPath -Raw -ErrorAction Stop
+            $firstLine = ($envelopeText -split '\r?\n', 2)[0]
+            $prefix = '$PhotoBoothReleaseManifestBase64 = '''
+            if (!$firstLine.StartsWith($prefix, [StringComparison]::Ordinal) -or !$firstLine.EndsWith("'")) {
+                throw 'Signed release manifest envelope has an invalid payload declaration.'
+            }
+            $payload = $firstLine.Substring($prefix.Length, $firstLine.Length - $prefix.Length - 1)
+            if ([string]::IsNullOrWhiteSpace($payload) -or $payload -notmatch '^[A-Za-z0-9+/=]+$') {
+                throw 'Signed release manifest envelope payload is invalid.'
+            }
+            $manifestBytes = [Convert]::FromBase64String($payload)
+            $manifestJson = [Text.UTF8Encoding]::new($false, $true).GetString($manifestBytes)
+        }
+        else {
+            $manifestJson = Get-Content -LiteralPath $jsonManifestPath -Raw -ErrorAction Stop
+        }
+        $manifest = $manifestJson | ConvertFrom-Json -ErrorAction Stop
     }
     catch {
-        throw "Release manifest is invalid JSON: $($_.Exception.Message)"
+        throw "Release manifest or publisher signature is invalid: $($_.Exception.Message)"
     }
 
     if ($manifest.schema_version -ne $script:PhotoBoothReleaseSchema) {
         throw "Unsupported release manifest schema: $($manifest.schema_version)"
     }
-    if ($manifest.product -ne $script:PhotoBoothReleaseProduct -or $manifest.channel -ne $script:PhotoBoothReleaseChannel) {
-        throw 'Release manifest product/channel does not match this internal Windows Preview installer.'
+    if ($manifest.product -ne $script:PhotoBoothReleaseProduct -or
+        @('internal-alpha', 'signed-candidate') -notcontains [string]$manifest.channel) {
+        throw 'Release manifest product/channel does not match a supported PhotoBooth Windows Preview release channel.'
     }
     Assert-PhotoBoothVersion ([string]$manifest.version)
     if ($manifest.target -ne 'windows-amd64' -or $manifest.entrypoint -ne 'PhotoBooth.exe') {
@@ -132,6 +170,30 @@ function Read-PhotoBoothReleaseManifest {
         }
     }
 
+    if (!$manifest.distribution -or
+        $manifest.distribution.signed -isnot [bool]) {
+        throw 'Release manifest must declare distribution.signed as a JSON boolean.'
+    }
+    if ($manifest.distribution.signed) {
+        if (!$hasSignedManifest -or [string]$manifest.distribution.signer_thumbprint -notmatch '^[0-9a-fA-F]{40}$') {
+            throw 'A signed release must use a signed manifest envelope and declare its 40-character Authenticode signer thumbprint.'
+        }
+        if (([string]$manifest.distribution.signer_thumbprint).ToUpperInvariant() -ne $manifestSignerThumbprint) {
+            throw 'Signed manifest payload signer_thumbprint does not match the Authenticode envelope signer.'
+        }
+        if ($manifest.channel -ne 'signed-candidate') {
+            throw 'A signed publisher package must use the signed-candidate channel; this does not approve production UI selection.'
+        }
+        Add-Member -InputObject $manifest -NotePropertyName __manifest_signer_thumbprint -NotePropertyValue $manifestSignerThumbprint -Force
+    } else {
+        if ($hasSignedManifest -or $manifest.distribution.signer_thumbprint) {
+            throw 'An unsigned Preview release must use the plain JSON manifest and must not declare a signer thumbprint.'
+        }
+        if ($manifest.channel -ne 'internal-alpha') {
+            throw 'An unsigned package is only valid on the internal-alpha channel.'
+        }
+    }
+
     return $manifest
 }
 
@@ -139,10 +201,19 @@ function Assert-PhotoBoothReleaseDirectory {
     param(
         [Parameter(Mandatory = $true)][string]$ReleaseDirectory,
         [string]$ExpectedVersion,
-        [string]$ExpectedSha256
+        [string]$ExpectedSha256,
+        [switch]$AllowUnsignedPreview
     )
 
     $manifest = Read-PhotoBoothReleaseManifest -ReleaseDirectory $ReleaseDirectory
+    $isSigned = [bool]$manifest.distribution.signed
+    if ($isSigned) {
+        # Read-PhotoBoothReleaseManifest already validated the signed envelope
+        # against the pinned publisher before parsing any release metadata.
+    } elseif (!$AllowUnsignedPreview) {
+        throw 'Unsigned engineering packages are accepted only for internal Preview testing; pass -AllowUnsignedPreview explicitly. Production installation requires a pinned Authenticode publisher.'
+    }
+
     if ($ExpectedVersion -and $manifest.version -ne $ExpectedVersion) {
         throw "Release version mismatch. Expected '$ExpectedVersion', found '$($manifest.version)'."
     }
@@ -163,6 +234,9 @@ function Assert-PhotoBoothReleaseDirectory {
     if ($actualHash -ne ([string]$manifest.binary.sha256).ToLowerInvariant()) {
         throw 'Release executable SHA-256 does not match its manifest.'
     }
+    if ($isSigned) {
+        [void](Assert-PhotoBoothAuthenticodeSignature -Path $exePath -ExpectedThumbprint $manifest.distribution.signer_thumbprint)
+    }
 
     $helperPath = Join-Path $ReleaseDirectory 'manage-smb-remote-admin.ps1'
     if ($manifest.PSObject.Properties.Name -contains 'smb_admin_helper') {
@@ -176,6 +250,9 @@ function Assert-PhotoBoothReleaseDirectory {
         $helperHash = Get-PhotoBoothSha256 -Path $helperPath
         if ($helperHash -ne ([string]$manifest.smb_admin_helper.sha256).ToLowerInvariant()) {
             throw 'Release SMB administration helper SHA-256 does not match its manifest.'
+        }
+        if ($isSigned) {
+            [void](Assert-PhotoBoothAuthenticodeSignature -Path $helperPath -ExpectedThumbprint $manifest.distribution.signer_thumbprint)
         }
     } elseif (Test-Path -LiteralPath $helperPath) {
         throw 'Release contains an unmanaged SMB administration helper that is not declared in its manifest.'
@@ -274,4 +351,107 @@ function Write-PhotoBoothActivePointer {
             }
         }
     }
+}
+
+
+function Get-PhotoBoothSigningCertificate {
+    param([Parameter(Mandatory = $true)][string]$Thumbprint)
+
+    $normalized = $Thumbprint.Trim().ToUpperInvariant()
+    if ($normalized -notmatch '^[0-9A-F]{40}$') {
+        throw 'Signing certificate thumbprint must be a 40-character SHA-1 certificate thumbprint.'
+    }
+
+    $certificate = $null
+    foreach ($store in @('Cert:\CurrentUser\My', 'Cert:\LocalMachine\My')) {
+        $candidate = Get-ChildItem -Path $store -ErrorAction SilentlyContinue |
+            Where-Object { $_.Thumbprint.ToUpperInvariant() -eq $normalized } |
+            Select-Object -First 1
+        if ($candidate) {
+            $certificate = $candidate
+            break
+        }
+    }
+    if (!$certificate) {
+        throw "Code-signing certificate $normalized was not found in CurrentUser\My or LocalMachine\My."
+    }
+    if (!$certificate.HasPrivateKey) {
+        throw "Code-signing certificate $normalized does not have an accessible private key."
+    }
+    $now = [DateTime]::UtcNow
+    if ($now -lt $certificate.NotBefore.ToUniversalTime() -or $now -gt $certificate.NotAfter.ToUniversalTime()) {
+        throw "Code-signing certificate $normalized is outside its validity period."
+    }
+    $hasCodeSigningEku = $false
+    foreach ($extension in $certificate.Extensions) {
+        if ($extension -is [Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]) {
+            foreach ($oid in $extension.EnhancedKeyUsages) {
+                if ($oid.Value -eq '1.3.6.1.5.5.7.3.3') {
+                    $hasCodeSigningEku = $true
+                    break
+                }
+            }
+        }
+    }
+    if (!$hasCodeSigningEku) {
+        throw "Certificate $normalized does not contain the Code Signing EKU."
+    }
+    return $certificate
+}
+
+function Set-PhotoBoothAuthenticodeSignature {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][Security.Cryptography.X509Certificates.X509Certificate2]$Certificate,
+        [string]$TimestampServer
+    )
+
+    $parameters = @{
+        FilePath = $Path
+        Certificate = $Certificate
+        HashAlgorithm = 'SHA256'
+        ErrorAction = 'Stop'
+    }
+    if (![string]::IsNullOrWhiteSpace($TimestampServer)) {
+        $parameters.TimestampServer = $TimestampServer
+    }
+    $result = Set-AuthenticodeSignature @parameters
+    if ($result.Status -ne [Management.Automation.SignatureStatus]::Valid) {
+        throw "Authenticode signing failed for '$Path': $($result.Status) $($result.StatusMessage)"
+    }
+    if (![string]::IsNullOrWhiteSpace($TimestampServer)) {
+        $verifiedSignature = Get-AuthenticodeSignature -FilePath $Path -ErrorAction Stop
+        if (!$verifiedSignature.TimeStamperCertificate) {
+            throw "Authenticode signature for '$Path' was created without a verifiable timestamp."
+        }
+    }
+    $actualThumbprint = $result.SignerCertificate.Thumbprint.ToUpperInvariant()
+    if ($actualThumbprint -ne $Certificate.Thumbprint.ToUpperInvariant()) {
+        throw "Authenticode signer mismatch after signing '$Path'."
+    }
+    return $actualThumbprint
+}
+
+function Assert-PhotoBoothAuthenticodeSignature {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ExpectedThumbprint
+    )
+
+    $expected = $ExpectedThumbprint.Trim().ToUpperInvariant()
+    if ($expected -notmatch '^[0-9A-F]{40}$') {
+        throw 'Expected signer thumbprint is invalid.'
+    }
+    $signature = Get-AuthenticodeSignature -FilePath $Path -ErrorAction Stop
+    if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid) {
+        throw "Authenticode signature is not valid for '$Path': $($signature.Status) $($signature.StatusMessage)"
+    }
+    if (!$signature.SignerCertificate) {
+        throw "Authenticode signature has no signer certificate: $Path"
+    }
+    $actual = $signature.SignerCertificate.Thumbprint.ToUpperInvariant()
+    if ($actual -ne $expected) {
+        throw "Authenticode signer for '$Path' does not match the release manifest."
+    }
+    return $actual
 }

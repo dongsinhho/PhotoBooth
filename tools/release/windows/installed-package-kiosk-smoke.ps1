@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [switch]$SkipBuild,
+    [switch]$AllowUnsignedPreview,
     [ValidateRange(15,60)][int]$StartupTimeoutSeconds = 30,
     [ValidateRange(5,30)][int]$TransitionTimeoutSeconds = 12,
     [ValidateRange(5,45)][int]$SettingsTimeoutSeconds = 20
@@ -45,9 +46,13 @@ try {
     [void](Assert-PhotoBoothInstallRoot -InstallRoot $installRoot)
     Assert-PhotoBoothNotRunning -InstallRoot $installRoot
 
+    if (!$AllowUnsignedPreview) {
+        throw 'This installed-package smoke builds an unsigned Windows Preview fixture; pass -AllowUnsignedPreview explicitly.'
+    }
     $buildArgs = @{
         Version = $version
         OutputDirectory = $packageDirectory
+        AllowUnsignedPreview = $true
     }
     if ($SkipBuild) { $buildArgs.SkipBuild = $true }
 
@@ -59,7 +64,7 @@ try {
     $checks.Add('build versioned package from the current source/binary') | Out-Null
 
     Write-Host 'STEP=install-package-to-disposable-root'
-    & $installScript -PackagePath $package -InstallRoot $installRoot -SkipMachineProvisioning | Out-Null
+    & $installScript -PackagePath $package -InstallRoot $installRoot -SkipMachineProvisioning -AllowUnsignedPreview | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw 'Package installation returned a non-zero exit code.'
     }
@@ -67,11 +72,11 @@ try {
 
     $updateVersion = $version + '-update.1'
     Write-Host 'STEP=install-real-binary-update'
-    $updatePackage = & $buildScript -Version $updateVersion -SkipBuild -OutputDirectory $packageDirectory | Select-Object -Last 1
+    $updatePackage = & $buildScript -Version $updateVersion -SkipBuild -AllowUnsignedPreview -OutputDirectory $packageDirectory | Select-Object -Last 1
     if ($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $updatePackage -PathType Leaf)) {
         throw "Second version package could not be created: $updatePackage"
     }
-    & $installScript -PackagePath $updatePackage -InstallRoot $installRoot | Out-Null
+    & $installScript -PackagePath $updatePackage -InstallRoot $installRoot -AllowUnsignedPreview | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw 'Installing the second package version failed.'
     }
@@ -79,11 +84,11 @@ try {
     if ($updatedPointer.active_version -ne $updateVersion -or $updatedPointer.previous_version -ne $version) {
         throw 'Real-binary update did not select the new version and retain the prior version.'
     }
-    [void](Assert-PhotoBoothReleaseDirectory -ReleaseDirectory (Join-Path (Join-Path $installRoot 'releases') $updateVersion) -ExpectedVersion $updateVersion -ExpectedSha256 $updatedPointer.active_sha256)
+    [void](Assert-PhotoBoothReleaseDirectory -ReleaseDirectory (Join-Path (Join-Path $installRoot 'releases') $updateVersion) -ExpectedVersion $updateVersion -ExpectedSha256 $updatedPointer.active_sha256 -AllowUnsignedPreview)
     $checks.Add('update to a second version using the same real executable') | Out-Null
 
     Write-Host 'STEP=rollback-real-binary-update'
-    & (Join-Path $PSScriptRoot 'Rollback-PhotoBoothWindowsPackage.ps1') -InstallRoot $installRoot | Out-Null
+    & (Join-Path $PSScriptRoot 'Rollback-PhotoBoothWindowsPackage.ps1') -InstallRoot $installRoot -AllowUnsignedPreview | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw 'Rollback of the real-binary update failed.'
     }
@@ -94,12 +99,12 @@ try {
     $checks.Add('rollback to the first real-binary release and preserve both versions') | Out-Null
 
     Write-Host 'STEP=verify-active-pointer-and-integrity'
-    & $startScript -InstallRoot $installRoot -NoLaunch | Out-Null
+    & $startScript -InstallRoot $installRoot -NoLaunch -AllowUnsignedPreview | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw 'Installed active pointer or binary integrity verification failed.'
     }
     $releaseDirectory = Join-Path (Join-Path $installRoot 'releases') $version
-    $release = Assert-PhotoBoothReleaseDirectory -ReleaseDirectory $releaseDirectory -ExpectedVersion $version -ExpectedSha256 $pointer.active_sha256
+    $release = Assert-PhotoBoothReleaseDirectory -ReleaseDirectory $releaseDirectory -ExpectedVersion $version -ExpectedSha256 $pointer.active_sha256 -AllowUnsignedPreview
     $checks.Add('verify active pointer, PE header, size and SHA-256 without launching') | Out-Null
 
     Write-Host 'STEP=launch-installed-executable-and-test-kiosk'

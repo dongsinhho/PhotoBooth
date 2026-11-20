@@ -22,8 +22,10 @@ func TestDefaultsAreLocalOfflineAndValid(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Defaults().Validate(): %v", err)
 	}
-	if cfg.SchemaVersion != 1 || cfg.Camera.Provider != "fake" ||
-		cfg.MediaDelivery.Mode != "local" || cfg.Payment.Mode != "disabled" {
+	if cfg.SchemaVersion != CurrentSchemaVersion || cfg.Camera.Provider != "fake" ||
+		cfg.MediaDelivery.Mode != "local" || cfg.Payment.Mode != "disabled" ||
+		cfg.Printer.Enabled || cfg.Printer.QueueName != "" || cfg.Printer.MediaForm != "" ||
+		cfg.Printer.Orientation != PrinterOrientationPortrait || cfg.Printer.Transform.FlipVertical {
 		t.Fatalf("unexpected safe defaults: %+v", cfg)
 	}
 	countdown, err := cfg.CountdownDuration()
@@ -52,6 +54,10 @@ func TestLoadPartialConfigInheritsDefaultsAndResolvesRelativePaths(t *testing.T)
 	}
 	if cfg.Camera.Provider != "fake" || cfg.Camera.Width != 1280 || cfg.Camera.Height != 720 {
 		t.Fatalf("camera defaults were lost: %+v", cfg.Camera)
+	}
+	if cfg.SchemaVersion != CurrentSchemaVersion || cfg.Printer.Enabled ||
+		cfg.Printer.Orientation != PrinterOrientationPortrait {
+		t.Fatalf("schema-v1 migration did not preserve safe printer defaults: %+v", cfg.Printer)
 	}
 	if cfg.Capture.Countdown != "0s" {
 		t.Fatalf("countdown=%q, want 0s", cfg.Capture.Countdown)

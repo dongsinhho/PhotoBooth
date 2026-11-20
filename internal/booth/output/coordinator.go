@@ -28,8 +28,9 @@ const (
 // Job describes the already-rendered image that all output targets receive.
 // Targets must treat the source as read-only.
 type Job struct {
-	SessionID  string
-	SourcePath string
+	SessionID    string
+	SourcePath   string
+	DocumentName string // Optional per-job printer document name for queue reconciliation.
 }
 
 // TargetOutput contains target-specific details. OutputPath is typically used

@@ -76,6 +76,7 @@ function New-FixturePackage {
             }
             distribution = [ordered]@{
                 signed = $false
+                signer_thumbprint = $null
                 intended_use = 'synthetic lifecycle test only'
             }
         }
@@ -112,10 +113,24 @@ try {
 
     $packageV1 = New-FixturePackage -Version '0.1.0-alpha.1' -Marker 1 -Destination (Join-Path $packageRoot 'v1.zip')
 
+    $unsignedDeniedRoot = Join-Path $tempRoot 'unsigned-default-deny'
+    $unsignedDenied = $false
+    try {
+        & $installScript -PackagePath $packageV1 -InstallRoot $unsignedDeniedRoot -SkipMachineProvisioning | Out-Null
+    }
+    catch {
+        $unsignedDenied = $_.Exception.Message -match 'pass -AllowUnsignedPreview explicitly'
+        Write-Host "EXPECTED_UNSIGNED_DEFAULT_DENIAL=$($_.Exception.Message)"
+    }
+    if (!$unsignedDenied -or (Test-Path (Join-Path $unsignedDeniedRoot 'active.json'))) {
+        throw 'Installer accepted an unsigned Preview without an explicit allow switch.'
+    }
+    $checks.Add('reject unsigned package by default before activating a release') | Out-Null
+
     $legacyFreshRoot = Join-Path $tempRoot 'legacy-fresh-install'
     $legacyFreshRejected = $false
     try {
-        & $installScript -PackagePath $packageV1 -InstallRoot $legacyFreshRoot | Out-Null
+        & $installScript -PackagePath $packageV1 -InstallRoot $legacyFreshRoot -AllowUnsignedPreview | Out-Null
     } catch {
         $legacyFreshRejected = $_.Exception.Message -match 'requires the packaged SMB administration helper'
         Write-Host "EXPECTED_LEGACY_FRESH_INSTALL_REJECTION=$($_.Exception.Message)"
@@ -125,33 +140,33 @@ try {
     }
     $checks.Add('reject a helper-less legacy package for a fresh first install without activating it') | Out-Null
 
-    & $installScript -PackagePath $packageV1 -InstallRoot $installRoot -SkipMachineProvisioning | Out-Null
+    & $installScript -PackagePath $packageV1 -InstallRoot $installRoot -SkipMachineProvisioning -AllowUnsignedPreview | Out-Null
     Assert-Equal (Read-ActiveVersion $installRoot) '0.1.0-alpha.1' 'initial active version'
     $checks.Add('install first immutable release and activate it') | Out-Null
 
-    & $startScript -InstallRoot $installRoot -NoLaunch | Out-Null
+    & $startScript -InstallRoot $installRoot -NoLaunch -AllowUnsignedPreview | Out-Null
     $checks.Add('verify active pointer and binary without launching PhotoBooth') | Out-Null
 
     $packageV2 = New-FixturePackage -Version '0.2.0-alpha.1' -Marker 2 -Destination (Join-Path $packageRoot 'v2.zip')
-    & $installScript -PackagePath $packageV2 -InstallRoot $installRoot | Out-Null
+    & $installScript -PackagePath $packageV2 -InstallRoot $installRoot -AllowUnsignedPreview | Out-Null
     $pointer = Get-PhotoBoothActivePointer -InstallRoot $installRoot
     Assert-Equal $pointer.active_version '0.2.0-alpha.1' 'updated active version'
     Assert-Equal $pointer.previous_version '0.1.0-alpha.1' 'previous version after update'
     $checks.Add('install update and retain previous release') | Out-Null
 
-    & $rollbackScript -InstallRoot $installRoot | Out-Null
+    & $rollbackScript -InstallRoot $installRoot -AllowUnsignedPreview | Out-Null
     $pointer = Get-PhotoBoothActivePointer -InstallRoot $installRoot
     Assert-Equal $pointer.active_version '0.1.0-alpha.1' 'active version after rollback'
     Assert-Equal $pointer.previous_version '0.2.0-alpha.1' 'previous version after rollback'
     $checks.Add('rollback atomically to the previous verified release') | Out-Null
 
-    & $startScript -InstallRoot $installRoot -NoLaunch | Out-Null
+    & $startScript -InstallRoot $installRoot -NoLaunch -AllowUnsignedPreview | Out-Null
     $checks.Add('verify rolled-back executable and hash without launching') | Out-Null
 
     $packageBad = New-FixturePackage -Version '0.3.0-alpha.1' -Marker 3 -Destination (Join-Path $packageRoot 'bad-manifest.zip') -CorruptManifestHash
     $rejected = $false
     try {
-        & $installScript -PackagePath $packageBad -InstallRoot $installRoot | Out-Null
+        & $installScript -PackagePath $packageBad -InstallRoot $installRoot -AllowUnsignedPreview | Out-Null
     }
     catch {
         $rejected = $true
@@ -168,7 +183,7 @@ try {
     [IO.File]::WriteAllText($badSidecar + '.sha256', (('0' * 64) + ' bad-sidecar.zip'), [Text.UTF8Encoding]::new($false))
     $sidecarRejected = $false
     try {
-        & $installScript -PackagePath $badSidecar -InstallRoot $installRoot | Out-Null
+        & $installScript -PackagePath $badSidecar -InstallRoot $installRoot -AllowUnsignedPreview | Out-Null
     }
     catch {
         $sidecarRejected = $true

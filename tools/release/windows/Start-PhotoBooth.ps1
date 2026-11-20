@@ -2,7 +2,8 @@
 param(
     [string]$InstallRoot,
     [switch]$Kiosk,
-    [switch]$NoLaunch
+    [switch]$NoLaunch,
+    [switch]$AllowUnsignedPreview
 )
 
 $ErrorActionPreference = 'Stop'
@@ -22,7 +23,7 @@ if (!$pointer) {
 }
 
 $releaseDirectory = Join-Path (Join-Path $InstallRoot 'releases') $pointer.active_version
-$release = Assert-PhotoBoothReleaseDirectory -ReleaseDirectory $releaseDirectory -ExpectedVersion $pointer.active_version -ExpectedSha256 $pointer.active_sha256
+$release = Assert-PhotoBoothReleaseDirectory -ReleaseDirectory $releaseDirectory -ExpectedVersion $pointer.active_version -ExpectedSha256 $pointer.active_sha256 -AllowUnsignedPreview:$AllowUnsignedPreview
 
 if ($NoLaunch) {
     Write-Host "ACTIVE_VERSION=$($pointer.active_version)"

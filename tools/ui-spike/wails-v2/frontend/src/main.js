@@ -21,6 +21,9 @@ import {
   RetryPhotoOutput,
   CurrentPhotoSession,
   ListInterruptedPhotoSessions,
+  InspectPrinterAttempt,
+  ResolvePrinterAttempt,
+  ReconcileOrphanedPrinterLock,
   ContinueRecoveredPhotoSession,
   RestartRecoveredPhotoSession,
   RetryRecoveredPhotoOutput,
@@ -138,7 +141,7 @@ root.innerHTML = `
               <h2 id="settings-title">Make it <span>yours.</span></h2>
               <p>These settings stay on this computer. Guest photos are never uploaded by this screen.</p>
             </div>
-            <div class="settings-version">CONFIG V1</div>
+            <div class="settings-version">CONFIG V2</div>
           </div>
           <div id="settings-warning" class="settings-warning hidden" role="alert"></div>
           <div class="settings-grid">
@@ -334,7 +337,7 @@ root.innerHTML = `
           <div id="result-eyebrow" class="eyebrow accent">THAT'S A WRAP</div>
           <h2>Made to <span>remember.</span></h2>
           <p id="result-message">Your photo strip has been saved locally.</p>
-          <div class="result-metrics"><div><small>PHOTOS</small><strong id="result-photo-count">03</strong></div><div><small>OUTPUT</small><strong>LOCAL FILE</strong></div><div><small>STATUS</small><strong id="session-state">COMPLETED</strong></div></div>
+          <div class="result-metrics"><div><small>PHOTOS</small><strong id="result-photo-count">03</strong></div><div><small>OUTPUT</small><strong id="result-output-types">LOCAL FILE</strong></div><div><small>STATUS</small><strong id="session-state">COMPLETED</strong></div></div>
           <p id="result-output-path" class="output-path"></p>
           <div class="result-actions">
             <button id="retry-output" class="secondary-button hidden" type="button">Retry local save</button>
@@ -677,9 +680,12 @@ function updatePhotoSession(session) {
     byId('session-state').textContent = retrying ? 'SAVING' : (outputNeedsRetry ? 'SAVE FAILED' : session.state.replace('_', ' ').toUpperCase());
     byId('new-session').disabled = retrying;
     byId('result-photo-count').textContent = String(captured).padStart(2, '0');
-    byId('result-message').textContent = session.message || (outputNeedsRetry
+    const hasPrinterTarget = (session.output_targets || []).some((target) => target.name === 'printer');
+    byId('result-output-types').textContent = hasPrinterTarget ? 'LOCAL + PRINTER' : 'LOCAL FILE';
+    const resultMessage = session.message || (outputNeedsRetry
       ? 'The photos are ready, but the local save needs to be retried.'
       : 'Your photo strip has been saved locally.');
+    byId('result-message').textContent = resultMessage;
     byId('result-output-path').textContent = session.output_path
       ? `Saved to: ${session.output_path}`
       : (outputNeedsRetry
@@ -749,11 +755,42 @@ function renderRecoveryPanel(items = appState.recoveryItems) {
     title.textContent = `Session ${String(item.session_id || '').slice(0, 8)}…`;
     const status = document.createElement('span');
     status.className = `recovery-status recovery-status-${item.status || 'inspect_only'}`;
-    status.textContent = item.status === 'resume_available'
-      ? 'CONTINUE AVAILABLE'
-      : item.status === 'output_pending'
-        ? 'LOCAL SAVE PENDING'
-        : 'INSPECT ONLY';
+    const latestPrint = Array.isArray(item.print_attempts) && item.print_attempts.length
+      ? item.print_attempts[item.print_attempts.length - 1]
+      : item.print_lock
+        ? { ...item.print_lock, status: 'uncertain', job_id: '' }
+        : null;
+    const latestResolution = latestPrint && Array.isArray(item.print_resolutions)
+      ? item.print_resolutions.find((resolution) => resolution.attempt_id === latestPrint.attempt_id)
+      : null;
+    let lastInspection = null;
+    if (latestResolution?.decision === 'printed') {
+      status.textContent = 'PRINT CONFIRMED BY OPERATOR';
+    } else if (latestResolution?.decision === 'not_printed') {
+      status.textContent = 'NOT PRINTED · RESOLVED (RETRY STILL EXPLICIT)';
+    } else if (latestResolution?.decision === 'unknown') {
+      status.textContent = 'CLOSED · PRINT OUTCOME UNKNOWN';
+    } else if (item.print_lock_present && item.print_lock_owner === 'active') {
+      status.textContent = 'PRINTER SUBMISSION ACTIVE · DO NOT RECONCILE';
+    } else if (item.print_lock_present && item.print_lock_owner === 'orphaned') {
+      status.textContent = 'PRINTER PROCESS EXITED · RECONCILIATION AVAILABLE';
+    } else if (item.print_lock_present && item.print_lock_owner === 'unverifiable') {
+      status.textContent = 'LOCK OWNER UNVERIFIABLE · INSPECT ONLY';
+    } else if (item.print_lock_present || latestPrint?.status === 'submitting' || latestPrint?.status === 'uncertain') {
+      status.textContent = 'PRINT OUTCOME UNCERTAIN · DO NOT RETRY';
+    } else if (latestPrint?.status === 'queued') {
+      status.textContent = 'PRINT QUEUED · NOT PHYSICALLY CONFIRMED';
+    } else if (latestPrint?.status === 'failed') {
+      status.textContent = 'PRINT REJECTED BEFORE QUEUE';
+    } else {
+      status.textContent = item.status === 'resume_available'
+        ? 'CONTINUE AVAILABLE'
+        : item.status === 'output_pending'
+          ? 'LOCAL SAVE PENDING'
+          : item.status === 'finalized'
+            ? 'PHOTO SAVED'
+            : 'INSPECT ONLY';
+    }
     header.append(title, status);
 
     const completed = Number(item.completed_shots || 0);
@@ -765,19 +802,166 @@ function renderRecoveryPanel(items = appState.recoveryItems) {
         : `${completed} of ${expected || '?'} photos are preserved. Continue captures only the remaining shots.`;
     } else if (item.status === 'output_pending') {
       summary.textContent = `All ${expected} photos and the rendered image are preserved. Retry only the local save; no camera or re-render is needed.`;
+    } else if (item.status === 'finalized') {
+      summary.textContent = 'The local photo was saved. Review the printer information below; a queued job is not confirmation that paper was produced.';
     } else {
       summary.textContent = item.reason || 'This session is not safe to resume automatically. Its original files have been left untouched.';
+    }
+
+    let printNote = null;
+    if (item.print_lock_present || latestPrint) {
+      printNote = document.createElement('div');
+      if (latestResolution) {
+        printNote.textContent = 'Operator decision: ' + latestResolution.decision +
+          '. Queue found during the recorded check: ' + (latestResolution.queue_found ? 'yes' : 'no') +
+          '. Note: ' + latestResolution.note;
+      } else if (item.print_lock_present && item.print_lock_owner === 'active') {
+        printNote.textContent = 'A live Windows kernel lease still protects this printer submission. Queue inspection is read-only; do not reconcile or retry while the owner is active.';
+      } else if (item.print_lock_present && item.print_lock_owner === 'orphaned') {
+        printNote.textContent = 'Windows no longer reports an active holder for this versioned kernel lease. Reconciliation will atomically claim it, record the attempt as uncertain if needed, and remove the lock. It does not inspect or resubmit the print job.';
+      } else if (item.print_lock_present && item.print_lock_owner === 'unverifiable') {
+        printNote.textContent = 'This lock predates kernel leases or the platform cannot verify its owner. It is inspect-only and will not be removed automatically.';
+      } else if (item.print_lock_present || latestPrint?.status === 'submitting' || latestPrint?.status === 'uncertain') {
+        printNote.textContent = 'Printer outcome is uncertain. Do not submit another copy automatically. Inspect the Windows printer queue using this document name before any manual decision.';
+      } else if (latestPrint?.status === 'queued') {
+        printNote.textContent = `Windows accepted job ${latestPrint.job_id || '(job ID unavailable)'} on ${latestPrint.queue_name || 'the configured queue'}. This does not confirm physical printing.`;
+      } else if (latestPrint?.status === 'failed') {
+        printNote.textContent = `The last attempt was rejected before queue acceptance: ${latestPrint.error || 'no error detail recorded'}.`;
+      }
+      printNote.className = 'recovery-print-note';
+      summary.append(printNote);
+    }
+    if (Array.isArray(item.print_attempts) && item.print_attempts.length) {
+      const resolutionByAttempt = new Map((item.print_resolutions || [])
+        .map((resolution) => [resolution.attempt_id, resolution]));
+      const history = document.createElement('small');
+      history.className = 'recovery-print-note';
+      history.textContent = 'Print audit: ' + item.print_attempts.map((attempt) => {
+        const resolution = resolutionByAttempt.get(attempt.attempt_id);
+        const base = attempt.attempt_id.slice(0, 8) + ' · ' + attempt.status +
+          ' · job ' + (attempt.job_id || 'unknown');
+        if (!resolution) return base;
+        return base + ' · operator ' + resolution.decision +
+          ' · queue found ' + (resolution.queue_found ? 'yes' : 'no') +
+          ' · ' + resolution.note;
+      }).join(' | ');
+      summary.append(history);
     }
 
     const details = document.createElement('small');
     const phase = item.phase || item.manifest?.phase || 'unknown phase';
     const updated = item.manifest?.updated_at ? new Date(item.manifest.updated_at).toLocaleString() : 'timestamp unavailable';
-    details.textContent = `${phase.replaceAll('_', ' ')} · ${completed}/${expected || '?'} photos · updated ${updated}`;
+    const printDetail = latestPrint
+      ? ` · queue ${latestPrint.queue_name || '?'} · document ${latestPrint.document_name || '?'} · job ${latestPrint.job_id || 'unknown'}`
+      : item.print_lock_present ? ' · interrupted printer lock remains' : '';
+    details.textContent = `${phase.replaceAll('_', ' ')} · ${completed}/${expected || '?'} photos · updated ${updated}${printDetail}`;
 
     const id = document.createElement('code');
     id.textContent = item.session_id || '';
     const actions = document.createElement('div');
     actions.className = 'recovery-card-actions';
+    let updateResolutionControls = () => {};
+
+    if (latestPrint && ['queued', 'submitting', 'uncertain'].includes(latestPrint.status) && !latestResolution) {
+      actions.append(recoveryActionButton('Inspect Windows queue', 'recovery-secondary-button', async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        lastInspection = null;
+        updateResolutionControls();
+        try {
+          const inspection = await InspectPrinterAttempt(item.session_id, latestPrint.attempt_id);
+          lastInspection = inspection;
+          updateResolutionControls();
+          const observed = Array.isArray(inspection.jobs) && inspection.jobs.length
+            ? inspection.jobs.map((job) => {
+                const flags = Array.isArray(job.status) && job.status.length
+                  ? job.status.join(', ')
+                  : 'status unspecified';
+                return `Job ${job.job_id}: ${flags}; pages ${job.pages_printed}/${job.total_pages || '?'}`;
+              }).join(' · ')
+            : 'No matching job is currently listed.';
+          printNote.textContent = `${inspection.note} ${observed}`;
+          printNote.className = 'recovery-print-note';
+        } catch (error) {
+          printNote.textContent = `Could not inspect the Windows queue: ${error}. Do not resubmit automatically.`;
+          printNote.className = 'recovery-print-note';
+        } finally {
+          button.disabled = false;
+        }
+      }));
+    }
+
+    const hasStoredAttempt = Array.isArray(item.print_attempts) &&
+      item.print_attempts.some((attempt) => attempt.attempt_id === latestPrint?.attempt_id);
+    if (hasStoredAttempt && latestPrint && ['queued', 'submitting', 'uncertain'].includes(latestPrint.status) &&
+        !latestResolution && !item.print_lock_present) {
+      const resolvePrinterOutcome = async (decision, event) => {
+        if (!lastInspection) {
+          showToast('Inspect the Windows queue first. Resolution always performs another queue check before saving.');
+          return;
+        }
+        if (decision !== 'unknown' && lastInspection.found) {
+          showToast('The matching job is still listed. Wait until it leaves the queue, inspect the physical output, then inspect again.');
+          return;
+        }
+        const confirmations = {
+          printed: 'Confirm that you personally observed the physical print emerge. The matching job must no longer be listed in the Windows queue. This closes this attempt and permanently blocks retry.',
+          not_printed: 'Confirm that you checked the printer/output tray and no paper emerged, and that the matching job is no longer listed in the Windows queue. Only this explicit decision permits a separate manual print attempt later.',
+          unknown: 'Close this attempt with an unknown outcome? It will remain permanently blocked from retry. This does not mark it printed or not printed.',
+        };
+        if (!window.confirm(confirmations[decision])) return;
+        const note = window.prompt('Enter a short operator note for the audit record (required, max 512 characters):');
+        if (note === null) return;
+        const button = event.currentTarget;
+        button.disabled = true;
+        try {
+          await ResolvePrinterAttempt(item.session_id, latestPrint.attempt_id, decision, note);
+          showToast('Operator print decision saved to the session manifest.');
+          await refreshRecoveryItems();
+        } catch (error) {
+          showToast('Could not resolve this printer attempt: ' + error);
+        } finally {
+          button.disabled = false;
+        }
+      };
+      const printedButton = recoveryActionButton('Confirm printed', 'recovery-secondary-button',
+        (event) => resolvePrinterOutcome('printed', event));
+      const notPrintedButton = recoveryActionButton('Confirm not printed', 'recovery-secondary-button',
+        (event) => resolvePrinterOutcome('not_printed', event));
+      const unknownButton = recoveryActionButton('Close as unknown · never retry', 'recovery-text-button',
+        (event) => resolvePrinterOutcome('unknown', event));
+      printedButton.disabled = true;
+      notPrintedButton.disabled = true;
+      unknownButton.disabled = true;
+      actions.append(printedButton, notPrintedButton, unknownButton);
+      // A fresh inspection result enables the decision controls. The backend
+      // still performs its own exact queue inspection when a decision is saved.
+      updateResolutionControls = () => {
+        printedButton.disabled = !lastInspection || lastInspection.found;
+        notPrintedButton.disabled = !lastInspection || lastInspection.found;
+        unknownButton.disabled = !lastInspection;
+      };
+    }
+
+    if (item.print_lock_present && item.print_lock_owner === 'orphaned' &&
+        item.print_lock?.lease_version === 1) {
+      actions.append(recoveryActionButton('Reconcile released printer lock', 'recovery-secondary-button', async (event) => {
+        const button = event.currentTarget;
+        if (!window.confirm(
+          'Windows reports that the versioned kernel lease is no longer held. Reconciliation will exclusively claim the lock, ensure the manifest contains one uncertain print attempt, and remove the lock marker. It will NOT inspect or resubmit the print job. Continue?'
+        )) return;
+        button.disabled = true;
+        try {
+          const result = await ReconcileOrphanedPrinterLock(item.session_id);
+          showToast('Printer lock reconciled. Attempt ' + result.attempt_id.slice(0, 8) +
+            ' is ' + result.status + '. Inspect the Windows queue before resolving it.');
+          await refreshRecoveryItems();
+        } catch (error) {
+          showToast('Could not reconcile the printer lock: ' + error);
+          button.disabled = false;
+        }
+      }));
+    }
 
     if (item.status === 'resume_available') {
       actions.append(recoveryActionButton('Continue session', 'recovery-primary-button', async (event) => {

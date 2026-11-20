@@ -97,3 +97,64 @@ Follow-up regression coverage on 2026-11-07:
 - Workflow Continue completes a partially captured synthetic session after the original frame JSON is removed, rendering and saving from the snapshot.
 - Wails discovery/Continue permits that same snapshot-backed flow when the only Settings warning is a missing current frame; other Settings errors remain blocking.
 - Retention accepts a finalized session with a matching snapshot and skips one with a corrupt snapshot.
+
+
+## Printer attempt recovery (manifest v3, 2026-11-19)
+
+Session manifest schema v3 adds an append-only list of printer attempts while preserving read compatibility with schema v1 and v2. Existing v2 immutable frame snapshots remain readable; the durable printer wrapper upgrades a v2 manifest to v3 only when its snapshot is verified immediately before a first explicit print attempt. Legacy v1 sessions are not auto-upgraded for printing.
+
+Each print attempt stores:
+- A random attempt ID and a Windows document name derived from session ID + attempt ID.
+- Explicit queue name and SHA-256 of the rendered JPEG.
+- Request/update timestamps, state, optional spooler job ID and error.
+
+The print state machine is deliberately conservative:
+- submitting: the intent was atomically persisted before the Windows printer target is called. If the application exits/crashes before the result is written, discovery treats this as uncertain.
+- queued: Windows accepted the job and returned a spooler job ID. It is not proof of paper output.
+- failed: only a typed, definite pre-acceptance error. A later attempt may be started explicitly.
+- uncertain: the job may have reached the spooler or the queued/job-ID result could not be durably written. No automatic resubmission is allowed.
+
+A per-session .print.lock is created before persisting the print intent. New Windows submissions hold a version-1 kernel file lease until their result is persisted and the marker is removed. If a process exits abruptly, Windows releases the handle. Read-only recovery can classify the marker as active, orphaned or unverifiable; it never removes it during discovery. The Wails recovery card exposes Reconcile released printer lock only for an orphaned version-1 lease. Reconciliation reclaims the lock exclusively and is described below. The UI still has no print retry button. The explicit Inspect Windows queue action uses the exact persisted queue, document name and optional job ID with a read-only EnumJobsW snapshot. If the job is not listed, the UI states that this does not prove it printed or failed. There is no background polling or automatic transition to printed/completed. An explicit append-only operator resolution can now close a persisted manifest attempt as printed, not_printed or unknown; it preserves the original attempt and does not resubmit. A surviving version-1 Windows lease must first pass ReconcileOrphanedPrinterLock; legacy/unversioned, corrupt/partial and unsupported-platform locks remain inspect-only. A separate local-output retry does not re-submit the printer target.
+
+The reusable DurablePrinter output target, StoreConfig v2 policy and Wails Windows Preview opt-in dispatcher are implemented. The root CLI remains local-only; demo sessions and local-output retries remain local-only. Printer stays disabled by default and is configured only through the operator-managed local profile, not the guest Settings screen. Automated/background spooler polling, handling of pre-lease/corrupt/partial locks, a no-duplicate policy verified on physical hardware and physical acceptance remain open. Keep the default profile disabled. See ADR 0033.
+
+
+### Pre-manifest printer crash window
+
+The .print.lock file now stores a bounded JSON record containing the attempt ID, queue name, deterministic document name and timestamp before the manifest PrintAttempt is written. Recovery validates this record and exposes it through the Wails DTO. This closes the earlier gap where a crash immediately after lock creation but before the manifest write left no document name to inspect. The recovery card can now inspect the exact Windows queue identity from the lock even when no PrintAttempt exists yet. A corrupt/invalid lock remains an uncertainty warning but does not expose an Inspect action without a trusted identity. Read-only discovery never clears the lock or mutates the session.
+
+
+## Operator printer resolution (manifest v3, 2026-11-19)
+
+Manifest v3 now stores an optional append-only print_resolutions list beside the append-only print_attempts history. Existing v1/v2/v3 manifests without resolutions remain readable; no schema-version bump is required for the optional list.
+
+A resolution records the exact attempt ID, operator decision (printed, not_printed or unknown), whether the matching persisted queue/document/job was found during a fresh read-only Windows inspection, queue-check timestamp, record timestamp and a required operator note. The prior PrintAttempt is left unchanged. This preserves both the original spooler result (queued/submitting/uncertain) and the later operator decision.
+
+The Windows Preview recovery card offers:
+1. **Inspect Windows queue**: read-only EnumJobsW against the exact saved queue/document/job identity. A missing queue entry is only "not currently listed"; it does not establish a physical result.
+2. **Confirm printed**: available only after the job is absent from the current queue snapshot. The operator must affirm that paper physically emerged.
+3. **Confirm not printed**: available only after the job is absent. The operator must affirm that the printer/output tray was inspected and no paper emerged.
+4. **Close as unknown · never retry**: available after inspection even if the job remains listed; this is a permanent no-retry closure, not a success/failure claim.
+
+Every decision asks for an explicit confirmation and a required note. The Go API independently re-inspects the exact queue immediately before saving, re-reads the manifest and rechecks for .print.lock. It rejects printed/not_printed while the matching spooler job is still listed. It serializes with station capture/output lifecycle operations and appends the resolution atomically. No spooler job is paused, resumed, cancelled or deleted.
+
+Only a recorded not_printed resolution makes a separate future DurablePrinter.Execute eligible. That is not an automatic retry: the current Wails UI has no print-send/retry button, and DurablePrinter is not wired into delivery.NewDispatcher or guest sessions. printed and unknown remain blocked from another attempt.
+
+**Lock-only crash handling:** a version-1 Windows lease can be reconciled after the kernel proves that its prior handle is no longer held. Reconciliation creates exactly one uncertain PrintAttempt when the crash occurred before manifest intent publication; it does not infer a print outcome. Pre-lease/unversioned, corrupt/partial or unsupported-platform markers remain inspect-only and are never removed based on PID or queue absence.
+
+
+### Kernel-verified printer lock ownership (Windows, 2026-11-19)
+
+New DurablePrinter lock markers use a version-1 kernel-held Windows file lease. The marker stores the attempt ID, queue, document name, rendered-source SHA-256, creation time, lease version and owner PID. The PID is diagnostic only; the system does not use it to decide whether a process is alive. Win32 CreateFileW sharing rules provide the authority: while the original handle is held, an exclusive claim is denied; after its owning process exits, Windows releases the handle and a new process can claim it.
+
+Read-only session discovery uses a compatible Win32 read-only handle so it can inspect the lock metadata while a submission is active. It then probes an exclusive claim and reports owner state as active, orphaned or unverifiable. The state shown in the UI is only a snapshot. The actual reconciliation method claims the lock again and holds it through validation, manifest persistence and lock deletion.
+
+The Windows Preview offers **Reconcile released printer lock** only for a version-1 lock classified orphaned. Backend reconciliation:
+- Verifies the exact session directory and claimed lock identity.
+- Fully validates and hashes the session's rendered.jpg and requires it to match the lock's source SHA-256.
+- If a matching manifest attempt is still submitting, changes it to uncertain. If it is already queued/uncertain/failed, preserves that state.
+- If the lock was created but no PrintAttempt reached the manifest, appends exactly one matching attempt and persists it as uncertain. A snapshot-backed v2 manifest is upgraded to v3 only after its frame snapshot is reverified.
+- Persists the manifest before removing the lock marker through the still-exclusive Windows handle. If the process crashes between those operations, the next reconciliation is idempotent.
+- Does not query or mutate the Windows spooler and never submits another job. The operator must inspect the queue and then use the separate printed/not_printed/unknown resolution action.
+
+Pre-lease legacy locks (lease version 0/omitted), corrupt/partial lock metadata, and platforms without a supported kernel claim remain unverifiable and inspect-only. They are not removed using PID checks or queue absence. PID reuse therefore does not affect the new Windows lease check. Linux builds are compile-only; this Windows locking behavior is not claimed as a Linux runtime feature.

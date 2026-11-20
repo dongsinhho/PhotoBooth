@@ -1,5 +1,8 @@
 [CmdletBinding()]
-param([string]$InstallRoot)
+param(
+    [string]$InstallRoot,
+    [switch]$AllowUnsignedPreview
+)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Release.Common.ps1')
@@ -30,8 +33,8 @@ $releasesRoot = Join-Path $InstallRoot 'releases'
 $currentDirectory = Join-Path $releasesRoot $currentVersion
 $targetDirectory = Join-Path $releasesRoot $targetVersion
 
-[void](Assert-PhotoBoothReleaseDirectory -ReleaseDirectory $currentDirectory -ExpectedVersion $currentVersion -ExpectedSha256 $currentHash)
-[void](Assert-PhotoBoothReleaseDirectory -ReleaseDirectory $targetDirectory -ExpectedVersion $targetVersion -ExpectedSha256 $targetHash)
+[void](Assert-PhotoBoothReleaseDirectory -ReleaseDirectory $currentDirectory -ExpectedVersion $currentVersion -ExpectedSha256 $currentHash -AllowUnsignedPreview:$AllowUnsignedPreview)
+[void](Assert-PhotoBoothReleaseDirectory -ReleaseDirectory $targetDirectory -ExpectedVersion $targetVersion -ExpectedSha256 $targetHash -AllowUnsignedPreview:$AllowUnsignedPreview)
 
 Write-PhotoBoothActivePointer -InstallRoot $InstallRoot -ActiveVersion $targetVersion -ActiveSha256 $targetHash -PreviousVersion $currentVersion -PreviousSha256 $currentHash
 

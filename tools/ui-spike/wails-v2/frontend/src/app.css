@@ -345,6 +345,7 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none !important;
 .recovery-status-resume_available { background: rgba(114,183,156,.13); color: #a4dcc4; }
 .recovery-status-output_pending { background: rgba(215,177,114,.13); color: #e5c48d; }
 .recovery-card p { margin: 0; color: #b3bed2; font-size: 9px; line-height: 1.55; }
+.recovery-card .recovery-print-note { padding: 8px 9px; border-left: 2px solid rgba(215,177,114,.65); background: rgba(215,177,114,.07); color: #e5c48d; }
 .recovery-card small { color: #8290a7; font-size: 8px; line-height: 1.5; }
 .recovery-card code { color: #8796b1; font-size: 8px; overflow-wrap: anywhere; }
 .recovery-card-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 3px; }
