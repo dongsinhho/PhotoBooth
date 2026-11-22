@@ -29,6 +29,9 @@ type PlayerSettings struct {
 }
 
 func (a *App) GetPlayerSettings() (PlayerSettings, error) {
+	if err := a.requireOperator(); err != nil {
+		return PlayerSettings{}, err
+	}
 	if err := a.preparePlayerPaths(); err != nil {
 		return PlayerSettings{}, err
 	}
@@ -70,6 +73,9 @@ func (a *App) playerSettingsLocked() PlayerSettings {
 // BrowseFrameConfig opens a local JSON file picker. It never uploads the
 // selected file; SavePlayerSettings validates it before persisting the path.
 func (a *App) BrowseFrameConfig() (string, error) {
+	if err := a.requireOperator(); err != nil {
+		return "", err
+	}
 	if a.ctx == nil {
 		return "", errors.New("the frame file picker is unavailable before the UI starts")
 	}
@@ -93,6 +99,9 @@ func (a *App) BrowseFrameConfig() (string, error) {
 // SavePlayerSettings validates the frame and shot/slot relationship before
 // atomically persisting the profile. Settings cannot change during a session.
 func (a *App) SavePlayerSettings(settings PlayerSettings) (PlayerSettings, error) {
+	if err := a.requireOperator(); err != nil {
+		return PlayerSettings{}, err
+	}
 	if err := a.preparePlayerPaths(); err != nil {
 		return PlayerSettings{}, err
 	}

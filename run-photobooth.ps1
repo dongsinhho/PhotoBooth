@@ -5,14 +5,17 @@ param(
     [switch]$SkipBuild,
     [switch]$NoLaunch,
     [switch]$Dev,
-    [switch]$Kiosk
+    [switch]$Kiosk,
+    [switch]$Windowed
 )
 
 $ErrorActionPreference = 'Stop'
-if ($NoLaunch -and $Kiosk) {
-    throw '-Kiosk requires launching the app; it cannot be combined with -NoLaunch.'
+if ($Kiosk -and $Windowed) {
+    throw '-Kiosk and -Windowed cannot be combined.'
 }
-$kioskEnvironmentValue = if ($Kiosk) { '1' } else { '0' }
+# Production/default launches are fullscreen Customer Mode. Windowed is an
+# explicit development/diagnostic opt-out; -Kiosk remains for compatibility.
+$kioskEnvironmentValue = if ($Windowed) { '0' } else { '1' }
 $repoRoot = $PSScriptRoot
 $uiDir = Join-Path $repoRoot 'tools\ui-spike\wails-v2'
 $binaryDir = Join-Path $uiDir 'build\bin'
@@ -67,7 +70,8 @@ try {
         $previousKioskValue = [Environment]::GetEnvironmentVariable('PHOTOBOOTH_KIOSK', 'Process')
         [Environment]::SetEnvironmentVariable('PHOTOBOOTH_KIOSK', $kioskEnvironmentValue, 'Process')
         try {
-            if ($Kiosk) { Write-Host 'Kiosk mode enabled: fullscreen on startup; Esc exits fullscreen, F11 toggles.' }
+            if ($Windowed) { Write-Host 'Windowed diagnostic mode enabled.' }
+            else { Write-Host 'Customer Mode starts fullscreen; window mode is Operator-only.' }
             & $wails dev
             if ($LASTEXITCODE -ne 0) {
                 throw "Wails dev exited with code $LASTEXITCODE."
@@ -125,10 +129,10 @@ try {
     }
     Write-Host "PhotoBooth Windows Preview started (PID $($process.Id))."
     Write-Host 'The idle screen starts the local webcam preview. Preview stops before capture and while Settings is open.'
-    if ($Kiosk) {
-        Write-Host 'Kiosk mode is active: fullscreen on startup; Esc exits fullscreen without closing PhotoBooth; F11 toggles.'
+    if ($Windowed) {
+        Write-Host 'Windowed diagnostic mode is active. Guest mode changes remain restricted.'
     } else {
-        Write-Host 'Windowed mode is active. Press F11 to enter kiosk mode; Esc exits fullscreen.'
+        Write-Host 'Fullscreen Customer Mode is active. Authenticate as Operator before changing window mode or exiting.'
     }
     Write-Host 'This is an experimental Windows MVP candidate, not a production release.'
 }

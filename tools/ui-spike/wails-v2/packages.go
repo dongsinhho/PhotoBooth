@@ -53,6 +53,9 @@ func toPlayerFramePackage(info framepackage.PackageInfo) PlayerFramePackage {
 
 // BrowseFramePackage opens a local picker. No package is downloaded by this method.
 func (a *App) BrowseFramePackage() (string, error) {
+	if err := a.requireOperator(); err != nil {
+		return "", err
+	}
 	if a.ctx == nil {
 		return "", errors.New("the package file picker is unavailable before the UI starts")
 	}
@@ -69,6 +72,9 @@ func (a *App) BrowseFramePackage() (string, error) {
 // ValidateFramePackage verifies archive bounds, manifest, payload digests, media
 // and the production renderer's schema-v1 frame rules without installing anything.
 func (a *App) ValidateFramePackage(path string) (PlayerFramePackage, error) {
+	if err := a.requireOperator(); err != nil {
+		return PlayerFramePackage{}, err
+	}
 	if err := a.preparePlayerPaths(); err != nil {
 		return PlayerFramePackage{}, err
 	}
@@ -84,6 +90,9 @@ func (a *App) ValidateFramePackage(path string) (PlayerFramePackage, error) {
 
 // InstallFramePackage stores a verified immutable version, without activating it.
 func (a *App) InstallFramePackage(path string) (PlayerFramePackage, error) {
+	if err := a.requireOperator(); err != nil {
+		return PlayerFramePackage{}, err
+	}
 	configPath, _, _, err := a.beginFramePackageOperation()
 	if err != nil {
 		return PlayerFramePackage{}, err
@@ -99,6 +108,9 @@ func (a *App) InstallFramePackage(path string) (PlayerFramePackage, error) {
 // GetFramePackageState verifies installed versions and recovers interrupted
 // activation metadata by comparing the persisted profile with the pending target.
 func (a *App) GetFramePackageState() (PlayerFramePackageState, error) {
+	if err := a.requireOperator(); err != nil {
+		return PlayerFramePackageState{}, err
+	}
 	if err := a.preparePlayerPaths(); err != nil {
 		return PlayerFramePackageState{}, err
 	}
@@ -136,6 +148,9 @@ func (a *App) GetFramePackageState() (PlayerFramePackageState, error) {
 // referenced by the current rollback transition. The manager re-checks the on-disk
 // profile relationship before removing the package directory.
 func (a *App) UninstallFramePackage(packageID, version string) error {
+	if err := a.requireOperator(); err != nil {
+		return err
+	}
 	configPath, currentFrame, _, err := a.beginFramePackageOperation()
 	if err != nil {
 		return err
@@ -150,6 +165,9 @@ func (a *App) UninstallFramePackage(packageID, version string) error {
 // ActivateFramePackage creates a rollback point, then updates the station config.
 // The configured shot count follows the selected frame's validated slot count.
 func (a *App) ActivateFramePackage(packageID, version string) (PlayerSettings, error) {
+	if err := a.requireOperator(); err != nil {
+		return PlayerSettings{}, err
+	}
 	configPath, currentFrame, cfg, err := a.beginFramePackageOperation()
 	if err != nil {
 		return PlayerSettings{}, err
@@ -194,6 +212,9 @@ func (a *App) ActivateFramePackage(packageID, version string) (PlayerSettings, e
 // installed package remains in the catalog and the last-known-good copy is only
 // removed after the profile has been saved successfully.
 func (a *App) RollbackActiveFrame() (PlayerSettings, error) {
+	if err := a.requireOperator(); err != nil {
+		return PlayerSettings{}, err
+	}
 	configPath, currentFrame, cfg, err := a.beginFramePackageOperation()
 	if err != nil {
 		return PlayerSettings{}, err

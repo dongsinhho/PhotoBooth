@@ -845,3 +845,26 @@ Environment: ShinPc / Ubuntu 26.04.1 WSL2, kernel `6.18.58.1-microsoft-standard-
 - Root `go test -count=1 ./...`, `go vet ./...`, and Linux/amd64 `CGO_ENABLED=0 go build ./...`: PASS.
 
 Scope: this closes only the WSL2 local-storage/mount runtime sub-gate. It does not validate native Ubuntu direct-USB, physical camera/printer, unknown remote FUSE providers, or a production Linux desktop. No camera, USB, guest session or photo content was accessed in this follow-up. Stage 2 remains open pending the elevated Windows firewall/SMB audit and an independent trusted-host reachability check.
+
+## 2026-11-22 - Authenticated Customer Mode preview-only memory baseline (Windows 11 / 16 GiB host)
+
+The current post-authentication Customer Mode UI completed a 10.08-minute preview-only run on ShinPc. The harness was updated for the new UI: fullscreen is checked from actual window bounds, while Settings and display-mode transitions are skipped in -PreviewOnly because they now require Operator authorization.
+
+Host: ASRock X600-ITX, Ryzen 5 8600G / Radeon 760M, Windows 11 Pro build 26200, 15,484 MiB visible RAM. The logged-in SHINPC\sinhv account belongs to local Administrators. GPU acceleration was enabled. B525 preview only; no guest capture, photo session, printer job, Settings navigation or user-data profile. The disposable test profile was removed.
+
+Measured:
+- Duration / samples: 10.08 minutes / 172 samples at roughly 2-second target intervals.
+- Preview: mean 4.76 FPS, minimum 4.71 FPS; max observed ACK p95 14.71 ms; max frame-gap p95 217.06 ms.
+- CPU tree: mean 12.92%, peak 24% of one logical core.
+- Process-tree working set: 511.23 MiB first, 874.29 MiB last, 981.68 MiB peak.
+- Process-tree private bytes: 327.19 MiB first, 678.24 MiB last, 900.18 MiB peak.
+- PhotoBooth.exe private bytes: 28.98 MiB first, 30.41 MiB peak.
+- WebView2 process-tree private bytes: 298.21 MiB first, 647.83 MiB last, 873.35 MiB peak; working-set peak 939.57 MiB.
+- Host available RAM: 6,997.92 MiB initially, 5,706.58 MiB minimum (36.85% of visible RAM), 6,591.13 MiB at the last sample.
+- Host commit peak: 74.28%. Host-wide PagesInputPersec / PageReadsPersec peaks were 23,506 / 475; these counters are not attributable to PhotoBooth alone.
+
+Event audit: 2,903 published frames, 2,902 ACKs, zero cancellations, zero invalid JSON, zero orphan ACKs, zero duplicates and no internal publish gaps. The original harness marked the run FAIL because sequence 2903 was still in flight at process shutdown and had no terminal event. The raw JSONL confirms it was the final event, after 2,902 consecutive acknowledged frames. The harness now classifies only one such final trailing publish as shutdown_inflight_publishes=1; any unmatched publish inside the stream remains a hard failure.
+
+Post-fix regression: a 1.02-minute preview-only run passed with 23 samples, 300 published / 300 ACKed, no cancellation or audit gap, and TEMP profile cleanup. PowerShell AST parsing also passed after the harness update.
+
+Interpretation: this establishes a current 16 GiB Windows preview baseline with stable preview throughput and no sustained process-tree memory growth after WebView2 startup. It does not validate the 8 GiB target, certify Wails for low-RAM machines, or replace native Ubuntu 24.04 / 4 GiB testing. Do not simulate qualification by changing the pagefile or manufacturing memory pressure; obtain an actual target-class test machine.

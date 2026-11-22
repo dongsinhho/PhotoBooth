@@ -57,6 +57,7 @@ $dataRoot = Join-Path $env:TEMP "photobooth-kiosk-smoke-$runId"
 $reportPath = Join-Path $env:TEMP "photobooth-kiosk-smoke-$runId.json"
 $previousDataRoot = [Environment]::GetEnvironmentVariable('PHOTOBOOTH_DATA_DIR', 'Process')
 $previousKiosk = [Environment]::GetEnvironmentVariable('PHOTOBOOTH_KIOSK', 'Process')
+$previousPreviewDisabled = [Environment]::GetEnvironmentVariable('PHOTOBOOTH_DISABLE_CAMERA_PREVIEW', 'Process')
 $app = $null
 $window = $null
 $status = 'FAIL'
@@ -191,41 +192,55 @@ try {
     Write-Host 'WAILS_KIOSK_SMOKE=START (no capture; disposable local settings only)'
     New-Item -ItemType Directory -Path $dataRoot -Force | Out-Null
     [Environment]::SetEnvironmentVariable('PHOTOBOOTH_DATA_DIR', $dataRoot, 'Process')
-    [Environment]::SetEnvironmentVariable('PHOTOBOOTH_KIOSK', '1', 'Process')
+    # Clear the override so this test proves fullscreen is the actual default.
+    [Environment]::SetEnvironmentVariable('PHOTOBOOTH_KIOSK', $null, 'Process')
+    # This smoke validates window/kiosk behavior only; never open the physical camera.
+    [Environment]::SetEnvironmentVariable('PHOTOBOOTH_DISABLE_CAMERA_PREVIEW', '1', 'Process')
 
     $app = Start-Process -FilePath $exe -WorkingDirectory $exeWorkingDirectory -PassThru
     $window = Wait-Window $StartupTimeoutSeconds
-    Wait-Text 'KIOSK MODE | ESC TO EXIT | F11 TO TOGGLE' $true $StartupTimeoutSeconds
     Wait-Text 'Start with webcam' $true $StartupTimeoutSeconds
     $checks['fullscreen_on_start'] = Test-FillsPrimaryScreen
     if (!$checks['fullscreen_on_start']) {
-        throw "Kiosk startup did not fill the primary screen. Bounds: $((Get-AppBounds | ConvertTo-Json -Compress))"
+        throw "Customer Mode did not start fullscreen. Bounds: $((Get-AppBounds | ConvertTo-Json -Compress))"
     }
-    Write-Host 'KIOSK_STARTUP_FULLSCREEN=PASS'
+    if (@(Get-WindowText) -contains 'Operator access') {
+        throw 'Customer Mode exposed a public Operator navigation entry.'
+    }
+    Write-Host 'CUSTOMER_STARTUP_FULLSCREEN=PASS'
 
     Send-WindowKey '{ESC}'
-    Wait-Text 'KIOSK MODE | ESC TO EXIT | F11 TO TOGGLE' $false $TransitionTimeoutSeconds
-    $checks['escape_returns_windowed'] = -not (Test-FillsPrimaryScreen)
-    if (!$checks['escape_returns_windowed']) {
-        throw 'Escape hid the kiosk hint but the window still fills the primary screen.'
+    Start-Sleep -Milliseconds 300
+    $checks['customer_escape_keeps_fullscreen'] = Test-FillsPrimaryScreen
+    if (!$checks['customer_escape_keeps_fullscreen']) {
+        throw 'Escape left fullscreen while the application was in Customer Mode.'
     }
-    Write-Host 'ESCAPE_WINDOWED=PASS'
+    Write-Host 'CUSTOMER_ESCAPE_BLOCKED=PASS'
 
     Send-WindowKey '{F11}'
-    Wait-Text 'KIOSK MODE | ESC TO EXIT | F11 TO TOGGLE' $true $TransitionTimeoutSeconds
-    $checks['f11_enters_fullscreen'] = Test-FillsPrimaryScreen
-    if (!$checks['f11_enters_fullscreen']) {
-        throw 'F11 displayed the kiosk hint but did not fill the primary screen.'
+    Start-Sleep -Milliseconds 300
+    $checks['customer_f11_keeps_fullscreen'] = Test-FillsPrimaryScreen
+    if (!$checks['customer_f11_keeps_fullscreen']) {
+        throw 'F11 changed window mode while the application was in Customer Mode.'
     }
-    Write-Host 'F11_FULLSCREEN=PASS'
+    Write-Host 'CUSTOMER_F11_BLOCKED=PASS'
 
-    Send-WindowKey '{ESC}'
-    Wait-Text 'KIOSK MODE | ESC TO EXIT | F11 TO TOGGLE' $false $TransitionTimeoutSeconds
-    $checks['escape_after_toggle'] = -not (Test-FillsPrimaryScreen)
-    if (!$checks['escape_after_toggle']) {
-        throw 'Escape did not restore the window after the F11 toggle.'
+    $process = Get-Process -Id $app.Id -ErrorAction Stop
+    [void]$process.CloseMainWindow()
+    if (-not $process.WaitForExit(7000)) {
+        throw 'First kiosk process did not close gracefully for the restart test.'
     }
-    Write-Host 'ESCAPE_AFTER_TOGGLE=PASS'
+    $app = $null
+    $window = $null
+
+    $app = Start-Process -FilePath $exe -ArgumentList @('--kiosk') -WorkingDirectory $exeWorkingDirectory -PassThru
+    $window = Wait-Window $StartupTimeoutSeconds
+    Wait-Text 'Start with webcam' $true $StartupTimeoutSeconds
+    $checks['process_restart_returns_customer_fullscreen'] = Test-FillsPrimaryScreen
+    if (!$checks['process_restart_returns_customer_fullscreen']) {
+        throw 'A new process did not return to fullscreen Customer Mode.'
+    }
+    Write-Host 'RESTART_CUSTOMER_FULLSCREEN=PASS'
 
     $status = 'PASS'
 }
@@ -248,6 +263,7 @@ finally {
 
     [Environment]::SetEnvironmentVariable('PHOTOBOOTH_DATA_DIR', $previousDataRoot, 'Process')
     [Environment]::SetEnvironmentVariable('PHOTOBOOTH_KIOSK', $previousKiosk, 'Process')
+    [Environment]::SetEnvironmentVariable('PHOTOBOOTH_DISABLE_CAMERA_PREVIEW', $previousPreviewDisabled, 'Process')
 
     if ($app -and !(Get-Process -Id $app.Id -ErrorAction SilentlyContinue)) {
         if (Test-Path $dataRoot) {

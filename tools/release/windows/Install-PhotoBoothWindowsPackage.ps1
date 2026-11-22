@@ -3,6 +3,8 @@ param(
     [Parameter(Mandatory = $true)][string]$PackagePath,
     [string]$InstallRoot,
     [switch]$SkipMachineProvisioning,
+    [switch]$SkipAutoStart,
+    [string]$AutoStartRegistryPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run',
     [switch]$AllowUnsignedPreview
 )
 
@@ -205,6 +207,15 @@ try {
         PreviousSha256 = $previousSha256
     }
     Write-PhotoBoothActivePointer @pointerArgs
+
+    if (!$SkipAutoStart) {
+        $activeExecutable = Join-Path $finalRelease 'PhotoBooth.exe'
+        $autoStartCommand = Set-PhotoBoothCurrentUserAutoStart -InstallRoot $InstallRoot -ExecutablePath $activeExecutable -RegistryPath $AutoStartRegistryPath
+        Write-Host 'CURRENT_USER_AUTO_START=ENABLED'
+        Write-Host "AUTO_START_COMMAND=$autoStartCommand"
+    } else {
+        Write-Host 'CURRENT_USER_AUTO_START=SKIPPED (explicit test/maintenance option)'
+    }
 
     Write-Host "ACTIVE_VERSION=$version"
     Write-Host "PREVIOUS_VERSION=$previousVersion"

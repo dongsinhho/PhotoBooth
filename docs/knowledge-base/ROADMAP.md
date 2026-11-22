@@ -397,3 +397,132 @@ Validation:
 **Still pending / not claimed complete:** no genuine publisher certificate/TSA selected, no real signed-candidate builder package produced with a production certificate, no production trust pin, no public distribution or automatic update transport. Production UI/deployment decision remains open. Physical printer/media acceptance remains **PENDING / DEFERRED — no hardware available**. Native Ubuntu direct-USB camera acceptance remains separately PENDING; Linux package/install path is not validated on a native Ubuntu desktop. Stage 0/1 are not closed.
 
 **Next dependencies:** choose the organization/legal publisher identity and obtain its Code Signing certificate + approved timestamp authority; independently confirm and pin the thumbprint; obtain/accept physical printer + media; and make the explicit production UI/deployment decision. Do not substitute a self-signed test certificate or virtual queue for these decisions.
+
+
+## 2026-11-21 - Production UI and deployment direction accepted
+
+Product decisions are now recorded in [ADR 0034](../adr/0034-production-kiosk-ui-and-installer-targets.md).
+
+- **Platforms:** Windows 11 x64 and Ubuntu 24.04 LTS x86_64 are simultaneous first-class production targets. macOS is a possible future target, not an initial support promise.
+- **Hardware targets:** Windows 8 GiB RAM minimum target; Linux 4 GiB RAM minimum target. These are not yet certified. Actual machines at/near each target are required.
+- **UI:** one app with Customer Mode and authenticated Operator Mode. Customer Mode is fullscreen and fully touch-operable, hides all settings/admin actions, and is the default on every launch. Authenticated operator can return to Customer Mode or exit the app to the OS desktop. The current Preview Escape-to-windowed behavior is not the final customer-mode exit behavior.
+- **Architecture:** share the Go core and isolate OS-specific camera/printer/runtime/deployment adapters. Separate per-OS UI implementations are acceptable where RAM/performance or native integration justify them. Wails v2.17 remains the incumbent prototype/benchmark candidate, not yet an unconditional production framework choice.
+- **Deployment:** installer-only; no portable end-user package. Target a signed per-user Windows installer and Ubuntu 24.04 .deb. The operator logs into the OS; the app auto-starts in that interactive user session and enters Customer Mode. Update notifications are allowed, but installation requires operator approval.
+- **Offline:** free/local capture, render and save must not require Internet. Update checks and provider-backed payment may use network services when available; their failure must not block free/local mode.
+- **QR payment direction:** support both a provider-verified VietQR path and a static QR path with authenticated local operator confirmation. The latter is manual operator confirmation, not bank-verified payment. Both remain deferred until a separate payment design/acceptance step. No QR/payment code was implemented by this decision.
+- **Remote configuration:** desired as a future separately authenticated LAN capability; it is not the paused SMB Remote administration feature and does not reopen that feature's scope.
+
+**Why Wails is not finally approved yet:** one Windows 10-minute preview soak on the 16 GiB ShinPc host recorded a process-tree private-byte peak of about 1.29 GiB. This is insufficient to accept an 8 GiB Windows minimum, and there is no native Ubuntu 24.04 / 4 GiB UI soak. First benchmark the existing Wails candidate on actual target hardware; if it misses the RAM/headroom or touch-interaction gates, evaluate an OS-specific native UI while preserving the shared Go core.
+
+**Next implementation sequence:**
+1. Customer/Operator mode and authentication contract.
+2. Touch-first customer workflow, authenticated settings and exit-to-desktop behavior.
+3. Login auto-start and fullscreen lifecycle for both target OSes.
+4. Low-RAM benchmarks on Windows 8 GiB and native Ubuntu 24.04 4 GiB; select/approve per-OS UI implementations from measured evidence.
+5. Windows signed installer and Ubuntu .deb install/update/rollback/uninstall behavior.
+6. Operator-approved update notification using the production publisher trust chain.
+
+**Still separate / not closed:** genuine publisher certificate and production thumbprint; native Ubuntu direct-USB camera; Linux printer runtime/driver and physical printer/media acceptance; Stage 3 LAN delivery and payment integration; remote operator configuration. Existing SMB Remote administration remains paused. The existing Ubuntu 26.04.1 WSL2 evaluation stays an evaluation environment and is not substituted for Ubuntu 24.04 native acceptance.
+
+
+## 2026-11-21 - Customer/Operator mode and authorization contract defined
+
+The mode boundary is recorded in [ADR 0035](../adr/0035-customer-operator-mode-and-auth-boundary.md).
+
+- Process startup always resolves to Customer Mode; operator authorization is process-local and never restored from disk.
+- Customer Mode is limited to the current guest session and an allowlisted result projection. Settings, frame packages, retention, interrupted-session details, printer queue/job metadata, local file paths, SMB administration and application exit are operator-only.
+- Backend Go authorization is mandatory for every operator-only Wails binding. The prototype binds the full App object into its WebView, so hiding navigation/buttons is not a security boundary.
+- Operator Mode is available only after successful local authentication. Return/lock, timeout, OS lock/suspend, process restart and exit revoke the in-memory authorization context.
+- Do not change modes during capture/finalization/printer submission/output retry. Wait for safe worker quiescence; do not silently cancel a guest session to open Settings.
+- Startup recovery that needs operator action blocks new guest sessions with a generic customer-facing message. Recovery detail remains operator-only.
+- Candidate credential UX is one station-level touch passcode, but credential form, inactivity timeout and failed-attempt/backoff policy remain open values before implementation. The current five-minute timeout is a proposal only.
+- The app-mode boundary does not lock down the OS desktop or system shortcuts. OS kiosk lockdown remains separate.
+- Remote administration remains unchanged and paused under ADR 0031.
+
+**Next step:** choose credential form and timeout/backoff defaults, then implement the Go-owned mode/authorization controller and backend guards before adding the Operator Mode UI. Test direct binding calls, not only hidden buttons.
+
+
+## 2026-11-21 - Initial Customer/Operator authentication implementation
+
+The first implementation checkpoint for ADR 0035 is now present in the shared Go core and Wails v2 Preview.
+
+- Added internal/operatorauth: local 8-digit station PIN, Argon2id verifier with unique salt (64 MiB / 3 iterations / 2 lanes / 32-byte output), strict versioned credential store, atomic writes, no-overwrite first setup, persistent failed-attempt/backoff state, 5-minute inactivity lock and revocable process-local Operator Mode.
+- Backoff schedule: 2s, 5s, 15s, 30s, 1m, 2m, 5m, 10m, then capped at 15m. No permanent lockout.
+- Added secure interactive CLI go run ./cmd/operator-setup for first provisioning. PIN is read without echo and must be confirmed. PHOTOBOOTH_DATA_DIR is honored; otherwise the CLI and Wails app use the current OS user's PhotoBooth data directory.
+- Added authenticated OS-account recovery: close PhotoBooth and run go run ./cmd/operator-setup --reset from the interactive operator OS account. This is not a Wails binding and is not reachable in Customer Mode.
+- Wails now displays a touch keypad for Operator authentication, has Change station PIN and authenticated Exit application controls, clears Operator-only UI state after lock, and only loads Settings/frame/recovery/SMB state after authentication.
+- Go-side guards protect settings, frame packages, retention, recovery, printer maintenance, SMB administration, kiosk/window mode, preview stop, application exit and legacy DemoSession diagnostic bindings.
+- Customer-facing session JSON now uses a random in-memory session token and safe status/result projection. Internal session IDs, filesystem paths, raw errors and printer queue/job metadata are omitted. Interrupted-session/recovery details were moved out of the guest idle screen and into Operator Settings.
+- Customer/Operator transitions, capture, preview and output retry are serialized with the camera lifecycle lock. Operator login is refused while guest capture/finalization/output is active. Operator-initiated recovery transitions back to Customer Mode only after safe session handoff.
+- F11/Escape are consumed in fullscreen Customer Mode and only change window mode when Operator Mode is active. This does not replace Windows Assigned Access/Shell Launcher or Linux desktop kiosk hardening.
+
+**Automated verification on ShinPc (2026-11-21):**
+- Root go test ./...: PASS.
+- Wails module go test ./...: PASS, including direct-binding denial, Customer workflow blocked during Operator Mode, safe session JSON, customer token validation, legacy DemoSession binding denial, credential setup/reset/backoff/restart/timeout and corrupt-store fail-closed tests.
+- Wails module go vet ./...: PASS.
+- Wails wails build -clean: PASS (Windows/amd64; bindings generated; frontend compile and application compile passed).
+- Linux/amd64 cross-compile of internal/operatorauth tests and cmd/operator-setup: PASS. This is package/CLI portability only, not native Ubuntu 24.04 UI, camera, printer or installer acceptance.
+
+**Still open before treating this as production-ready:** manual touch UI acceptance on a booth display; actual wrong-PIN/backoff/restart and 5-minute timeout runtime exercise; authenticated Exit-to-desktop; operating-system session lock/suspend notification; OS-level kiosk hardening and shortcut policy; low-RAM Windows 8 GiB / Ubuntu 24.04 4 GiB benchmarks; native Ubuntu 24.04 Wails UI/package/camera/printer tests. No production PIN was provisioned on the user's real station profile by these automated tests. This checkpoint is uncommitted.
+
+
+## Manual UI acceptance checkpoint - 2026-11-21
+
+Partial Customer/Operator UI acceptance was performed on ShinPc using a disposable profile under the Windows user's %TEMP% directory and PHOTOBOOTH_SYNTHETIC_ONLY=1.
+
+Passed:
+- Fresh app launch opened Customer Mode.
+- Idle Customer screen exposed guest actions only; no public Operator navigation button was present.
+- Five taps on the PB brand mark opened the 8-digit PIN keypad; Cancel removed keypad/submit controls from the accessibility tree while guest Start remained visible.
+- Camera preview reported disabled by synthetic-only mode; the physical webcam was not opened.
+- Guest "Try without a webcam" flow completed three synthetic captures, rendered the strip and saved the local photo. The UI showed COMPLETED and the saved-photo/ready messages.
+- Capture JPEGs, rendered JPEG, final photo and session manifest artifacts were verified under the disposable profile.
+- The app closed and the disposable profile (including its test credential and synthetic photos) was deleted.
+
+Not yet passed manually:
+- Wrong/correct PIN entry and generic error/backoff UI.
+- Authenticated Settings load, Change PIN, Return to booth, 5-minute UI inactivity lock and authenticated Exit.
+- Fresh unconfigured-profile notice / first-time setup UX.
+- Real hardware camera or printer behavior.
+
+Backend automated tests for credential setup, wrong-PIN backoff persistence, restart-to-Customer, PIN reset, inactivity revocation, binding authorization and customer DTO projection remain PASS. These automated tests do not replace the outstanding UI checks. See HANDOFF_2026-11-21-operator-mode.md.
+
+
+## Operator authentication acceptance runner - 2026-11-21
+
+Added tools/ui-spike/wails-v2/run-operator-auth-acceptance.ps1. Run it from the repository root in an interactive PowerShell terminal:
+
+powershell -ExecutionPolicy Bypass -File .\tools\ui-spike\wails-v2\run-operator-auth-acceptance.ps1
+
+It creates a random disposable profile under %TEMP%, invokes the existing secure operator-setup CLI for a temporary test PIN, launches Wails with PHOTOBOOTH_SYNTHETIC_ONLY=1, allows repeat launches against the same test credential, and removes the complete profile at script exit. The PowerShell parser check passed. Manual execution and PIN entry remain pending; do not use the real booth PIN with this test runner.
+
+
+## 2026-11-22 - Interactive-user startup and fullscreen Customer Mode
+
+ADR 0034 step-3 groundwork is implemented and has passed isolated helper/UI tests.
+
+- A normal Wails process defaults to fullscreen Customer Mode without PHOTOBOOTH_KIOSK or launch flags. --windowed / PHOTOBOOTH_KIOSK=0 are diagnostic opt-outs; --kiosk remains accepted. Benchmark mode still suppresses fullscreen.
+- run-photobooth.ps1 and Start-PhotoBooth.ps1 launch fullscreen by default; -Windowed is an explicit diagnostic option.
+- The versioned Windows PowerShell package install flow registers the active immutable release's PhotoBooth.exe --kiosk in the current user's HKCU Run key. Upgrades refresh it; rollback points it at the restored release; uninstall removes only an entry owned by that install root and preserves %LOCALAPPDATA%\PhotoBooth user data.
+- The Windows package smoke has SkipAutoStart flags so temporary install/update/rollback tests do not touch the real user's HKCU Run key.
+- Linux XDG autostart helper is present under tools/release/linux. It refuses root, writes one marked per-user desktop entry, updates/removes only its own entry, and protects unrelated launchers. The .deb installer is not yet implemented.
+- UI kiosk smoke now verifies default Customer fullscreen, ESC/F11 blocked in Customer Mode, and restart returning to Customer fullscreen.
+
+Verification on ShinPc: root/Wails tests, Wails vet, Wails clean Windows build, default-fullscreen UI smoke (camera preview disabled), Windows auto-start helper test using an isolated HKCU subkey, and Linux XDG helper test using a disposable WSL HOME all passed. PowerShell parser and Bash syntax checks passed.
+
+Still pending: real Windows user logon/auto-start observation; native Ubuntu 24.04 login/session and fullscreen test; .deb integration; genuine signed per-user Windows installer; 8 GiB/4 GiB target benchmarks; OS-level desktop kiosk policy. No auto-start entry was enabled on the user's real account.
+
+
+## 2026-11-22 - Windows auto-start lifecycle acceptance
+
+The Windows current-user auto-start path now has an isolated end-to-end package lifecycle test. A temporary internal-alpha v1 package was installed into a TEMP release root and a unique HKCU test subkey; an update to v2 moved the Run value to v2; rollback moved it back to v1; uninstall removed the owned Run value and release files while leaving the separate user-data root unchanged. The smoke passed and cleaned both TEMP install root and test registry subkey. Set/remove helpers now reject non-HKCU registry paths.
+
+A logon acceptance kit was prepared for a separate Standard account, then removed after the user selected the existing Administrator-group operator account and declined separate-account testing. The acceptance generator and guide now target the selected operator account. Actual sign-out/sign-in observation under that account remains pending; no real HKCU Run value was written.
+
+WSL environment was inspected: Ubuntu 26.04.1 LTS / glibc 2.43 with GTK3, WebKit2GTK 4.1 and dpkg-deb present. This is not the selected Ubuntu 24.04 LTS target; no .deb was built on this mismatched distro. A matching Ubuntu 24.04 build environment and native device acceptance remain required.
+
+## 2026-11-22 - Wails Customer Mode memory baseline
+
+A 10.08-minute preview-only run on ShinPc / Windows 11 / 15,484 MiB visible RAM completed with 172 samples. Mean preview was 4.76 FPS; process-tree private bytes peaked at 900.18 MiB (WebView2 at 873.35 MiB); host available memory remained at least 5,706.58 MiB (36.85%). The raw event stream had 2,902 ACKs and one final frame still in flight at shutdown; the audit now reports this separately and continues to fail on any internal missing terminal event. A 1.02-minute regression under the updated audit passed 300/300 publish/ACK and cleaned its TEMP profile.
+
+This is a baseline on a 16 GiB host, not an 8 GiB acceptance result. Windows 8 GiB and native Ubuntu 24.04 / 4 GiB hardware benchmarks remain pending. Do not manufacture memory pressure as a substitute for a target-class machine.

@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$InstallRoot,
+    [switch]$SkipAutoStart,
+    [string]$AutoStartRegistryPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run',
     [switch]$AllowUnsignedPreview
 )
 
@@ -37,6 +39,14 @@ $targetDirectory = Join-Path $releasesRoot $targetVersion
 [void](Assert-PhotoBoothReleaseDirectory -ReleaseDirectory $targetDirectory -ExpectedVersion $targetVersion -ExpectedSha256 $targetHash -AllowUnsignedPreview:$AllowUnsignedPreview)
 
 Write-PhotoBoothActivePointer -InstallRoot $InstallRoot -ActiveVersion $targetVersion -ActiveSha256 $targetHash -PreviousVersion $currentVersion -PreviousSha256 $currentHash
+if (!$SkipAutoStart) {
+    $targetExecutable = Join-Path $targetDirectory 'PhotoBooth.exe'
+    $autoStartCommand = Set-PhotoBoothCurrentUserAutoStart -InstallRoot $InstallRoot -ExecutablePath $targetExecutable -RegistryPath $AutoStartRegistryPath
+    Write-Host 'CURRENT_USER_AUTO_START=UPDATED_AFTER_ROLLBACK'
+    Write-Host "AUTO_START_COMMAND=$autoStartCommand"
+} else {
+    Write-Host 'CURRENT_USER_AUTO_START=SKIPPED (explicit test/maintenance option)'
+}
 
 Write-Host "ROLLBACK_FROM=$currentVersion"
 Write-Host "ACTIVE_VERSION=$targetVersion"

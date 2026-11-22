@@ -1,4 +1,4 @@
-﻿# Security and Privacy Baseline
+# Security and Privacy Baseline
 
 **Status:** Proposed baseline
 
@@ -85,3 +85,51 @@ Default policy:
 
 
 **2026-11-16 SMB-off local regression:** the real Wails B525 preview/capture smoke passed with LanmanServer Stopped/Disabled. It verified preview before capture, exclusive camera handoff, 3/3 real captures, render, local output and preview restoration. Temporary test data was removed; only the JSON report remained. See NETWORK_EXPOSURE_AUDIT.md and HANDOFF_2026-11-16.md.
+
+
+## Customer / Operator mode access boundary (2026-11-21)
+
+PhotoBooth's guest-facing Customer Mode and authenticated Operator Mode are separate application authorization states. See [ADR 0035](../adr/0035-customer-operator-mode-and-auth-boundary.md).
+
+- A fresh process always enters Customer Mode. Never restore authenticated operator state from a settings file, localStorage, a persisted boolean or a reusable session token.
+- Go owns authorization. Hiding a frontend button or view is not a security control because the Wails WebView is bound to the Go App object.
+- All settings, frame-package management, retention, interrupted-session inspection/recovery, printer queue resolution, local filesystem opening, SMB remote-administration controls and application exit must enforce a Go-side operator authorization check at the binding entry point.
+- Customer UI receives only allowlisted result/status DTOs. Do not send local paths, session identifiers, printer queue/document/job metadata, old-session recovery details or authentication verifier material to Customer Mode.
+- Operator credentials must never be stored/logged in plaintext. Use a reviewed salted adaptive password hash, protect the verifier using the logged-in OS user's file permissions and rate-limit guessing attempts. Recovery requires control of the operator OS account or another explicitly selected trusted mechanism; no universal backdoor.
+- Operator authorization is process-local and revocable. Return/lock, inactivity timeout, OS lock/suspend, shutdown and restart remove privileged access.
+- Do not allow mode transitions to interrupt capture, finalization, printer submission or output retry. Require safe worker quiescence.
+- The app-level gate does not disable OS shortcuts or replace Windows Assigned Access / Linux desktop kiosk hardening. Do not claim whole-desktop kiosk security based on this mode boundary.
+- The credential form, inactivity timeout and failed-attempt/backoff numeric policy must be selected before implementation. Five minutes is the current timeout proposal, not yet an approved value.
+
+
+## Operator credential implementation update (2026-11-21)
+
+The initial local Operator Authentication implementation is in internal/operatorauth and the Wails v2 Preview. See ADR 0035.
+
+- One station-level 8-digit PIN; Argon2id verifier (64 MiB memory, 3 iterations, 2 lanes, 32-byte output) with a unique 16-byte salt.
+- Credential store is strict/versioned, written atomically, and created without overwriting an existing credential. No plaintext PIN or logged-in Operator flag is persisted.
+- Failed attempts and next-allowed timestamp persist across restart. Backoff increases from 2 seconds to a 15-minute cap; there is no permanent lockout.
+- Operator access is process-local and automatically expires after 5 minutes without operator activity. Touch/keyboard activity refreshes it through a throttled backend heartbeat.
+- Authenticated PIN change is available inside Operator Settings. Forgotten-PIN recovery requires control of the logged-in operator OS account: close PhotoBooth and run go run ./cmd/operator-setup --reset from an interactive terminal. The CLI never echoes the PIN. No reset binding exists in Wails or Customer Mode.
+- Windows credential data is stored under the current user's profile cache directory (normally LocalAppData); Linux uses the current user's cache directory with owner-only filesystem permissions. The Windows profile DACL is relied upon; portable Go FileMode does not inspect its effective DACL.
+- Customer-facing session projections omit internal session IDs, paths, raw errors and printer spool/job metadata; guest controls use a random active-session token.
+
+Automated Go tests, Wails tests/vet/build and Linux auth/CLI cross-build passed on 2026-11-21. Manual runtime UI/security acceptance, OS session lock/suspend notification and whole-desktop kiosk hardening remain open. Do not represent the Wails Preview as a production-certified kiosk.
+
+
+## Manual Customer/Operator UI smoke (2026-11-21)
+
+On ShinPc, disposable profiles were used with synthetic-only mode. Customer Mode startup, hidden five-tap PB-logo gesture, Operator keypad visibility, Cancel removing keypad controls, and the guest synthetic capture/render/local-save path passed. The WebView no longer receives credential-existence status or State objects from the authentication/lock bindings; configuration absence, wrong PIN, corrupt store and backoff use one generic authentication error. The camera preview stayed disabled and the physical webcam was not opened. Three synthetic captures and the rendered/final JPEGs were verified, then the complete profile and test credential were deleted.
+
+The PIN verification flow (wrong/correct entry), authenticated Settings, Change PIN, Return, five-minute UI inactivity lock and authenticated Exit remain pending manual acceptance. Backend authorization and credential tests passed separately. No real camera or printer acceptance was part of this smoke.
+
+
+The Wails authentication and lock bindings return no credential State to the WebView. Unconfigured store, wrong PIN, corrupt store and persisted backoff are normalized to one generic authentication failure. A regression test verifies that configured and unconfigured cases produce the same binding error. Customer Mode has no public Operator navigation button; a hidden five-tap PB-logo gesture only opens the PIN challenge.
+
+
+Per-user auto-start uses the logged-in operator account: Windows HKCU Run or Linux XDG autostart. No root/system GUI service is created. Windows removal only removes an entry whose target belongs to the chosen install root; Linux modifies only entries carrying the PhotoBooth ownership marker. Fullscreen Customer Mode is the default, and ESC/F11 cannot change window mode before Operator authentication. These controls do not replace OS-level kiosk policy.
+
+
+## Auto-start lifecycle hardening (2026-11-22)
+
+Windows auto-start registration/removal helpers reject registry paths outside the current user's HKCU Software hive. Removal also checks that the stored --kiosk executable target is within the specified PhotoBooth install root. Lifecycle tests use a unique HKCU test subkey and verify install/upgrade/rollback/uninstall without writing the primary user's real Run key. Actual Windows Explorer sign-in execution remains to be observed under the selected Administrator-group operator account; a separate Standard account is not part of the acceptance scope.

@@ -65,6 +65,9 @@ func sameRetentionOptions(left, right retention.Options) bool {
 // PreviewRetentionCleanup is read-only. Its digest is an in-memory, one-time
 // confirmation token for the exact local roots, policy and candidate metadata.
 func (a *App) PreviewRetentionCleanup() (RetentionPreview, error) {
+	if err := a.requireOperator(); err != nil {
+		return RetentionPreview{}, err
+	}
 	if err := a.preparePlayerPaths(); err != nil {
 		return RetentionPreview{}, err
 	}
@@ -139,6 +142,9 @@ func (a *App) PreviewRetentionCleanup() (RetentionPreview, error) {
 // The core retention package re-scans and revalidates every candidate before
 // removal; any settings change invalidates the cached plan.
 func (a *App) ApplyRetentionCleanup(confirmationDigest string) (RetentionApplyResult, error) {
+	if err := a.requireOperator(); err != nil {
+		return RetentionApplyResult{}, err
+	}
 	if err := a.preparePlayerPaths(); err != nil {
 		return RetentionApplyResult{}, err
 	}
@@ -198,6 +204,9 @@ func (a *App) ApplyRetentionCleanup(confirmationDigest string) (RetentionApplyRe
 
 // DiscardRetentionPreview invalidates a previously generated cleanup plan.
 func (a *App) DiscardRetentionPreview() error {
+	if err := a.requireOperator(); err != nil {
+		return err
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.retentionBusy {

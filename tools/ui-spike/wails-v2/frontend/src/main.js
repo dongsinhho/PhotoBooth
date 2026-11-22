@@ -47,6 +47,11 @@ import {
   IsKioskMode,
   ToggleKioskMode,
   ExitKioskMode,
+  AuthenticateOperator,
+  LockOperatorMode,
+  ExitPhotoBooth,
+  TouchOperatorActivity,
+  ChangeOperatorPIN,
 } from '../wailsjs/go/main/App';
 import { EventsOn } from '../wailsjs/runtime/runtime';
 
@@ -81,19 +86,44 @@ const appState = {
     decodeLatencySamples: [],
   },
   kioskMode: false,
+  operatorPin: '',
+  operatorBusy: false,
+  operatorMode: false,
+  lastOperatorTouchAt: 0,
+  operatorEntryTapCount: 0,
+  operatorEntryTapTimer: null,
   timer: null,
 };
 
 root.innerHTML = `
   <div class="shell">
     <header class="topbar">
-      <div class="brand-mark"><span>PB</span></div>
+      <div id="operator-entry-gesture" class="brand-mark" aria-hidden="true"><span>PB</span></div>
       <div class="brand-copy">
         <div class="eyebrow">PHOTOBOOTH / PLAYER</div>
         <div class="brand-name">PhotoBooth <span class="version">WINDOWS PREVIEW</span></div>
       </div>
       <div class="topbar-right"><span class="live-dot"></span> LOCAL CAPTURE <span class="divider">/</span> OFFLINE FIRST</div>
     </header>
+    <div id="operator-auth-overlay" class="operator-auth-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="operator-auth-title">
+      <div class="operator-auth-card">
+        <div class="eyebrow accent">STATION MAINTENANCE</div>
+        <h2 id="operator-auth-title">Operator access</h2>
+        <p id="operator-auth-message">Enter the 8-digit station PIN to open settings.</p>
+        <div id="operator-pin-dots" class="operator-pin-dots">? ? ? ? ? ? ? ?</div>
+        <div id="operator-auth-error" class="operator-auth-error hidden" role="alert"></div>
+        <div id="operator-keypad" class="operator-keypad">
+          <button type="button" data-pin-key="1">1</button><button type="button" data-pin-key="2">2</button><button type="button" data-pin-key="3">3</button>
+          <button type="button" data-pin-key="4">4</button><button type="button" data-pin-key="5">5</button><button type="button" data-pin-key="6">6</button>
+          <button type="button" data-pin-key="7">7</button><button type="button" data-pin-key="8">8</button><button type="button" data-pin-key="9">9</button>
+          <button type="button" data-pin-action="clear">Clear</button><button type="button" data-pin-key="0">0</button><button type="button" data-pin-action="backspace">?</button>
+        </div>
+        <div class="operator-auth-actions">
+          <button id="operator-auth-cancel" class="secondary-button" type="button">Cancel</button>
+          <button id="operator-auth-submit" class="primary-button" type="button" disabled>Unlock settings ?</button>
+        </div>
+      </div>
+    </div>
     <main>
       <section id="view-idle" class="view view-idle">
         <div class="hero-copy">
@@ -101,17 +131,8 @@ root.innerHTML = `
           <h1>Your shots.<br /><span>One little story.</span></h1>
           <p class="lead">Capture your photos, compose your chosen frame, and save the finished strip on this computer. No cloud upload.</p>
           <div id="home-settings-warning" class="home-settings-warning hidden" role="alert"></div>
-          <section id="recovery-panel" class="recovery-panel hidden" aria-live="polite" aria-labelledby="recovery-title">
-            <div class="recovery-panel-heading">
-              <strong id="recovery-title">Interrupted sessions</strong>
-              <span>LOCAL RECOVERY</span>
-            </div>
-            <p class="recovery-panel-note">Only session metadata and saved JPEG headers were inspected. Nothing was resumed, rewritten or deleted.</p>
-            <div id="recovery-list" class="recovery-list"></div>
-          </section>
           <button id="start-session" class="primary-button">Start with webcam <span aria-hidden="true">→</span></button>
           <button id="start-demo-session" class="idle-secondary-button">Try without a webcam</button>
-          <button id="open-settings" class="idle-secondary-button">Settings &amp; frame <span aria-hidden="true">⚙</span></button>
           <div class="footnote"><span class="check">✓</span> LOCAL PHOTO STORAGE <span class="divider">·</span> NO CLOUD UPLOAD</div>
         </div>
         <div class="hero-art">
@@ -144,6 +165,41 @@ root.innerHTML = `
             <div class="settings-version">CONFIG V2</div>
           </div>
           <div id="settings-warning" class="settings-warning hidden" role="alert"></div>
+          <section class="operator-security-manager" aria-labelledby="operator-security-title">
+            <div class="package-manager-heading">
+              <div>
+                <div class="eyebrow accent">OPERATOR SECURITY</div>
+                <h3 id="operator-security-title">Change station PIN</h3>
+                <p>Use your current 8-digit PIN to set a new one. The change returns the booth to Customer Mode.</p>
+              </div>
+            </div>
+            <div id="operator-pin-change-warning" class="settings-warning hidden" role="alert"></div>
+            <div class="settings-grid">
+              <label class="settings-field">
+                <span>Current PIN</span>
+                <input id="operator-current-pin" type="password" inputmode="numeric" autocomplete="off" maxlength="8" pattern="[0-9]{8}" />
+              </label>
+              <label class="settings-field">
+                <span>New PIN</span>
+                <input id="operator-new-pin" type="password" inputmode="numeric" autocomplete="off" maxlength="8" pattern="[0-9]{8}" />
+              </label>
+              <label class="settings-field">
+                <span>Confirm new PIN</span>
+                <input id="operator-confirm-pin" type="password" inputmode="numeric" autocomplete="off" maxlength="8" pattern="[0-9]{8}" />
+              </label>
+            </div>
+            <div class="settings-actions">
+              <button id="change-operator-pin" class="secondary-button" type="button">Change PIN</button>
+            </div>
+          </section>
+          <section id="recovery-panel" class="recovery-panel hidden" aria-live="polite" aria-labelledby="recovery-title">
+            <div class="recovery-panel-heading">
+              <strong id="recovery-title">Interrupted sessions</strong>
+              <span>LOCAL RECOVERY</span>
+            </div>
+            <p class="recovery-panel-note">Only session metadata and saved JPEG headers were inspected. Nothing was resumed, rewritten or deleted.</p>
+            <div id="recovery-list" class="recovery-list"></div>
+          </section>
           <div class="settings-grid">
             <label class="settings-field">
               <span>Photos per strip</span>
@@ -189,7 +245,8 @@ root.innerHTML = `
             <code id="settings-config-path">Loading local settings…</code>
           </div>
           <div class="settings-actions">
-            <button id="cancel-settings" class="secondary-button" type="button">Cancel</button>
+            <button id="cancel-settings" class="secondary-button" type="button">Return to booth</button>
+            <button id="operator-exit-app" class="secondary-button" type="button">Exit application</button>
             <button id="save-settings" class="primary-button" type="button">Save settings <span aria-hidden="true">→</span></button>
           </div>
           <section class="smb-admin-manager" aria-labelledby="smb-admin-title">
@@ -359,7 +416,7 @@ root.innerHTML = `
     </footer>
   </div>
   <div id="toast" class="toast hidden"></div>
-  <div id="kiosk-hint" class="kiosk-hint hidden" role="status">KIOSK MODE | ESC TO EXIT | F11 TO TOGGLE</div>
+  <div id="kiosk-hint" class="kiosk-hint hidden" role="status">OPERATOR MODE | ESC TO WINDOWED | F11 TO TOGGLE</div>
 `;
 
 const byId = (id) => document.getElementById(id);
@@ -434,15 +491,17 @@ function resetPreviewTelemetry() {
 
 function updateKioskMode(enabled) {
   appState.kioskMode = Boolean(enabled);
-  byId('kiosk-hint').classList.toggle('hidden', !appState.kioskMode);
+  byId('kiosk-hint').classList.toggle('hidden', !appState.kioskMode || !appState.operatorMode);
 }
 
-// F11 toggles fullscreen. Escape always exits fullscreen but never closes the app.
+// F11 and kiosk Escape are always consumed by the application while it is
+// fullscreen. Only an authenticated operator may change the window mode.
 window.addEventListener('keydown', async (event) => {
   if (event.repeat || event.defaultPrevented) return;
 
   if (event.key === 'F11') {
     event.preventDefault();
+    if (!appState.operatorMode) return;
     try {
       const enabled = await ToggleKioskMode();
       updateKioskMode(enabled);
@@ -457,6 +516,7 @@ window.addEventListener('keydown', async (event) => {
 
   if (event.key === 'Escape' && appState.kioskMode) {
     event.preventDefault();
+    if (!appState.operatorMode) return;
     try {
       const exited = await ExitKioskMode();
       updateKioskMode(exited ? false : await IsKioskMode());
@@ -669,10 +729,7 @@ function updatePhotoSession(session) {
   byId('camera-placeholder').classList.toggle('hidden', Boolean(latestPreview));
   if (latestPreview) byId('camera-shot-preview').src = latestPreview;
 
-  const outputNeedsRetry = ['failed', 'partial_success', 'timed_out'].includes(session.state) &&
-    captured >= (session.total || 0) &&
-    Boolean(session.rendered_path) &&
-    !session.output_path;
+  const outputNeedsRetry = Boolean(session.output_retry_available);
 
   if (session.state === 'completed' || session.state === 'partial_success' || outputNeedsRetry) {
     const retrying = Boolean(session.output_retrying);
@@ -680,21 +737,18 @@ function updatePhotoSession(session) {
     byId('session-state').textContent = retrying ? 'SAVING' : (outputNeedsRetry ? 'SAVE FAILED' : session.state.replace('_', ' ').toUpperCase());
     byId('new-session').disabled = retrying;
     byId('result-photo-count').textContent = String(captured).padStart(2, '0');
-    const hasPrinterTarget = (session.output_targets || []).some((target) => target.name === 'printer');
-    byId('result-output-types').textContent = hasPrinterTarget ? 'LOCAL + PRINTER' : 'LOCAL FILE';
-    const resultMessage = session.message || (outputNeedsRetry
-      ? 'The photos are ready, but the local save needs to be retried.'
-      : 'Your photo strip has been saved locally.');
-    byId('result-message').textContent = resultMessage;
-    byId('result-output-path').textContent = session.output_path
-      ? `Saved to: ${session.output_path}`
+    byId('result-output-types').textContent = 'LOCAL FILE';
+    byId('result-message').textContent = session.message || 'Your photo strip is ready.';
+    byId('result-output-path').textContent = session.output_saved
+      ? 'Your photo has been saved on this booth.'
       : (outputNeedsRetry
-        ? `The rendered photo is preserved in this session. No final local photo has been published yet.${session.error_message ? ` Last error: ${session.error_message}` : ''}`
-        : 'The final photo was rendered, but no local output path was returned.');
+        ? 'Your photo is ready, but the local save needs to be retried.'
+        : 'The photo was prepared, but saving needs operator attention.');
     byId('retry-output').classList.toggle('hidden', !outputNeedsRetry);
     byId('retry-output').disabled = retrying;
-    byId('retry-output').textContent = retrying ? 'Saving local photo…' : 'Retry local save';
-    byId('open-output-folder').disabled = !session.output_path;
+    byId('retry-output').textContent = retrying ? 'Saving local photo?' : 'Retry local save';
+    byId('open-output-folder').classList.add('hidden');
+    byId('open-output-folder').disabled = true;
     byId('final-photo').classList.toggle('hidden', !session.preview_data_url);
     byId('final-photo-placeholder').classList.toggle('hidden', Boolean(session.preview_data_url));
     if (session.preview_data_url) byId('final-photo').src = session.preview_data_url;
@@ -705,8 +759,8 @@ function updatePhotoSession(session) {
   byId('retry-output').classList.add('hidden');
   byId('new-session').disabled = false;
   if (session.state === 'failed' || session.state === 'timed_out') {
-    byId('failure-message').textContent = session.message || session.error_message || 'The session failed. Your completed photos have been kept.';
-    byId('failed-session-id').textContent = session.id || '—';
+    byId('failure-message').textContent = session.message || 'The session failed. Please ask the booth operator for help.';
+    byId('failed-session-id').textContent = session.token || '—';
     byId('failed-shot-count').textContent = `${captured} / ${session.total || 3}`;
     byId('continue-session').disabled = captured >= (session.total || 3);
     byId('continue-session').textContent = captured > 0 ? 'Reconnect and continue remaining shots →' : 'Retry camera connection →';
@@ -1234,6 +1288,186 @@ async function disableSmbRemoteAdmin() {
   }
 }
 
+
+function setOperatorAuthError(message) {
+  const error = byId('operator-auth-error');
+  error.textContent = message || '';
+  error.classList.toggle('hidden', !message);
+}
+
+function renderOperatorPIN() {
+  const length = appState.operatorPin.length;
+  byId('operator-pin-dots').textContent = Array.from({ length: 8 }, (_, index) =>
+    index < length ? '?' : '?'
+  ).join('  ');
+  byId('operator-auth-submit').disabled = length !== 8 || appState.operatorBusy;
+}
+
+function handleOperatorEntryGesture() {
+  if (appState.operatorMode || !byId('operator-auth-overlay').classList.contains('hidden')) return;
+  appState.operatorEntryTapCount += 1;
+  if (appState.operatorEntryTapTimer) clearTimeout(appState.operatorEntryTapTimer);
+  if (appState.operatorEntryTapCount >= 5) {
+    appState.operatorEntryTapCount = 0;
+    appState.operatorEntryTapTimer = null;
+    void beginOperatorLogin();
+    return;
+  }
+  appState.operatorEntryTapTimer = setTimeout(() => {
+    appState.operatorEntryTapCount = 0;
+    appState.operatorEntryTapTimer = null;
+  }, 2500);
+}
+
+async function beginOperatorLogin() {
+  try {
+    appState.operatorPin = '';
+    setOperatorAuthError('');
+    // Always show the same PIN challenge. Credential existence/configuration
+    // is not disclosed to Customer Mode; unconfigured stores fail generically.
+    byId('operator-auth-message').textContent = 'Enter the 8-digit station PIN to open settings.';
+    byId('operator-keypad').classList.remove('hidden');
+    byId('operator-auth-submit').classList.remove('hidden');
+    byId('operator-pin-dots').classList.remove('hidden');
+    byId('operator-auth-overlay').classList.remove('hidden');
+    renderOperatorPIN();
+  } catch (error) {
+    showToast('Operator access is unavailable: ' + error);
+  }
+}
+
+function closeOperatorLogin() {
+  appState.operatorPin = '';
+  appState.operatorBusy = false;
+  byId('operator-auth-overlay').classList.add('hidden');
+  setOperatorAuthError('');
+  renderOperatorPIN();
+}
+
+function addOperatorPINDigit(digit) {
+  if (appState.operatorBusy || appState.operatorPin.length >= 8 || !/^[0-9]$/.test(digit)) return;
+  appState.operatorPin += digit;
+  setOperatorAuthError('');
+  renderOperatorPIN();
+  if (appState.operatorPin.length === 8) void submitOperatorLogin();
+}
+
+async function submitOperatorLogin() {
+  if (appState.operatorBusy || appState.operatorPin.length !== 8) return;
+  appState.operatorBusy = true;
+  renderOperatorPIN();
+  setOperatorAuthError('');
+  try {
+    await AuthenticateOperator(appState.operatorPin);
+    appState.operatorPin = '';
+    appState.operatorMode = true;
+    updateKioskMode(appState.kioskMode);
+    closeOperatorLogin();
+    await openSettings();
+  } catch (error) {
+    appState.operatorPin = '';
+    setOperatorAuthError('Operator authentication failed. Check the PIN or contact the booth operator.');
+    renderOperatorPIN();
+  } finally {
+    appState.operatorBusy = false;
+    renderOperatorPIN();
+  }
+}
+
+async function changeOperatorPIN() {
+  const currentPIN = byId('operator-current-pin').value;
+  const newPIN = byId('operator-new-pin').value;
+  const confirmPIN = byId('operator-confirm-pin').value;
+  const warning = byId('operator-pin-change-warning');
+  const showWarning = (message) => {
+    warning.textContent = message || '';
+    warning.classList.toggle('hidden', !message);
+  };
+  if (!/^[0-9]{8}$/.test(currentPIN) || !/^[0-9]{8}$/.test(newPIN)) {
+    showWarning('All PIN entries must contain exactly 8 digits.');
+    return;
+  }
+  if (newPIN !== confirmPIN) {
+    showWarning('The new PIN entries do not match.');
+    return;
+  }
+  byId('change-operator-pin').disabled = true;
+  showWarning('');
+  try {
+    await ChangeOperatorPIN(currentPIN, newPIN);
+    byId('operator-current-pin').value = '';
+    byId('operator-new-pin').value = '';
+    byId('operator-confirm-pin').value = '';
+    showToast('Operator PIN changed. PhotoBooth returned to Customer Mode.');
+  } catch (error) {
+    showWarning('The PIN could not be changed. Check the current PIN and try again.');
+  } finally {
+    byId('change-operator-pin').disabled = false;
+  }
+}
+
+async function exitPhotoBooth() {
+  if (!window.confirm('Exit PhotoBooth and return to the operating-system desktop?')) return;
+  try { await ExitPhotoBooth(); }
+  catch (error) { showToast('Could not exit PhotoBooth: ' + error); }
+}
+
+async function notifyOperatorActivity() {
+  if (!appState.operatorMode) return;
+  const now = Date.now();
+  if (now - appState.lastOperatorTouchAt < 20000) return;
+  appState.lastOperatorTouchAt = now;
+  try {
+    await TouchOperatorActivity();
+  } catch {
+    // The backend's lock event will return the UI to Customer Mode.
+  }
+}
+
+function clearOperatorViewState() {
+  appState.recoveryItems = [];
+  appState.settings = null;
+  appState.smbAdminInterfaces = [];
+  appState.smbAdminStatus = null;
+  appState.framePackageCandidate = null;
+  appState.framePackageState = null;
+  appState.retentionPreview = null;
+  byId('recovery-list').replaceChildren();
+  byId('recovery-panel').classList.add('hidden');
+  byId('frame-package-list').replaceChildren();
+  byId('frame-package-candidate').replaceChildren();
+  byId('retention-preview').classList.add('hidden');
+  byId('settings-warning').textContent = '';
+  byId('operator-pin-change-warning').textContent = '';
+  byId('settings-shot-count').value = '';
+  byId('settings-countdown').value = '';
+  byId('settings-interval').value = '';
+  byId('settings-session-retention').value = '';
+  byId('settings-output-retention').value = '';
+  for (const id of ['settings-frame-path', 'settings-config-path', 'smb-admin-remote-addresses',
+    'smb-admin-status', 'smb-admin-interface', 'smb-admin-local-address', 'active-frame-path',
+    'frame-package-path', 'operator-current-pin', 'operator-new-pin', 'operator-confirm-pin']) {
+    const node = byId(id);
+    if (node) {
+      if ('value' in node) node.value = '';
+      else node.textContent = '';
+    }
+  }
+}
+
+function handleOperatorModeLocked() {
+  clearOperatorViewState();
+  appState.operatorMode = false;
+  updateKioskMode(appState.kioskMode);
+  appState.operatorPin = '';
+  appState.operatorBusy = false;
+  byId('operator-auth-overlay').classList.add('hidden');
+  if (appState.currentView === 'settings') {
+    showView('idle');
+    void ensureCameraPreview();
+  }
+}
+
 async function openSettings() {
   try {
     await StopCameraPreview();
@@ -1244,6 +1478,7 @@ async function openSettings() {
     const settings = await GetPlayerSettings();
     populateSettingsForm(settings);
     await refreshFramePackageState();
+    await refreshRecoveryItems();
     showView('settings');
     if (appState.bridge?.os === 'windows') {
       await refreshSmbAdminState();
@@ -1298,10 +1533,14 @@ async function saveSettings() {
   }
 }
 
-function cancelSettings() {
-  void DiscardRetentionPreview().catch(() => {});
+async function cancelSettings() {
+  try { await DiscardRetentionPreview(); } catch {}
   appState.retentionPreview = null;
   byId('retention-preview').classList.add('hidden');
+  appState.operatorMode = false;
+  updateKioskMode(appState.kioskMode);
+  await LockOperatorMode();
+  clearOperatorViewState();
   showView('idle');
   void ensureCameraPreview();
 }
@@ -1718,7 +1957,7 @@ async function startPhotoSession(demo = false) {
 async function continuePhotoSession() {
   if (!appState.session) return;
   try {
-    updatePhotoSession(await ContinuePhotoSession(appState.session.id));
+    updatePhotoSession(await ContinuePhotoSession(appState.session.token));
   } catch (error) {
     showToast(`Could not continue session: ${error}`);
   }
@@ -1727,7 +1966,7 @@ async function continuePhotoSession() {
 async function restartPhotoSession() {
   if (!appState.session) return;
   try {
-    updatePhotoSession(await RestartPhotoSession(appState.session.id));
+    updatePhotoSession(await RestartPhotoSession(appState.session.token));
   } catch (error) {
     showToast(`Could not start a fresh session: ${error}`);
   }
@@ -1736,7 +1975,7 @@ async function restartPhotoSession() {
 async function cancelPhotoSession() {
   if (!appState.session) return;
   try {
-    await CancelPhotoSession(appState.session.id);
+    await CancelPhotoSession(appState.session.token);
   } catch (error) {
     showToast(`Could not cancel session: ${error}`);
   }
@@ -1744,28 +1983,28 @@ async function cancelPhotoSession() {
 
 async function dismissPhotoSession() {
   try {
-    updatePhotoSession(await DismissPhotoSession(appState.session?.id || ''));
+    updatePhotoSession(await DismissPhotoSession(appState.session?.token || ''));
   } catch (error) {
     showToast(`Could not return to the start screen: ${error}`);
   }
 }
 
 async function openOutputFolder() {
-  if (!appState.session?.id) return;
+  if (!appState.session?.token) return;
   try {
-    await OpenPhotoOutputFolder(appState.session.id);
+    await OpenPhotoOutputFolder(appState.session.token);
   } catch (error) {
     showToast(`Could not open the saved photo: ${error}`);
   }
 }
 
 async function retryPhotoOutput() {
-  if (!appState.session?.id || byId('retry-output').disabled) return;
+  if (!appState.session?.token || byId('retry-output').disabled) return;
   const button = byId('retry-output');
   button.disabled = true;
   button.textContent = 'Saving local photo…';
   try {
-    updatePhotoSession(await RetryPhotoOutput(appState.session.id));
+    updatePhotoSession(await RetryPhotoOutput(appState.session.token));
     showToast('The final photo was saved locally.');
   } catch (error) {
     try {
@@ -1784,7 +2023,26 @@ byId('exit-failed-session').addEventListener('click', dismissPhotoSession);
 byId('open-output-folder').addEventListener('click', openOutputFolder);
 byId('retry-output').addEventListener('click', retryPhotoOutput);
 byId('new-session').addEventListener('click', dismissPhotoSession);
-byId('open-settings').addEventListener('click', openSettings);
+byId('operator-entry-gesture').addEventListener('click', handleOperatorEntryGesture);
+byId('operator-auth-cancel').addEventListener('click', closeOperatorLogin);
+byId('operator-auth-submit').addEventListener('click', submitOperatorLogin);
+byId('operator-exit-app').addEventListener('click', exitPhotoBooth);
+byId('change-operator-pin').addEventListener('click', changeOperatorPIN);
+byId('operator-keypad').addEventListener('click', (event) => {
+  const button = event.target.closest('button');
+  if (!button) return;
+  if (button.dataset.pinKey) addOperatorPINDigit(button.dataset.pinKey);
+  if (button.dataset.pinAction === 'clear') {
+    appState.operatorPin = '';
+    setOperatorAuthError('');
+    renderOperatorPIN();
+  }
+  if (button.dataset.pinAction === 'backspace') {
+    appState.operatorPin = appState.operatorPin.slice(0, -1);
+    setOperatorAuthError('');
+    renderOperatorPIN();
+  }
+});
 byId('browse-frame').addEventListener('click', browseFrameConfig);
 byId('save-settings').addEventListener('click', saveSettings);
 byId('cancel-settings').addEventListener('click', cancelSettings);
@@ -1814,7 +2072,10 @@ byId('frame-package-path').addEventListener('input', () => {
   setPackageWarning('');
   byId('validate-frame-package').disabled = !byId('frame-package-path').value.trim();
 });
+document.addEventListener('pointerdown', () => { void notifyOperatorActivity(); }, true);
+document.addEventListener('keydown', () => { void notifyOperatorActivity(); }, true);
 EventsOn('photo-session', updatePhotoSession);
+EventsOn('operator-mode-locked', handleOperatorModeLocked);
 EventsOn('camera-preview-status', updateCameraPreviewStatus);
 EventsOn('camera-preview-frame', updateCameraPreviewFrame);
 byId('retry-camera-preview').addEventListener('click', ensureCameraPreview);
@@ -1824,9 +2085,6 @@ byId('retry-camera-preview').addEventListener('click', ensureCameraPreview);
     appState.benchmark = await IsBenchmarkMode();
     appState.bridge = await Ready();
     updateKioskMode(await IsKioskMode());
-    populateSettingsForm(await GetPlayerSettings());
-    // Inspect interrupted sessions before the idle view starts the camera preview.
-    await refreshRecoveryItems();
     updatePhotoSession(await CurrentPhotoSession());
     byId('startup-ms').textContent = `${appState.bridge.startup_to_ready_ms.toFixed(1)} ms`;
     byId('go-version').textContent = appState.bridge.go_version;

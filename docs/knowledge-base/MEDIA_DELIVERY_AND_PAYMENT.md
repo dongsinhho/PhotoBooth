@@ -64,3 +64,22 @@ These field names are illustrative until a configuration API is implemented.
 ## MVP recommendation
 Start with payment disabled and local-only output to prove capture reliability. Design interfaces and state transitions so QR payment and LAN/cloud delivery can be added as independently testable modules. If a pilot specifically requires payment, choose one supported payment confirmation flow and test reconciliation before launch.
 
+
+
+## Product decision follow-up (2026-11-21)
+
+The desired future payment scope includes both alternatives below. They are not implemented or enabled by this note; the existing default remains disabled/free.
+
+### Provider-verified VietQR
+
+A booth may request a session/order-bound QR from a selected payment provider and grant a paid session only after receiving and authenticating the provider's transaction notification. The integration must verify transaction identity, amount, transfer content/reference and session binding; duplicate, late, pending and unknown callbacks must be idempotently reconciled. Provider API access/callback connectivity may require Internet and merchant onboarding. A generated QR alone is not evidence of payment.
+
+### Static QR with local operator confirmation
+
+A booth may display a preconfigured static QR while keeping its own runtime offline. An authenticated operator can confirm a specific pending booth session over the local network after independently checking the bank transaction (for example, in the operator's banking app). The UI and audit record must label this as **operator-confirmed**, not provider-verified. Confirmation must be bound to the booth/session/expected amount, expire, and retain operator identity/time/note. A guest screenshot or claim cannot approve a session.
+
+This narrowly scoped payment-confirmation path is separate from the SMB Remote administration feature, which remains paused. It does not authorize exposing general Settings, files or administrative shares on the LAN.
+
+The disabled/free mode and local-only capture/output remain usable without Internet. A separate payment ADR is required before introducing provider credentials, webhook endpoints, LAN confirmation controls or new StoreConfig values.
+
+See [ADR 0034](../adr/0034-production-kiosk-ui-and-installer-targets.md).

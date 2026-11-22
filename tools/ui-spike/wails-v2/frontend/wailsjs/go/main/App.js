@@ -14,6 +14,10 @@ export function ApplyRetentionCleanup(arg1) {
   return window['go']['main']['App']['ApplyRetentionCleanup'](arg1);
 }
 
+export function AuthenticateOperator(arg1) {
+  return window['go']['main']['App']['AuthenticateOperator'](arg1);
+}
+
 export function BrowseFrameConfig() {
   return window['go']['main']['App']['BrowseFrameConfig']();
 }
@@ -24,6 +28,10 @@ export function BrowseFramePackage() {
 
 export function CancelPhotoSession(arg1) {
   return window['go']['main']['App']['CancelPhotoSession'](arg1);
+}
+
+export function ChangeOperatorPIN(arg1, arg2) {
+  return window['go']['main']['App']['ChangeOperatorPIN'](arg1, arg2);
 }
 
 export function CompleteBenchmark(arg1, arg2) {
@@ -60,6 +68,10 @@ export function DismissPhotoSession(arg1) {
 
 export function ExitKioskMode() {
   return window['go']['main']['App']['ExitKioskMode']();
+}
+
+export function ExitPhotoBooth() {
+  return window['go']['main']['App']['ExitPhotoBooth']();
 }
 
 export function FinishDemoSession(arg1) {
@@ -100,6 +112,10 @@ export function IsKioskMode() {
 
 export function ListInterruptedPhotoSessions() {
   return window['go']['main']['App']['ListInterruptedPhotoSessions']();
+}
+
+export function LockOperatorMode() {
+  return window['go']['main']['App']['LockOperatorMode']();
 }
 
 export function OpenPhotoOutputFolder(arg1) {
@@ -200,6 +216,10 @@ export function StopCameraPreview() {
 
 export function ToggleKioskMode() {
   return window['go']['main']['App']['ToggleKioskMode']();
+}
+
+export function TouchOperatorActivity() {
+  return window['go']['main']['App']['TouchOperatorActivity']();
 }
 
 export function UninstallFramePackage(arg1, arg2) {

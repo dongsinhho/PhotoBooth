@@ -455,3 +455,72 @@ function Assert-PhotoBoothAuthenticodeSignature {
     }
     return $actual
 }
+
+function Set-PhotoBoothCurrentUserAutoStart {
+    param(
+        [Parameter(Mandatory = $true)][string]$InstallRoot,
+        [Parameter(Mandatory = $true)][string]$ExecutablePath,
+        [string]$RegistryPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run',
+        [string]$ValueName = 'PhotoBooth'
+    )
+
+    if ($RegistryPath -notmatch '^HKCU:\\Software\\') {
+        throw 'PhotoBooth auto-start may only write under the current user HKCU Software hive.'
+    }
+    $fullRoot = Get-PhotoBoothFullPath $InstallRoot
+    $fullExecutable = [IO.Path]::GetFullPath($ExecutablePath)
+    $releasesRoot = Join-Path $fullRoot 'releases'
+    if (!(Test-PhotoBoothPathWithin -Path $fullExecutable -Parent $releasesRoot)) {
+        throw 'Auto-start executable must be inside this installation root''s immutable releases directory.'
+    }
+    if (!(Test-Path -LiteralPath $fullExecutable -PathType Leaf)) {
+        throw "Auto-start executable does not exist: $fullExecutable"
+    }
+    if ([IO.Path]::GetExtension($fullExecutable) -ine '.exe') {
+        throw 'Windows auto-start target must be a .exe file.'
+    }
+
+    $command = '"' + $fullExecutable + '" --kiosk'
+    New-Item -Path $RegistryPath -Force | Out-Null
+    New-ItemProperty -Path $RegistryPath -Name $ValueName -Value $command -PropertyType String -Force | Out-Null
+
+    $actual = [string](Get-ItemProperty -Path $RegistryPath -Name $ValueName -ErrorAction Stop).$ValueName
+    if ($actual -cne $command) {
+        throw 'The current-user PhotoBooth auto-start registry value did not persist exactly.'
+    }
+    return $command
+}
+
+function Remove-PhotoBoothCurrentUserAutoStart {
+    param(
+        [string]$InstallRoot,
+        [string]$RegistryPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run',
+        [string]$ValueName = 'PhotoBooth'
+    )
+
+    if ($RegistryPath -notmatch '^HKCU:\\Software\\') {
+        throw 'PhotoBooth auto-start may only remove values under the current user HKCU Software hive.'
+    }
+    if (!(Test-Path -LiteralPath $RegistryPath)) {
+        return $false
+    }
+    $property = Get-ItemProperty -Path $RegistryPath -Name $ValueName -ErrorAction SilentlyContinue
+    if (!$property) {
+        return $false
+    }
+
+    $value = [string]$property.$ValueName
+    if (![string]::IsNullOrWhiteSpace($InstallRoot)) {
+        if ($value -notmatch '^"([^"]+)"\s+--kiosk$') {
+            return $false
+        }
+        $target = [IO.Path]::GetFullPath($Matches[1])
+        $fullRoot = Get-PhotoBoothFullPath $InstallRoot
+        if (!(Test-PhotoBoothPathWithin -Path $target -Parent $fullRoot)) {
+            return $false
+        }
+    }
+
+    Remove-ItemProperty -Path $RegistryPath -Name $ValueName -ErrorAction Stop
+    return $true
+}

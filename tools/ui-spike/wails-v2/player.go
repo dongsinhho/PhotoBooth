@@ -59,19 +59,20 @@ func (a *App) playerRuntimeConfigLocked() playerRuntimeConfig {
 }
 
 type PlayerSession struct {
-	ID               string                   `json:"id"`
-	OutputRetrying   bool                     `json:"output_retrying,omitempty"`
+	ID               string                   `json:"-"`
+	CustomerToken    string                   `json:"-"`
+	OutputRetrying   bool                     `json:"-"`
 	State            string                   `json:"state"`
 	Captured         int                      `json:"captured"`
 	Total            int                      `json:"total"`
 	CurrentShot      int                      `json:"current_shot"`
 	CountdownSeconds int                      `json:"countdown_seconds"`
 	Message          string                   `json:"message"`
-	ErrorMessage     string                   `json:"error_message,omitempty"`
-	CameraMode       string                   `json:"camera_mode"`
-	OutputPath       string                   `json:"output_path,omitempty"`
-	RenderedPath     string                   `json:"rendered_path,omitempty"`
-	OutputTargets    []PlayerOutputTargetView `json:"output_targets,omitempty"`
+	ErrorMessage     string                   `json:"-"`
+	CameraMode       string                   `json:"-"`
+	OutputPath       string                   `json:"-"`
+	RenderedPath     string                   `json:"-"`
+	OutputTargets    []PlayerOutputTargetView `json:"-"`
 	PreviewDataURL   string                   `json:"preview_data_url,omitempty"`
 	CapturePreviews  []string                 `json:"capture_previews,omitempty"`
 	DemoMode         bool                     `json:"demo_mode"`
@@ -105,11 +106,31 @@ func (a *App) StartDemoPhotoSession() (PlayerSession, error) {
 }
 
 func (a *App) startPhotoSession(demo bool) (PlayerSession, error) {
+	return a.startPhotoSessionWithOperator(demo, false)
+}
+
+// startPhotoSessionFromOperator is used only after an explicit recovery action.
+// It leaves Operator Mode and transitions into the new Customer session.
+func (a *App) startPhotoSessionFromOperator(demo bool) (PlayerSession, error) {
+	return a.startPhotoSessionWithOperator(demo, true)
+}
+
+func (a *App) startPhotoSessionWithOperator(demo, operatorInitiated bool) (PlayerSession, error) {
 	if !demo && syntheticOnlyMode() {
 		return PlayerSession{}, errors.New("real-camera capture is disabled for this synthetic-only run")
 	}
 	a.cameraLifecycleMu.Lock()
 	defer a.cameraLifecycleMu.Unlock()
+	if operatorInitiated {
+		if err := a.requireOperator(); err != nil {
+			return PlayerSession{}, err
+		}
+		if err := a.operatorTransitionReadyLocked(); err != nil {
+			return PlayerSession{}, err
+		}
+	} else if err := a.requireCustomer(); err != nil {
+		return PlayerSession{}, err
+	}
 	if err := a.stopCameraPreviewLocked(); err != nil {
 		return PlayerSession{}, fmt.Errorf("stop live camera preview before capture: %w", err)
 	}
@@ -143,12 +164,22 @@ func (a *App) startPhotoSession(demo bool) (PlayerSession, error) {
 		a.mu.Unlock()
 		return PlayerSession{}, err
 	}
+	token, err := newCustomerSessionToken()
+	if err != nil {
+		a.mu.Unlock()
+		return PlayerSession{}, fmt.Errorf("generate customer session token: %w", err)
+	}
+	if operatorInitiated {
+		if controller := a.operatorController(); controller != nil {
+			controller.Lock()
+		}
+	}
 	runConfig := a.playerRuntimeConfigLocked()
 	mode, message := "Windows webcam", "Preparing camera and frame…"
 	if demo {
 		mode, message = "Synthetic camera", "Preparing a demo capture…"
 	}
-	a.player = PlayerSession{ID: id, State: "preflight", Total: runConfig.shotCount, Message: message, CameraMode: mode, DemoMode: demo}
+	a.player = PlayerSession{ID: id, CustomerToken: token, State: "preflight", Total: runConfig.shotCount, Message: message, CameraMode: mode, DemoMode: demo}
 	ctx, cancel := context.WithCancel(a.playerBaseContext())
 	a.playerCancel, a.playerRunning = cancel, true
 	snapshot := clonePlayerSession(a.player)
@@ -162,7 +193,16 @@ func (a *App) startPhotoSession(demo bool) (PlayerSession, error) {
 }
 
 // ContinuePhotoSession preserves earlier shots and retries only the unfinished ones.
-func (a *App) ContinuePhotoSession(sessionID string) (PlayerSession, error) {
+func (a *App) ContinuePhotoSession(sessionToken string) (PlayerSession, error) {
+	a.cameraLifecycleMu.Lock()
+	defer a.cameraLifecycleMu.Unlock()
+	if err := a.requireCustomer(); err != nil {
+		return PlayerSession{}, err
+	}
+	sessionID, err := a.resolveCustomerSessionToken(sessionToken)
+	if err != nil {
+		return PlayerSession{}, err
+	}
 	a.mu.Lock()
 	if a.settingsError != "" {
 		message := a.settingsError
@@ -219,7 +259,14 @@ func (a *App) ContinuePhotoSession(sessionID string) (PlayerSession, error) {
 }
 
 // RestartPhotoSession creates a clean session with a new ID after a failure.
-func (a *App) RestartPhotoSession(sessionID string) (PlayerSession, error) {
+func (a *App) RestartPhotoSession(sessionToken string) (PlayerSession, error) {
+	if err := a.requireCustomer(); err != nil {
+		return PlayerSession{}, err
+	}
+	sessionID, err := a.resolveCustomerSessionToken(sessionToken)
+	if err != nil {
+		return PlayerSession{}, err
+	}
 	a.mu.Lock()
 	if a.outputRetrying {
 		a.mu.Unlock()
@@ -250,7 +297,16 @@ func (a *App) RestartPhotoSession(sessionID string) (PlayerSession, error) {
 	return a.startPhotoSession(demo)
 }
 
-func (a *App) CancelPhotoSession(sessionID string) error {
+func (a *App) CancelPhotoSession(sessionToken string) error {
+	a.cameraLifecycleMu.Lock()
+	defer a.cameraLifecycleMu.Unlock()
+	if err := a.requireCustomer(); err != nil {
+		return err
+	}
+	sessionID, err := a.resolveCustomerSessionToken(sessionToken)
+	if err != nil {
+		return err
+	}
 	a.mu.Lock()
 	if sessionID == "" || sessionID != a.player.ID {
 		a.mu.Unlock()
@@ -269,7 +325,16 @@ func (a *App) CancelPhotoSession(sessionID string) error {
 	return nil
 }
 
-func (a *App) DismissPhotoSession(sessionID string) (PlayerSession, error) {
+func (a *App) DismissPhotoSession(sessionToken string) (PlayerSession, error) {
+	a.cameraLifecycleMu.Lock()
+	defer a.cameraLifecycleMu.Unlock()
+	if err := a.requireCustomer(); err != nil {
+		return PlayerSession{}, err
+	}
+	sessionID, err := a.resolveCustomerSessionToken(sessionToken)
+	if err != nil {
+		return PlayerSession{}, err
+	}
 	a.mu.Lock()
 	if a.settingsSaving {
 		a.mu.Unlock()
@@ -309,7 +374,18 @@ func (a *App) CurrentPhotoSession() PlayerSession {
 // RetryPhotoOutput republishes a preserved rendered session without opening
 // the camera or rerunning the renderer. It is only available after all shots
 // and the rendered image are present but the local output is still missing.
-func (a *App) RetryPhotoOutput(sessionID string) (PlayerSession, error) {
+func (a *App) RetryPhotoOutput(sessionToken string) (PlayerSession, error) {
+	// Keep the lifecycle lock until retryPhotoOutput claims outputRetrying.
+	// Operator authentication checks that flag under this same lock.
+	a.cameraLifecycleMu.Lock()
+	defer a.cameraLifecycleMu.Unlock()
+	if err := a.requireCustomer(); err != nil {
+		return PlayerSession{}, err
+	}
+	sessionID, err := a.resolveCustomerSessionToken(sessionToken)
+	if err != nil {
+		return PlayerSession{}, err
+	}
 	return a.retryPhotoOutput(sessionID, nil)
 }
 
@@ -359,8 +435,13 @@ func (a *App) retryPhotoOutput(sessionID string, recovered *session.RecoveryItem
 			a.mu.Unlock()
 			return PlayerSession{}, errors.New("the preserved rendered image for this recovered session is unavailable")
 		}
+		customerToken, tokenErr := newCustomerSessionToken()
+		if tokenErr != nil {
+			a.mu.Unlock()
+			return PlayerSession{}, fmt.Errorf("generate customer session token: %w", tokenErr)
+		}
 		a.player = PlayerSession{
-			ID: sessionID, State: string(session.Failed), Captured: recovered.ExpectedShots,
+			ID: sessionID, CustomerToken: customerToken, State: string(session.Failed), Captured: recovered.ExpectedShots,
 			Total: recovered.ExpectedShots, Message: "All photos were captured and rendered. Retrying only the preserved local output…",
 			ErrorMessage: "Recovered after application restart", RenderedPath: recovered.RenderedPath,
 			PreviewDataURL: recoveredRenderedPreview, CapturePreviews: recoveredPreviews,
@@ -458,6 +539,9 @@ func (a *App) retryPhotoOutput(sessionID string, recovered *session.RecoveryItem
 
 // OpenPhotoOutputFolder opens Explorer on the finalized image for this session.
 func (a *App) OpenPhotoOutputFolder(sessionID string) error {
+	if err := a.requireOperator(); err != nil {
+		return err
+	}
 	if runtime.GOOS != "windows" {
 		return errors.New("opening a Windows output folder is only supported on Windows")
 	}

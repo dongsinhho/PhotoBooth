@@ -8,11 +8,15 @@ export function ActivateFramePackage(arg1:string,arg2:string):Promise<main.Playe
 
 export function ApplyRetentionCleanup(arg1:string):Promise<main.RetentionApplyResult>;
 
+export function AuthenticateOperator(arg1:string):Promise<void>;
+
 export function BrowseFrameConfig():Promise<string>;
 
 export function BrowseFramePackage():Promise<string>;
 
 export function CancelPhotoSession(arg1:string):Promise<void>;
+
+export function ChangeOperatorPIN(arg1:string,arg2:string):Promise<void>;
 
 export function CompleteBenchmark(arg1:Array<number>,arg2:number):Promise<void>;
 
@@ -31,6 +35,8 @@ export function DiscardRetentionPreview():Promise<void>;
 export function DismissPhotoSession(arg1:string):Promise<main.PlayerSession>;
 
 export function ExitKioskMode():Promise<boolean>;
+
+export function ExitPhotoBooth():Promise<void>;
 
 export function FinishDemoSession(arg1:string):Promise<main.DemoSession>;
 
@@ -51,6 +57,8 @@ export function IsBenchmarkMode():Promise<boolean>;
 export function IsKioskMode():Promise<boolean>;
 
 export function ListInterruptedPhotoSessions():Promise<Array<main.RecoveryItemView>>;
+
+export function LockOperatorMode():Promise<void>;
 
 export function OpenPhotoOutputFolder(arg1:string):Promise<void>;
 
@@ -101,6 +109,8 @@ export function StartPhotoSession():Promise<main.PlayerSession>;
 export function StopCameraPreview():Promise<void>;
 
 export function ToggleKioskMode():Promise<boolean>;
+
+export function TouchOperatorActivity():Promise<void>;
 
 export function UninstallFramePackage(arg1:string,arg2:string):Promise<void>;
 

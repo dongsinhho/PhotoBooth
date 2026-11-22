@@ -214,6 +214,9 @@ func playerWorkflowConfig(runConfig playerRuntimeConfig, sessionID string, resum
 // ListInterruptedPhotoSessions exposes read-only recovery metadata to the UI.
 // The full domain manifest and filesystem inspection types remain internal to Go.
 func (a *App) ListInterruptedPhotoSessions() ([]RecoveryItemView, error) {
+	if err := a.requireOperator(); err != nil {
+		return nil, err
+	}
 	items, err := a.listInterruptedPhotoSessions()
 	if err != nil {
 		return nil, err
@@ -361,6 +364,9 @@ func inspectRecoveredOutputDirectory(path string) (exists bool, issue string, er
 // ContinueRecoveredPhotoSession requires a fresh read-only scan and an explicit
 // operator action. The workflow re-reads and verifies the manifest once more.
 func (a *App) ContinueRecoveredPhotoSession(sessionID string) (PlayerSession, error) {
+	if err := a.requireOperator(); err != nil {
+		return PlayerSession{}, err
+	}
 	items, err := a.listInterruptedPhotoSessions()
 	if err != nil {
 		return PlayerSession{}, err
@@ -381,6 +387,12 @@ func (a *App) ContinueRecoveredPhotoSession(sessionID string) (PlayerSession, er
 
 	a.cameraLifecycleMu.Lock()
 	defer a.cameraLifecycleMu.Unlock()
+	if err := a.requireOperator(); err != nil {
+		return PlayerSession{}, err
+	}
+	if err := a.operatorTransitionReadyLocked(); err != nil {
+		return PlayerSession{}, err
+	}
 	if err := a.stopCameraPreviewLocked(); err != nil {
 		return PlayerSession{}, fmt.Errorf("stop idle camera preview before session recovery: %w", err)
 	}
@@ -402,6 +414,11 @@ func (a *App) ContinueRecoveredPhotoSession(sessionID string) (PlayerSession, er
 	for i, path := range selected.CapturePaths {
 		previews[i], _ = fileImageDataURL(path)
 	}
+	customerToken, tokenErr := newCustomerSessionToken()
+	if tokenErr != nil {
+		a.mu.Unlock()
+		return PlayerSession{}, fmt.Errorf("generate customer session token: %w", tokenErr)
+	}
 	mode := "Windows webcam"
 	message := "Reopening the camera; previously captured photos will be preserved…"
 	if demo {
@@ -409,7 +426,7 @@ func (a *App) ContinueRecoveredPhotoSession(sessionID string) (PlayerSession, er
 		message = "Continuing the interrupted demo session…"
 	}
 	a.player = PlayerSession{
-		ID: sessionID, State: "reconnecting", Captured: selected.CompletedShots,
+		ID: sessionID, CustomerToken: customerToken, State: "reconnecting", Captured: selected.CompletedShots,
 		Total: selected.ExpectedShots, Message: message, CameraMode: mode,
 		DemoMode: demo, CapturePreviews: previews,
 	}
@@ -417,6 +434,9 @@ func (a *App) ContinueRecoveredPhotoSession(sessionID string) (PlayerSession, er
 	a.playerCancel, a.playerRunning = cancel, true
 	snapshot := clonePlayerSession(a.player)
 	a.mu.Unlock()
+	if controller := a.operatorController(); controller != nil {
+		controller.Lock()
+	}
 	a.emitPlayerSession(snapshot)
 
 	go func() {
@@ -429,6 +449,9 @@ func (a *App) ContinueRecoveredPhotoSession(sessionID string) (PlayerSession, er
 // RestartRecoveredPhotoSession starts with a new ID and leaves the old folder
 // untouched. The operator must explicitly select this action in the UI.
 func (a *App) RestartRecoveredPhotoSession(sessionID string) (PlayerSession, error) {
+	if err := a.requireOperator(); err != nil {
+		return PlayerSession{}, err
+	}
 	items, err := a.listInterruptedPhotoSessions()
 	if err != nil {
 		return PlayerSession{}, err
@@ -447,17 +470,26 @@ func (a *App) RestartRecoveredPhotoSession(sessionID string) (PlayerSession, err
 	if !found {
 		return PlayerSession{}, errors.New("interrupted session was not found in the current recovery scan")
 	}
-	return a.startPhotoSession(demo)
+	return a.startPhotoSessionFromOperator(demo)
 }
 
 // RetryRecoveredPhotoOutput reuses only the preserved rendered JPEG. It never
 // calls the camera or renderer and relies on the exclusive output publisher.
 func (a *App) RetryRecoveredPhotoOutput(sessionID string) (PlayerSession, error) {
+	if err := a.requireOperator(); err != nil {
+		return PlayerSession{}, err
+	}
 	// A recovered output retry must be serialized with the idle preview/camera
 	// lifecycle just like capture recovery. The output operation owns the UI
 	// session/result view and must not leave a hidden preview worker running.
 	a.cameraLifecycleMu.Lock()
 	defer a.cameraLifecycleMu.Unlock()
+	if err := a.requireOperator(); err != nil {
+		return PlayerSession{}, err
+	}
+	if err := a.operatorTransitionReadyLocked(); err != nil {
+		return PlayerSession{}, err
+	}
 	if err := a.stopCameraPreviewLocked(); err != nil {
 		return PlayerSession{}, fmt.Errorf("stop idle camera preview before recovered output retry: %w", err)
 	}
@@ -481,11 +513,21 @@ func (a *App) RetryRecoveredPhotoOutput(sessionID string) (PlayerSession, error)
 	if err := session.ValidateJPEGFile(selected.RenderedPath); err != nil {
 		return PlayerSession{}, fmt.Errorf("validate preserved rendered JPEG before output retry: %w", err)
 	}
-	return a.retryPhotoOutput(sessionID, selected)
+	result, err := a.retryPhotoOutput(sessionID, selected)
+	if err != nil {
+		return PlayerSession{}, err
+	}
+	if controller := a.operatorController(); controller != nil {
+		controller.Lock()
+	}
+	return result, nil
 }
 
 // OpenPhotoSessionFolder is an explicit, read-only inspection/export affordance.
 func (a *App) OpenPhotoSessionFolder(sessionID string) error {
+	if err := a.requireOperator(); err != nil {
+		return err
+	}
 	if runtime.GOOS != "windows" {
 		return errors.New("opening a session folder in Explorer is available only in the Windows Preview")
 	}
@@ -550,6 +592,9 @@ func printerInspectionView(inspection boothoutput.PrinterJobInspection) PrinterI
 // using the exact queue/document/job identity persisted in the session manifest.
 // It does not mutate, resume, cancel, delete or resubmit a printer job.
 func (a *App) InspectPrinterAttempt(sessionID, attemptID string) (PrinterInspectionView, error) {
+	if err := a.requireOperator(); err != nil {
+		return PrinterInspectionView{}, err
+	}
 	if runtime.GOOS != "windows" {
 		return PrinterInspectionView{}, errors.New("Windows printer queue inspection is available only on the Windows Preview")
 	}
@@ -604,6 +649,9 @@ func (a *App) InspectPrinterAttempt(sessionID, attemptID string) (PrinterInspect
 // Any surviving .print.lock must first be reconciled by the separate
 // kernel-verified lease recovery path; this method never removes a lock.
 func (a *App) ResolvePrinterAttempt(sessionID, attemptID, decision, note string) (PrintResolutionView, error) {
+	if err := a.requireOperator(); err != nil {
+		return PrintResolutionView{}, err
+	}
 	if runtime.GOOS != "windows" {
 		return PrintResolutionView{}, errors.New("printer attempt resolution is available only on the Windows Preview")
 	}
@@ -761,6 +809,9 @@ func hashRecoveredRenderedFile(path string) (string, error) {
 // spooler job; the operator must inspect the queue and resolve the resulting
 // attempt separately.
 func (a *App) ReconcileOrphanedPrinterLock(sessionID string) (PrintLockReconciliationView, error) {
+	if err := a.requireOperator(); err != nil {
+		return PrintLockReconciliationView{}, err
+	}
 	if runtime.GOOS != "windows" {
 		return PrintLockReconciliationView{}, errors.New("kernel-verified printer lock reconciliation is available only on Windows")
 	}

@@ -2,19 +2,33 @@ package main
 
 import "testing"
 
-func TestKioskModeIsOptInAndRejectsUnknownValues(t *testing.T) {
-	for _, value := range []string{"", "0", "false", "no", "off", "enabled", "tru"} {
-		t.Setenv(kioskEnvironmentVariable, value)
-		if kioskModeRequested() {
-			t.Errorf("kioskModeRequested() = true for %q; want false", value)
+func TestKioskModeDefaultsToCustomerFullscreen(t *testing.T) {
+	for _, value := range []string{"", "enabled", "tru", "unexpected"} {
+		if !kioskModeFromArgsAndEnv(nil, value) {
+			t.Errorf("kioskModeFromArgsAndEnv(nil, %q) = false; want fullscreen default", value)
 		}
 	}
+}
 
-	for _, value := range []string{"1", "true", "TRUE", "yes", "On"} {
-		t.Setenv(kioskEnvironmentVariable, value)
-		if !kioskModeRequested() {
-			t.Errorf("kioskModeRequested() = false for %q; want true", value)
+func TestKioskModeCanBeExplicitlyWindowed(t *testing.T) {
+	for _, value := range []string{"0", "false", "no", "off", "windowed"} {
+		if kioskModeFromArgsAndEnv(nil, value) {
+			t.Errorf("kioskModeFromArgsAndEnv(nil, %q) = true; want windowed", value)
 		}
+	}
+	if kioskModeFromArgsAndEnv([]string{"--windowed"}, "1") {
+		t.Fatal("--windowed must override an enabled kiosk environment variable")
+	}
+}
+
+func TestKioskModeCanBeExplicitlyEnabled(t *testing.T) {
+	for _, value := range []string{"1", "true", "TRUE", "yes", "On"} {
+		if !kioskModeFromArgsAndEnv(nil, value) {
+			t.Errorf("kioskModeFromArgsAndEnv(nil, %q) = false; want true", value)
+		}
+	}
+	if !kioskModeFromArgsAndEnv([]string{"--kiosk"}, "0") {
+		t.Fatal("--kiosk must explicitly enable fullscreen")
 	}
 }
 

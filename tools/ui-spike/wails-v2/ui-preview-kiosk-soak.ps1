@@ -12,7 +12,8 @@ param(
     [switch]$Windowed,
     [switch]$DisableWebViewGPU,
     [switch]$PreflightOnly,
-    [switch]$RequireLowRamHost
+    [switch]$RequireLowRamHost,
+    [switch]$PreviewOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -602,7 +603,7 @@ if ($RequireLowRamHost -and !$hostHardware.low_ram_candidate) {
 }
 
 try {
-    Write-Host "PREVIEW_KIOSK_SOAK=START duration_min=$DurationMinutes sample_s=$SampleIntervalSeconds cycle_min=$LifecycleCycleMinutes"
+    Write-Host "PREVIEW_KIOSK_SOAK=START duration_min=$DurationMinutes sample_s=$SampleIntervalSeconds cycle_min=$LifecycleCycleMinutes preview_only=$PreviewOnly"
     Write-Host ("HOST_PROFILE={0} total_ram_mb={1} initial_available_mb={2} initial_commit_percent={3}" -f
         $hostHardware.memory_profile,$hostHardware.total_physical_memory_mb,$hostInitialMemory.available_mb,$hostInitialMemory.commit_percent)
     Write-Host 'No photo session will be started. Only a disposable local station profile will be created.'
@@ -653,8 +654,9 @@ try {
     [void](Wait-Text 'Start with webcam' 'Idle screen' $StartupTimeoutSeconds)
     $initial = Wait-PreviewReady 5 $PreviewTimeoutSeconds
     if (!$Windowed) {
-        [void](Wait-Text 'KIOSK MODE | ESC TO EXIT | F11 TO TOGGLE' 'fullscreen kiosk hint' $StartupTimeoutSeconds)
-        if (!(Test-Fullscreen)) { throw 'Kiosk startup did not fill the primary display.' }
+        # Customer-mode fullscreen is now verified geometrically; the old visible
+        # ESC/F11 diagnostic hint is intentionally absent from the production UI.
+        if (!(Test-Fullscreen)) { throw 'Customer Mode startup did not fill the primary display.' }
     }
     Write-Host "PREVIEW_READY=PASS frames=$($initial.frames_received) state=$($initial.state) fps=$($initial.fps) ack_p95_ms=$($initial.ack_p95_ms)"
     Write-Host "KIOSK_START_MODE=$(if($Windowed){'WINDOWED'}else{'FULLSCREEN'})"
@@ -709,8 +711,7 @@ try {
                 $watch.Elapsed.TotalMinutes,$DurationMinutes,$totalAcknowledgedFrames,$metrics.fps,$cpuSamples[$cpuSamples.Count-1],$workingSetSamples[$workingSetSamples.Count-1],$privateSamples[$privateSamples.Count-1])
             $lastProgressLog.Restart()
         }
-
-        if ($watch.Elapsed.TotalSeconds -ge $nextLifecycle) {
+        if (!$PreviewOnly -and $watch.Elapsed.TotalSeconds -ge $nextLifecycle) {
             $settingsCycles++
             Write-Host "LIFECYCLE_PHASE=settings_open cycle=$settingsCycles"
             Invoke-Button 'Settings & frame*' 'open Settings'
@@ -797,7 +798,7 @@ try {
     }
     if ($finalMetrics.fps -lt 1.5) { throw "Final FPS below 1.5: $($finalMetrics.fps)." }
     if ($sampleCount -lt 5) { throw "Insufficient resource samples: $sampleCount." }
-    if ($settingsCycles -lt 1 -or $fullscreenCycles -lt 1) { throw 'Settings and fullscreen/windowed lifecycle cycles are required.' }
+    if (!$PreviewOnly -and ($settingsCycles -lt 1 -or $fullscreenCycles -lt 1)) { throw 'Settings and fullscreen/windowed lifecycle cycles are required unless -PreviewOnly is selected.' }
     $cameraEnd = @(Get-B525 | Where-Object { $_.InstanceId -eq $cameraInstanceId -and $_.Status -eq 'OK' })
     if ($cameraEnd.Count -ne 1) { throw 'B525 was no longer present/healthy at the end of the soak.' }
     $status = 'PASS'
@@ -840,6 +841,8 @@ finally {
     $invalidDiagnosticLineCount = 0
     $orphanAckEventCount = 0
     $overlappingTerminalEventCount = 0
+$lastDiagnosticEventType = $null
+$lastDiagnosticEventSequence = $null
     if (Test-Path $diagnosticsPath -PathType Leaf) {
         $logStream = [IO.FileStream]::new($diagnosticsPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::ReadWrite)
         try {
@@ -849,6 +852,8 @@ finally {
                     if ([string]::IsNullOrWhiteSpace($line)) { continue }
                     try {
                         $event = $line | ConvertFrom-Json -ErrorAction Stop
+                        $lastDiagnosticEventType = [string]$event.event
+                        $lastDiagnosticEventSequence = if ($null -ne $event.sequence) { [long]$event.sequence } else { $null }
                         switch ([string]$event.event) {
                             'frame_published' {
                                 $publishedEventCount++
@@ -872,9 +877,24 @@ finally {
         }
         finally { $logStream.Dispose() }
     }
-    $unmatchedPublishCount = @($publishedSequences | Where-Object {
+    $unmatchedPublishSequences = @($publishedSequences | Where-Object {
         -not $acknowledgedSequences.Contains($_) -and -not $cancelledSequences.Contains($_)
-    }).Count
+    } | Sort-Object)
+    $unmatchedPublishCount = $unmatchedPublishSequences.Count
+    $shutdownInFlightPublishCount = 0
+    $lastPublishedSequence = if ($publishedSequences.Count -gt 0) { ($publishedSequences | Measure-Object -Maximum).Maximum } else { $null }
+    # At graceful shutdown, the one-in-flight preview contract may leave the final
+    # published frame without a terminal event. Allow only that exact tail case;
+    # an unmatched publish anywhere inside the stream remains a hard failure.
+    if ($unmatchedPublishCount -eq 1 -and
+        $lastDiagnosticEventType -eq 'frame_published' -and
+        $null -ne $lastDiagnosticEventSequence -and
+        $lastDiagnosticEventSequence -eq $lastPublishedSequence -and
+        $finalMetrics -and $finalMetrics.state -eq 'ready' -and
+        $finalMetrics.ack_failed -eq 0 -and $finalMetrics.decode_failed -eq 0) {
+        $shutdownInFlightPublishCount = 1
+        $unmatchedPublishCount = 0
+    }
     $orphanAckEventCount = @($acknowledgedSequences | Where-Object { -not $publishedSequences.Contains($_) }).Count
     $overlappingTerminalEventCount = @($acknowledgedSequences | Where-Object { $cancelledSequences.Contains($_) }).Count
     $duplicatePublishedEventCount = $publishedEventCount - $publishedSequences.Count
@@ -969,12 +989,14 @@ finally {
             initial_memory = $hostInitialMemory
         }
         low_ram_required = [bool]$RequireLowRamHost
+        preview_only = [bool]$PreviewOnly
         settings_cycles = $settingsCycles
         fullscreen_windowed_cycles = $fullscreenCycles
         published_frame_events = $publishedEventCount
         total_acknowledged_frames = $totalAcknowledgedFrames
         total_cancelled_in_flight_frames = $totalCancelledFrames
         unmatched_published_frames = $unmatchedPublishCount
+        shutdown_inflight_publishes = $shutdownInFlightPublishCount
         orphan_ack_events = $orphanAckEventCount
         invalid_diagnostic_lines = $invalidDiagnosticLineCount
         overlapping_ack_cancel_events = $overlappingTerminalEventCount
@@ -1002,11 +1024,13 @@ finally {
         "- Process-tree private-bytes safety stop (MB): $MaxProcessTreePrivateMB",
         "- Launch mode: $($report.launch_mode)",
         "- WebView2 GPU acceleration disabled (diagnostic only): $DisableWebViewGPU",
+        "- Preview-only (skips Settings/display-mode transitions): $PreviewOnly",
         "- Settings cycles: $settingsCycles",
         "- Fullscreen/windowed cycles: $fullscreenCycles",
         "- Acknowledged frames observed: $totalAcknowledgedFrames",
         "- In-flight frames cancelled during Settings/shutdown: $totalCancelledFrames",
         "- Backend JSONL published / ACK / cancelled events: $publishedEventCount / $totalAcknowledgedFrames / $totalCancelledFrames",
+        "- Trailing in-flight publish accepted at shutdown: $shutdownInFlightPublishCount",
         "- Unmatched publishes / orphan ACKs / invalid lines: $unmatchedPublishCount / $orphanAckEventCount / $invalidDiagnosticLineCount",
         "- Duplicate publish / ACK / cancel events: $duplicatePublishedEventCount / $duplicateAckEventCount / $duplicateCancelledEventCount",
         "- Final preview FPS: $(if($finalMetrics){$finalMetrics.fps}else{'n/a'})",

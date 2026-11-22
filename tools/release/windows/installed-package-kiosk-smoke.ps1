@@ -64,7 +64,7 @@ try {
     $checks.Add('build versioned package from the current source/binary') | Out-Null
 
     Write-Host 'STEP=install-package-to-disposable-root'
-    & $installScript -PackagePath $package -InstallRoot $installRoot -SkipMachineProvisioning -AllowUnsignedPreview | Out-Null
+    & $installScript -PackagePath $package -InstallRoot $installRoot -SkipMachineProvisioning -SkipAutoStart -AllowUnsignedPreview | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw 'Package installation returned a non-zero exit code.'
     }
@@ -76,7 +76,7 @@ try {
     if ($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $updatePackage -PathType Leaf)) {
         throw "Second version package could not be created: $updatePackage"
     }
-    & $installScript -PackagePath $updatePackage -InstallRoot $installRoot -AllowUnsignedPreview | Out-Null
+    & $installScript -PackagePath $updatePackage -InstallRoot $installRoot -SkipAutoStart -AllowUnsignedPreview | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw 'Installing the second package version failed.'
     }
@@ -88,7 +88,7 @@ try {
     $checks.Add('update to a second version using the same real executable') | Out-Null
 
     Write-Host 'STEP=rollback-real-binary-update'
-    & (Join-Path $PSScriptRoot 'Rollback-PhotoBoothWindowsPackage.ps1') -InstallRoot $installRoot -AllowUnsignedPreview | Out-Null
+    & (Join-Path $PSScriptRoot 'Rollback-PhotoBoothWindowsPackage.ps1') -InstallRoot $installRoot -SkipAutoStart -AllowUnsignedPreview | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw 'Rollback of the real-binary update failed.'
     }
@@ -149,7 +149,7 @@ try {
     if ($report.status -ne 'PASS' -or !$report.temporary_data_cleaned) {
         throw 'Kiosk UI smoke did not pass or did not clean its isolated player data.'
     }
-    foreach ($name in @('fullscreen_on_start','escape_returns_windowed','f11_enters_fullscreen','escape_after_toggle')) {
+    foreach ($name in @('fullscreen_on_start','customer_escape_keeps_fullscreen','customer_f11_keeps_fullscreen','process_restart_returns_customer_fullscreen')) {
         if ($report.checks.$name -ne $true) {
             throw "Kiosk UI smoke report did not pass check '$name'."
         }

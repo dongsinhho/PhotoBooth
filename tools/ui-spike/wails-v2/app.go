@@ -19,6 +19,7 @@ import (
 	stationconfig "github.com/dongsinhho/PhotoBooth/internal/booth/config"
 	boothoutput "github.com/dongsinhho/PhotoBooth/internal/booth/output"
 	"github.com/dongsinhho/PhotoBooth/internal/booth/retention"
+	"github.com/dongsinhho/PhotoBooth/internal/operatorauth"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -67,6 +68,10 @@ type App struct {
 	retentionPlanOptions retention.Options
 	inspectPrinterJob    func(string, string, string) (boothoutput.PrinterJobInspection, error)
 	pathsMu              sync.Mutex
+
+	operatorMu      sync.RWMutex
+	operatorAccess  *operatorauth.Controller
+	operatorInitErr error
 }
 
 type DemoSession struct {
@@ -108,6 +113,23 @@ func (a *App) startup(ctx context.Context) {
 	if a.reportPath == "" {
 		a.reportPath = filepath.Join(os.TempDir(), "photobooth-kiosk-ui-spike-report.json")
 	}
+
+	// Initialize the station profile and local operator credential store before
+	// exposing the Wails bindings. A missing credential remains guest-usable,
+	// but operator-only operations stay unavailable until CLI provisioning.
+	if err := a.preparePlayerPaths(); err != nil {
+		a.operatorInitErr = err
+		return
+	}
+	controller := operatorauth.New(operatorauth.StorePath(filepath.Dir(a.settingsPath)))
+	_, loadErr := controller.Load()
+	controller.SetOnLock(a.operatorModeLocked)
+	a.operatorMu.Lock()
+	a.operatorAccess = controller
+	a.operatorMu.Unlock()
+	if loadErr != nil {
+		a.operatorInitErr = loadErr
+	}
 }
 
 func (a *App) IsBenchmarkMode() bool { return a.benchmarkMode }
@@ -134,6 +156,9 @@ func (a *App) Ping(sequence int) int {
 }
 
 func (a *App) StartDemoSession() DemoSession {
+	if err := a.requireOperator(); err != nil {
+		return DemoSession{}
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.session = newDemoSession("capturing")
@@ -143,6 +168,9 @@ func (a *App) StartDemoSession() DemoSession {
 // SimulateCameraDisconnect moves the UI spike into its recoverable error state.
 // The Wails spike intentionally does not open a physical camera.
 func (a *App) SimulateCameraDisconnect(sessionID string) (DemoSession, error) {
+	if err := a.requireOperator(); err != nil {
+		return DemoSession{}, err
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err := a.validateDemoSession(sessionID); err != nil {
@@ -159,6 +187,9 @@ func (a *App) SimulateCameraDisconnect(sessionID string) (DemoSession, error) {
 // ContinueDemoSession resumes the simulated session at the next uncaptured shot.
 // It validates the failed session ID to prevent stale UI actions affecting a newer session.
 func (a *App) ContinueDemoSession(sessionID string) (DemoSession, error) {
+	if err := a.requireOperator(); err != nil {
+		return DemoSession{}, err
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err := a.validateDemoSession(sessionID); err != nil {
@@ -177,6 +208,9 @@ func (a *App) ContinueDemoSession(sessionID string) (DemoSession, error) {
 
 // RestartDemoSession discards the failed demo state and starts with a new session ID.
 func (a *App) RestartDemoSession(sessionID string) (DemoSession, error) {
+	if err := a.requireOperator(); err != nil {
+		return DemoSession{}, err
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err := a.validateDemoSession(sessionID); err != nil {
@@ -205,6 +239,9 @@ func (a *App) validateDemoSession(sessionID string) error {
 }
 
 func (a *App) RecordDemoShot(sessionID string) (DemoSession, error) {
+	if err := a.requireOperator(); err != nil {
+		return DemoSession{}, err
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if sessionID == "" || sessionID != a.session.ID {
@@ -224,6 +261,9 @@ func (a *App) RecordDemoShot(sessionID string) (DemoSession, error) {
 }
 
 func (a *App) FinishDemoSession(sessionID string) (DemoSession, error) {
+	if err := a.requireOperator(); err != nil {
+		return DemoSession{}, err
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if sessionID == "" || sessionID != a.session.ID {
@@ -237,6 +277,9 @@ func (a *App) FinishDemoSession(sessionID string) (DemoSession, error) {
 }
 
 func (a *App) ResetDemoSession() DemoSession {
+	if err := a.requireOperator(); err != nil {
+		return DemoSession{}
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.session = DemoSession{State: "idle", Total: 3}

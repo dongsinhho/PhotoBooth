@@ -2,11 +2,13 @@
 param(
     [string]$InstallRoot,
     [switch]$Kiosk,
+    [switch]$Windowed,
     [switch]$NoLaunch,
     [switch]$AllowUnsignedPreview
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Kiosk -and $Windowed) { throw '-Kiosk and -Windowed cannot be combined.' }
 . (Join-Path $PSScriptRoot 'Release.Common.ps1')
 
 if ([string]::IsNullOrWhiteSpace($InstallRoot)) {
@@ -35,10 +37,11 @@ if ($NoLaunch) {
 Assert-PhotoBoothNotRunning -InstallRoot $InstallRoot
 
 $previousKioskValue = [Environment]::GetEnvironmentVariable('PHOTOBOOTH_KIOSK', 'Process')
-$kioskValue = if ($Kiosk) { '1' } else { '0' }
+$kioskValue = if ($Windowed) { '0' } else { '1' }
 [Environment]::SetEnvironmentVariable('PHOTOBOOTH_KIOSK', $kioskValue, 'Process')
 try {
-    $process = Start-Process -FilePath $release.Executable -WorkingDirectory $releaseDirectory -PassThru
+    $launchArguments = if ($Windowed) { @('--windowed') } else { @('--kiosk') }
+    $process = Start-Process -FilePath $release.Executable -ArgumentList $launchArguments -WorkingDirectory $releaseDirectory -PassThru
 }
 finally {
     [Environment]::SetEnvironmentVariable('PHOTOBOOTH_KIOSK', $previousKioskValue, 'Process')

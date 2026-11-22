@@ -166,6 +166,9 @@ func recordCameraPreviewDiagnostic(record cameraPreviewDiagnosticRecord) {
 func (a *App) StartCameraPreview() (CameraPreviewStatus, error) {
 	a.cameraLifecycleMu.Lock()
 	defer a.cameraLifecycleMu.Unlock()
+	if err := a.requireCustomer(); err != nil {
+		return CameraPreviewStatus{}, err
+	}
 
 	// This opt-in switch is intended for synthetic UI automation and support
 	// diagnostics. It returns before path preparation or provider construction,
@@ -251,6 +254,9 @@ func (a *App) StartCameraPreview() (CameraPreviewStatus, error) {
 func (a *App) StopCameraPreview() error {
 	a.cameraLifecycleMu.Lock()
 	defer a.cameraLifecycleMu.Unlock()
+	if err := a.requireOperator(); err != nil {
+		return err
+	}
 	return a.stopCameraPreviewLocked()
 }
 

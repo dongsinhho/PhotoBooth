@@ -93,6 +93,9 @@ func runSMBAdminHelper(ctx context.Context, action string, extraArgs ...string) 
 // GetSmbAdminStatus reads the real Windows machine state; no status is inferred
 // from application preferences or station configuration.
 func (a *App) GetSmbAdminStatus() (SMBAdminStatus, error) {
+	if err := a.requireOperator(); err != nil {
+		return SMBAdminStatus{}, err
+	}
 	output, err := runSMBAdminHelper(a.smbAdminContext(), "Status", "-JsonOutput")
 	if err != nil {
 		return SMBAdminStatus{}, err
@@ -109,6 +112,9 @@ func (a *App) GetSmbAdminStatus() (SMBAdminStatus, error) {
 
 // GetSmbAdminInterfaces returns only active physical adapters and their IPv4 addresses.
 func (a *App) GetSmbAdminInterfaces() ([]SMBAdminInterface, error) {
+	if err := a.requireOperator(); err != nil {
+		return nil, err
+	}
 	output, err := runSMBAdminHelper(a.smbAdminContext(), "ListInterfaces", "-JsonOutput")
 	if err != nil {
 		return nil, err
@@ -123,6 +129,9 @@ func (a *App) GetSmbAdminInterfaces() ([]SMBAdminInterface, error) {
 // SetSmbAdminEnabled delegates all machine-wide changes to the UAC-aware helper.
 // The Go process never edits Windows services, registry keys or firewall rules.
 func (a *App) SetSmbAdminEnabled(enabled bool, interfaceAlias, localAddress, remoteAddressText string) error {
+	if err := a.requireOperator(); err != nil {
+		return err
+	}
 	ctx := a.smbAdminContext()
 	if !enabled {
 		_, err := runSMBAdminHelper(ctx, "Disable", "-WaitForElevation")

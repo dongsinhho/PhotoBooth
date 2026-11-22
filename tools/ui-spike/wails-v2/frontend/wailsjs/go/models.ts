@@ -127,19 +127,12 @@ export namespace main {
 	    }
 	}
 	export class PlayerSession {
-	    id: string;
-	    output_retrying?: boolean;
 	    state: string;
 	    captured: number;
 	    total: number;
 	    current_shot: number;
 	    countdown_seconds: number;
 	    message: string;
-	    error_message?: string;
-	    camera_mode: string;
-	    output_path?: string;
-	    rendered_path?: string;
-	    output_targets?: PlayerOutputTargetView[];
 	    preview_data_url?: string;
 	    capture_previews?: string[];
 	    demo_mode: boolean;
@@ -150,41 +143,16 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.output_retrying = source["output_retrying"];
 	        this.state = source["state"];
 	        this.captured = source["captured"];
 	        this.total = source["total"];
 	        this.current_shot = source["current_shot"];
 	        this.countdown_seconds = source["countdown_seconds"];
 	        this.message = source["message"];
-	        this.error_message = source["error_message"];
-	        this.camera_mode = source["camera_mode"];
-	        this.output_path = source["output_path"];
-	        this.rendered_path = source["rendered_path"];
-	        this.output_targets = this.convertValues(source["output_targets"], PlayerOutputTargetView);
 	        this.preview_data_url = source["preview_data_url"];
 	        this.capture_previews = source["capture_previews"];
 	        this.demo_mode = source["demo_mode"];
 	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class PlayerSettings {
 	    shot_count: number;
