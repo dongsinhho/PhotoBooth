@@ -526,3 +526,15 @@ WSL environment was inspected: Ubuntu 26.04.1 LTS / glibc 2.43 with GTK3, WebKit
 A 10.08-minute preview-only run on ShinPc / Windows 11 / 15,484 MiB visible RAM completed with 172 samples. Mean preview was 4.76 FPS; process-tree private bytes peaked at 900.18 MiB (WebView2 at 873.35 MiB); host available memory remained at least 5,706.58 MiB (36.85%). The raw event stream had 2,902 ACKs and one final frame still in flight at shutdown; the audit now reports this separately and continues to fail on any internal missing terminal event. A 1.02-minute regression under the updated audit passed 300/300 publish/ACK and cleaned its TEMP profile.
 
 This is a baseline on a 16 GiB host, not an 8 GiB acceptance result. Windows 8 GiB and native Ubuntu 24.04 / 4 GiB hardware benchmarks remain pending. Do not manufacture memory pressure as a substitute for a target-class machine.
+
+## 2026-11-23 - Selected-account Windows logon startup acceptance in progress
+
+The acceptance flow now targets the existing `SHINPC\sinhv` account in the local Administrators group; no separate Standard account is used. A fresh unsigned internal Preview was built from the current source and installed at `%LOCALAPPDATA%\Programs\PhotoBooth` with `-SkipMachineProvisioning -AllowUnsignedPreview`.
+
+- Package version: `0.0.0-logon-smoke.20261123205418`.
+- The current user's `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` value `PhotoBooth` is present and exactly targets the active immutable `PhotoBooth.exe --kiosk`.
+- The application is not running now. The actual sign-out/sign-in observation has not yet happened; after the next sign-in, run the kit's `Test-PhotoBoothLogonStartup.ps1 -AllowUnsignedPreview` without manually launching the app first.
+- The install skipped machine-wide SMB provisioning. A read-only post-install check observed LanmanServer Running/Automatic; no SMB service, registry, firewall or share setting was changed by this install.
+- The generated acceptance kit is under `C:\Users\Public\Documents\PhotoBoothLogonAcceptance-078355aa51364814a682b2a97e1f66c8`. After acceptance, close PhotoBooth, uninstall using the same kit/account, verify that the owned Run value is removed and that `%LOCALAPPDATA%\PhotoBooth` user data is preserved, then sign out/in once more to confirm it no longer starts.
+
+This is an internal unsigned Preview acceptance only, not production signing/installer certification. See [WINDOWS_LOGON_ACCEPTANCE.md](../../tools/release/windows/WINDOWS_LOGON_ACCEPTANCE.md) and [HANDOFF_2026-11-23-windows-logon-startup.md](../../HANDOFF_2026-11-23-windows-logon-startup.md).

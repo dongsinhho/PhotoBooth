@@ -39,4 +39,5 @@ The script writes a uniquely named kit under Windows Public Documents. It contai
 - No separate Standard account is required.
 - The account runs PhotoBooth in its interactive session; do not add a machine-wide service or forced UAC elevation for this purpose.
 - App fullscreen is not OS shell lockdown; Windows shortcuts such as Alt+Tab and the Windows key remain OS-level behavior.
-- Actual sign-out/sign-in acceptance remains pending. The real HKCU Run key on ShinPc has not been enabled or modified.
+- On 2026-11-23, an unsigned internal Preview was built and installed under the selected SHINPC\sinhv account. The user's HKCU Run value is now enabled and points to the active immutable release with `--kiosk`. Actual sign-out/sign-in observation remains pending; do not launch PhotoBooth manually before running the verifier.
+- The install used `-SkipMachineProvisioning`; it did not change machine-wide SMB policy. The current read-only observation after install was LanmanServer Running/Automatic.

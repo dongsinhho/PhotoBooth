@@ -31,10 +31,10 @@ The installer and rollback scripts expose -SkipAutoStart only for isolated tests
 The current versioned package is still an internal-alpha ZIP plus PowerShell install/rollback scripts, not the final signed per-user Windows installer. Genuine publisher signing and installer certification remain separate gates.
 
 
-## Separate-account Windows logon acceptance
+## Selected-account Windows logon acceptance
 
-Prepare a standard-user acceptance kit without changing the primary account's startup:
+The selected operator account is the existing SHINPC\sinhv account in the local Administrators group. Do not create a separate Standard account for this acceptance. Prepare a fresh internal acceptance kit under the same account:
 
-    .\tools\release\windows\Prepare-PhotoBoothLogonAcceptanceKit.ps1 -SkipBuild
+    .\tools\release\windows\Prepare-PhotoBoothLogonAcceptanceKit.ps1
 
-Follow tools/release/windows/WINDOWS_LOGON_ACCEPTANCE.md. The kit uses an unsigned internal Preview, installs under the test user's LOCALAPPDATA, registers only that test user's HKCU Run value, and provides Test-PhotoBoothLogonStartup.ps1 for read-only verification after signing out and back in.
+Follow tools/release/windows/WINDOWS_LOGON_ACCEPTANCE.md and the generated kit README. The documented install uses -SkipMachineProvisioning so it does not change machine-wide SMB policy, but it enables only the current user's HKCU Run entry. After installation, sign out and back into the same account without manually launching PhotoBooth, then run Test-PhotoBoothLogonStartup.ps1 -AllowUnsignedPreview. The final signed production installer remains a separate release gate.
