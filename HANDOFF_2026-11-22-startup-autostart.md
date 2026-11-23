@@ -196,3 +196,18 @@ No PhotoBooth process remains running. The real HKCU Run value remains absent. N
 The 10.08-minute Wails preview-only 16 GiB baseline and the 1.02-minute 300/300 ACK regression are recorded in UI_SPIKE_RESULTS.md. This does not certify Windows 8 GiB or Ubuntu 24.04 / 4 GiB.
 
 The next gates remain an actual Windows 8 GiB target machine, native Ubuntu 24.04 / 4 GiB acceptance, selected-account Windows sign-out/sign-in auto-start observation, genuine production signing/publisher trust, OS-level kiosk policy and physical printer/camera acceptance where noted above. No remote push is included in this checkpoint.
+## Post-commit checkpoint verification - 2026-11-23
+
+Repository state was re-opened after the 2026-11-22 implementation checkpoint.
+
+- Feature commit: ec6b1fbe8a2dcf722c0f75bda310174dbb03e5a1 — feat(kiosk): add authenticated operator mode and login startup.
+- Parent: 9ed9d28cdb3533ed66457a65ea47bfad2e975a57.
+- The feature commit contains the Customer/Operator authentication implementation, Windows fullscreen/per-user startup and lifecycle scripts, Linux XDG auto-start helper, ADR 0034/0035, updated product docs and the 10-minute Wails preview-only memory baseline.
+- At verification time, main and the local origin/main tracking ref both pointed at ec6b1fb; the working tree was clean.
+- The feature commit's pre-commit validation is recorded above. No new application changes were necessary for this verification.
+- The current user explicitly chose a Windows account in the local Administrators group. No separate Standard account is part of the acceptance plan.
+- The actual primary-user HKCU Run value remains absent; no Windows sign-out/sign-in auto-start observation was performed.
+
+Remaining gates: actual Windows 11 8 GiB target-class acceptance; native Ubuntu 24.04 LTS / 4 GiB acceptance; sign-out/sign-in auto-start observation under the selected Administrator-group account; genuine production signing/publisher trust; OS-level kiosk policy; and physical printer/camera acceptance where listed in the product plan.
+
+This entry records the verified commit and repository state. It does not claim that the remaining hardware or OS acceptance gates have passed.
