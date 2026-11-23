@@ -538,3 +538,18 @@ The acceptance flow now targets the existing `SHINPC\sinhv` account in the local
 - The generated acceptance kit is under `C:\Users\Public\Documents\PhotoBoothLogonAcceptance-078355aa51364814a682b2a97e1f66c8`. After acceptance, close PhotoBooth, uninstall using the same kit/account, verify that the owned Run value is removed and that `%LOCALAPPDATA%\PhotoBooth` user data is preserved, then sign out/in once more to confirm it no longer starts.
 
 This is an internal unsigned Preview acceptance only, not production signing/installer certification. See [WINDOWS_LOGON_ACCEPTANCE.md](../../tools/release/windows/WINDOWS_LOGON_ACCEPTANCE.md) and [HANDOFF_2026-11-23-windows-logon-startup.md](../../HANDOFF_2026-11-23-windows-logon-startup.md).
+
+
+## 2026-11-23 - Windows logon acceptance PASS and Preview uninstall
+
+The user confirmed all Windows logon acceptance checks passed. The generated report `photobooth-logon-acceptance-20261123-210410.json` independently records `status=PASS` for `SHINPC\\sinhv`, launched by `explorer.exe` in interactive session 3. It confirms the active release/`--kiosk` Run value, process in the interactive session, Customer start action visible, no public Operator entry and fullscreen primary-display bounds.
+
+The auto-started app was then closed gracefully. The acceptance kit's `Uninstall-PhotoBoothWindowsPackage.ps1` completed and reported `CURRENT_USER_AUTO_START=REMOVED`, `PHOTOBOOTH_UNINSTALL=PASS`, and `USER_DATA_PRESERVED`. Follow-up checks confirmed:
+- `%LOCALAPPDATA%\\Programs\\PhotoBooth` install/release root absent.
+- The PhotoBooth value is absent from the current user's HKCU Run key.
+- No PhotoBooth.exe process remains running.
+- `%LOCALAPPDATA%\\PhotoBooth` still contains the existing `frames`, `photos`, `sessions` and `store-config-v1.json` user data.
+
+**One final cleanup gate remains:** sign out and back into `SHINPC\\sinhv` once more to confirm PhotoBooth does not start after uninstall. Only then delete `C:\\Users\\Public\\Documents\\PhotoBoothLogonAcceptance-078355aa51364814a682b2a97e1f66c8`. Do not delete the kit before this final negative startup check.
+
+This closes the positive Windows logon auto-start acceptance. It does not certify the production signed installer or OS-level shell lockdown. Next roadmap sequence remains target-class low-RAM acceptance (requires real Windows 11 8 GiB / Ubuntu 24.04 4 GiB machines), then signed Windows installer and Ubuntu 24.04 .deb gates when publisher credentials and matching target environment are available. The current WSL Ubuntu 26.04.1 is not a valid substitute for Ubuntu 24.04.

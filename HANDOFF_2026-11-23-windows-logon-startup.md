@@ -58,3 +58,14 @@ Do not claim acceptance until steps 2-4 pass. If the user is not ready to sign o
 - Physical printer/camera acceptance where still listed in the plan.
 
 No commit or push has yet been performed for the 2026-11-23 documentation changes.
+
+
+## Follow-up: acceptance passed and Preview removed
+
+After the user reported all checks passed, the actual generated report was inspected: `%TEMP%\\photobooth-logon-acceptance-20261123-210410.json`, status `PASS`, user `SHINPC\\sinhv`, parent `explorer.exe`, interactive session 3. All five checks passed: HKCU Run target, interactive process, Customer UI, no public Operator entry, fullscreen bounds.
+
+The auto-started PhotoBooth process was closed gracefully. `Uninstall-PhotoBoothWindowsPackage.ps1` completed with `CURRENT_USER_AUTO_START=REMOVED` and `PHOTOBOOTH_UNINSTALL=PASS`. Independent checks confirmed install root removed, HKCU Run value absent, no PhotoBooth process running, and `%LOCALAPPDATA%\\PhotoBooth` user data preserved (`frames`, `photos`, `sessions`, `store-config-v1.json`).
+
+**Remaining immediate action:** sign out and sign back in once more to confirm the app does not auto-start after uninstall. Then delete the acceptance kit at `C:\\Users\\Public\\Documents\\PhotoBoothLogonAcceptance-078355aa51364814a682b2a97e1f66c8`. Do not remove the kit before this negative startup check.
+
+Positive Windows logon acceptance is PASS. This is still only unsigned Preview acceptance, not signed production installer certification. Subsequent roadmap gates require real target hardware: Windows 11 8 GiB and Ubuntu 24.04 4 GiB benchmarks; native Ubuntu 24.04 build/UI/camera/printer and .deb; and genuine publisher certificate/TSA for signed Windows production packaging. Current WSL Ubuntu 26.04.1 is not a valid substitute for Ubuntu 24.04.
