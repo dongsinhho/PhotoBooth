@@ -553,3 +553,29 @@ The auto-started app was then closed gracefully. The acceptance kit's `Uninstall
 **One final cleanup gate remains:** sign out and back into `SHINPC\\sinhv` once more to confirm PhotoBooth does not start after uninstall. Only then delete `C:\\Users\\Public\\Documents\\PhotoBoothLogonAcceptance-078355aa51364814a682b2a97e1f66c8`. Do not delete the kit before this final negative startup check.
 
 This closes the positive Windows logon auto-start acceptance. It does not certify the production signed installer or OS-level shell lockdown. Next roadmap sequence remains target-class low-RAM acceptance (requires real Windows 11 8 GiB / Ubuntu 24.04 4 GiB machines), then signed Windows installer and Ubuntu 24.04 .deb gates when publisher credentials and matching target environment are available. The current WSL Ubuntu 26.04.1 is not a valid substitute for Ubuntu 24.04.
+
+
+## 2026-11-24 - Windows logon acceptance and uninstall cleanup closed; low-RAM gate next
+
+The user confirmed the complete Windows logon acceptance and post-uninstall negative startup check passed on `SHINPC\\sinhv`. The positive acceptance report `photobooth-logon-acceptance-20261123-210410.json` records all five checks as PASS. The user also confirmed that after uninstall/sign-out/sign-in PhotoBooth did not auto-start.
+
+Cleanup was independently rechecked on ShinPc:
+- No `PhotoBooth.exe` process remains.
+- The PhotoBooth value is absent from `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`.
+- `%LOCALAPPDATA%\\Programs\\PhotoBooth` is absent.
+- `%LOCALAPPDATA%\\PhotoBooth` remains intact with `frames`, `photos`, `sessions` and `store-config-v1.json`.
+- The temporary `PhotoBoothLogonAcceptance-*` kit directory was removed.
+
+**Windows positive logon acceptance and uninstall/negative-startup cleanup are now closed.** This remains an unsigned internal Preview acceptance, not production installer certification or OS shell lockdown.
+
+### Next gate: target-class low-RAM validation (ADR 0025 / ADR 0034)
+
+Current available host is ASRock X600-ITX / Ryzen 5 8600G / Radeon 760M / Windows 11 with 15.12 GiB physical RAM. It is above the 8 GiB Windows candidate ceiling and must not be used to claim low-RAM acceptance. The only connected remote device is ShinPc. Its WSL distro is Ubuntu 26.04.1 LTS on WSL2, not native Ubuntu 24.04 and not valid for the Ubuntu 4 GiB target gate.
+
+Required hardware:
+- Windows 11 x64 machine reporting no more than 8,192 MiB visible RAM, with the reference B525 camera where possible.
+- Native Ubuntu 24.04 LTS x86_64 machine with approximately 4 GiB RAM for the Linux UI/runtime/camera/package path.
+
+Do not create artificial memory pressure, change pagefile settings, disable services or treat WSL as native Ubuntu acceptance. On a qualifying Windows host, first build the current Wails Preview and run `ui-preview-kiosk-soak.ps1 -PreflightOnly -RequireLowRamHost`; only if preflight passes, run the full soak with `-RequireLowRamHost` and collect process-tree plus host available-memory/commit/paging telemetry. Follow with separate capture/render/local-output workflow acceptance because the preview soak alone does not cover the complete booth workflow. On native Ubuntu 24.04, benchmark the same workflow and host headroom. Set numeric memory/headroom budgets from target-class measurements before declaring PASS.
+
+If Wails misses the measured target budget or touch-interaction gate on either platform, evaluate an OS-specific native UI for that platform while retaining the shared Go core. Do not approve Wails solely from the 16 GiB ShinPc baseline.
