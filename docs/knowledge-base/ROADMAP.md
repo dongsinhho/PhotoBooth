@@ -661,3 +661,25 @@ Updated internal package and setup:
 - PowerShell parser checks passed for helper, package installer, package builder and NSIS installer builder; `git diff --check` passed.
 
 **Runtime status:** the 0.1.1 setup has not yet been executed. SMB remains unchanged until the user accepts the explicit NSIS warning and UAC prompt. Do not mark runtime acceptance PASS until we verify LanmanServer Stopped/Disabled, AutoShareWks DWORD 0, the PhotoBooth allow rule absent, effective inbound SMB/NetBIOS block rules active, custom share definitions and ACLs preserved, active pointer/HKCU Run created, and operator data intact. After install, also validate actual reachability/denial from a second client if available.
+
+
+## 2026-11-25 - Upgrade and rollback runtime acceptance passed; NSIS uninstall confirmation hardened
+
+On ShinPc, after first-install Preview `0.1.1-nsis-preview` was active:
+- Built and installed `0.1.2-nsis-preview` through the NSIS bootstrapper. Verified active pointer moved to 0.1.2, previous pointer was 0.1.1, HKCU Run pointed to 0.1.2 `PhotoBooth.exe --kiosk`, and SMB remained Stopped/Disabled with `AutoShareWks=0` and three effective inbound block rules.
+- Validated integrity of both releases and ran the versioned rollback script. Verified active pointer returned to 0.1.1, previous became 0.1.2, HKCU Run changed back to 0.1.1, both release directories remained intact, SMB did not change and user data remained present.
+- A wrapper around the PowerShell rollback command reported a stale `$LASTEXITCODE`; the script itself completed successfully. The resulting pointer/Run/manifest integrity were independently verified, so rollback acceptance is PASS.
+
+Before uninstall, inspection found NSIS `uninstall.exe` passed `-Confirm:$false` through `powershell.exe -File`, the same PowerShell 5.1 argument-binding hazard encountered in SMB provisioning. The NSIS uninstaller now passes a dedicated `-SuppressConfirmation` switch; the PowerShell uninstall script sets `$ConfirmPreference='None'` only when that explicit switch is supplied. NSIS also uses `nsExec::ExecToLog` and checks the child exit code so uninstall output is visible in its Details pane.
+
+A real-install-root preflight with `Uninstall-PhotoBoothWindowsPackage.ps1 -SuppressConfirmation -WhatIf` completed without prompting, showed the expected ShouldProcess action, and verified no change to active pointer, Run entry or user data. This was a WhatIf only, not a real uninstall.
+
+Built NSIS setup `0.1.3-nsis-preview` with the corrected uninstaller:
+- Package ZIP SHA-256 `58625E5931B05D3E5E899210A6A2F58A4DCC774A33852C6448DF43EB725D9F73`.
+- Setup `%TEMP%\\PhotoBoothInstallerPreview-0.1.3\\PhotoBooth-0.1.3-nsis-preview-Setup.exe`, 5,521,859 bytes.
+- Setup SHA-256 `464F8B8EE9FE2AF85C40D3CC79AC253AA297F2AEA9B6A8B9A26DE93DC6D380DD`.
+- NSIS 3.13 compilation and PowerShell parser checks passed. Setup is unsigned internal Preview only.
+
+### Remaining gate in this runtime lifecycle
+
+Upgrade and rollback are PASS. The current active release remains `0.1.1-nsis-preview`. Upgrade to 0.1.3 is needed to refresh the installed NSIS uninstaller with the corrected `-SuppressConfirmation`/ExecToLog path. Then run the actual uninstaller and verify install root, HKCU Run, bootstrapper registry/setup root are removed, while `%LOCALAPPDATA%\\PhotoBooth` (frames/photos/sessions/config) and SMB's Disabled baseline/share definitions remain intact. User-data deletion is not part of uninstall. Do not call uninstall PASS until the actual NSIS uninstaller completes.

@@ -1,10 +1,12 @@
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
 param(
     [string]$InstallRoot,
-    [string]$AutoStartRegistryPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+    [string]$AutoStartRegistryPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run',
+    [switch]$SuppressConfirmation
 )
 
 $ErrorActionPreference = 'Stop'
+if ($SuppressConfirmation) { $ConfirmPreference = 'None' }
 . (Join-Path $PSScriptRoot 'Release.Common.ps1')
 
 if ([string]::IsNullOrWhiteSpace($InstallRoot)) {

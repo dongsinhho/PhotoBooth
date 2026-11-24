@@ -107,7 +107,8 @@ FunctionEnd
 Section "Uninstall"
   IfFileExists "${APP_ROOT}\active.json" 0 app_already_removed
     DetailPrint "Removing PhotoBooth binaries and release history..."
-    ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\scripts\Uninstall-PhotoBoothWindowsPackage.ps1" -InstallRoot "${APP_ROOT}" -Confirm:$$false' $0
+    nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\scripts\Uninstall-PhotoBoothWindowsPackage.ps1" -InstallRoot "${APP_ROOT}" -SuppressConfirmation'
+    Pop $0
     ${If} $0 != 0
       MessageBox MB_ICONSTOP|MB_OK "PhotoBooth could not be uninstalled (exit code $0). The setup files were kept so you can close the app or resolve the blocker and retry."
       Abort

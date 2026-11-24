@@ -97,3 +97,35 @@ The actual installer runtime acceptance is still PENDING. If successful, continu
 - Genuine signed production installer/publisher trust remains PENDING.
 - Ubuntu .deb/native camera and printer gates remain PENDING.
 - Physical printer acceptance remains deferred.
+
+
+## Upgrade/rollback runtime acceptance and uninstall hardening (2026-11-25)
+
+### Runtime results
+
+- NSIS setup `0.1.2-nsis-preview` compiled and the user completed the upgrade wizard from active `0.1.1`.
+- Independent post-upgrade verification: active pointer `0.1.2`, previous `0.1.1`, HKCU Run points to `0.1.2` executable with `--kiosk`; LanmanServer Stopped/Disabled, AutoShareWks DWORD 0, three active inbound block rules; operator data still present.
+- Integrity validated for both releases using `Assert-PhotoBoothReleaseDirectory -AllowUnsignedPreview`.
+- Ran `Rollback-PhotoBoothWindowsPackage.ps1 -AllowUnsignedPreview`. Script printed rollback complete and updated pointer/Run to `0.1.1`, previous `0.1.2`. A shell wrapper then threw due to stale `$LASTEXITCODE`; the rollback itself had succeeded. Independent checks then passed pointer values, HKCU Run, hashes of both releases, unchanged SMB state, all user-data items and app closed.
+- User's current release was restored to `0.1.1-nsis-preview`.
+
+### Fix for actual NSIS uninstall
+
+Inspection found `PhotoBoothInstaller.nsi` invoked the uninstaller script with `-Confirm:$$false` through Windows PowerShell `-File`. Replaced this with `-SuppressConfirmation` and `nsExec::ExecToLog`, plus `Pop $0`/exit-code check for visible diagnostics. `Uninstall-PhotoBoothWindowsPackage.ps1` now accepts `[switch]$SuppressConfirmation`; it sets `$ConfirmPreference='None'` only for explicit NSIS invocation. Direct use keeps native confirmation behavior.
+
+Tested the updated source script on the real install with `-SuppressConfirmation -WhatIf`: it did not prompt, reported the expected uninstall action, and the active pointer, HKCU Run and user data were unchanged.
+
+### New setup build
+
+- Version `0.1.3-nsis-preview`.
+- Package ZIP SHA-256 `58625E5931B05D3E5E899210A6A2F58A4DCC774A33852C6448DF43EB725D9F73`.
+- Setup path `%TEMP%\PhotoBoothInstallerPreview-0.1.3\PhotoBooth-0.1.3-nsis-preview-Setup.exe`.
+- 5,521,859 bytes; SHA-256 `464F8B8EE9FE2AF85C40D3CC79AC253AA297F2AEA9B6A8B9A26DE93DC6D380DD`.
+- NSIS 3.13 compile passed; Authenticode `NotSigned`.
+- Package/setup are ignored/outside Git artifacts.
+
+### Current machine state / next action
+
+Current app install is still active at `0.1.1-nsis-preview` with `0.1.2` previous; application is closed. SMB stays Stopped/Disabled, AutoShareWks 0, all three inbound blocks active, Users share definition still at `C:\Users`, operator data remains in `%LOCALAPPDATA%\PhotoBooth`.
+
+Next: upgrade through the `0.1.3` NSIS setup (existing active install means no first-install SMB dialog/UAC should be needed), verify active pointer and SMB unchanged; then run the installed `PhotoBooth Setup\\uninstall.exe` in normal user session. If UI asks for confirmation, proceed. Verify there is no PhotoBooth process, `%LOCALAPPDATA%\\Programs\\PhotoBooth` absent, HKCU Run value absent, setup root and HKCU bootstrapper/uninstall registrations absent, while `%LOCALAPPDATA%\\PhotoBooth` four operator data items remain and SMB stays Disabled. This closes the full install → upgrade → rollback → uninstall lifecycle if all pass.
