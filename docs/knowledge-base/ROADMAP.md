@@ -606,3 +606,21 @@ This is a **direct-binary prototype only**, not the final Windows installer. It 
 ### Next packaging engineering sub-step (hardware-independent)
 
 Design an NSIS bootstrapper that embeds or stages the existing versioned release package and invokes `Install-PhotoBoothWindowsPackage.ps1` / `Uninstall-PhotoBoothWindowsPackage.ps1`, retaining hash validation, immutable releases, rollback, current-user startup ownership and operator-data preservation. Explicitly reconcile the machine-wide SMB default-off first-install requirement with an unelevated per-user application install; do not silently skip that accepted policy or silently request full-installer elevation. Keep this as an engineering Preview until the complete installer lifecycle is exercised in a disposable account/profile and the target-hardware gates are resolved.
+
+
+## 2026-11-24 - Versioned Windows NSIS bootstrapper implemented as internal Preview
+
+Repository inspection found the project-owned installer path `tools/release/windows/New-PhotoBoothWindowsInstaller.ps1` + `PhotoBoothInstaller.nsi` (previously untracked in the working tree). It is the correct bootstrapper direction; do not build a second installer path around the Wails direct-binary NSIS spike.
+
+The wrapper embeds the exact versioned release ZIP and adjacent `.sha256`, the package install/uninstall scripts and `Release.Common.ps1`. It delegates install to the established lifecycle, retaining ZIP checksum validation, manifest/publisher policy, binary size/hash/PE checks, immutable release directories, active pointer and rollback metadata, HKCU auto-start ownership and operator-data separation. NSIS `RequestExecutionLevel user` keeps the installer per-user. First install invokes the packaged SMB helper with `-Action Disable -WaitForElevation`; this intentionally requests UAC for the accepted machine-wide SMB default-off baseline. Cancellation/failure must stop activation. Upgrades preserve existing SMB configuration. Do not pass `-SkipMachineProvisioning` from the end-user bootstrapper.
+
+Verification on ShinPc:
+- `New-PhotoBoothWindowsInstaller.ps1` compiled the version `0.1.0-nsis-preview` internal Preview setup using NSIS 3.13. Output was built under TEMP, 5,513,522 bytes, SHA-256 `58289056F126FA094EA1A79223F664EA7ED086A6C6833AC98870EC9BFDF81496`, Authenticode `NotSigned`.
+- The source package ZIP sidecar matched its SHA-256 and the ZIP contained exactly `PhotoBooth.exe`, `README.txt`, `release-manifest.json` and `manage-smb-remote-admin.ps1`.
+- PowerShell parser checks passed for the installer builder, package installer, uninstaller and shared release library.
+- Builder rejected the unsigned package when `-AllowUnsignedPreview` was omitted.
+- `release-lifecycle-smoke.ps1` passed all synthetic package lifecycle, update, rollback, manifest hash, sidecar hash and operator-data-path checks.
+
+A test-harness defect was found during the first smoke run: it wrote a temporary install path to the real HKCU Run key. That exact TEMP-owned value was removed immediately. The smoke script was fixed to pass `-SkipAutoStart` on initial install, update and rollback. A rerun passed and verified the real `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\PhotoBooth` value remained absent/unchanged. Generated `artifacts/` is now ignored by Git and must not be committed.
+
+**Acceptance boundary:** the NSIS setup has only been compiled, not executed. Runtime install/uninstall, first-install UAC approval/cancellation, SMB default-off verification, update/rollback through the setup wrapper, logon and user-data preservation remain pending in a disposable Windows profile. It is unsigned and not approved for distribution. Production signing/trust and target-class low-RAM acceptance remain separate pending gates.

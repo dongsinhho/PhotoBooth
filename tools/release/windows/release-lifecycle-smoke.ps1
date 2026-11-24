@@ -140,7 +140,7 @@ try {
     }
     $checks.Add('reject a helper-less legacy package for a fresh first install without activating it') | Out-Null
 
-    & $installScript -PackagePath $packageV1 -InstallRoot $installRoot -SkipMachineProvisioning -AllowUnsignedPreview | Out-Null
+    & $installScript -PackagePath $packageV1 -InstallRoot $installRoot -SkipMachineProvisioning -SkipAutoStart -AllowUnsignedPreview | Out-Null
     Assert-Equal (Read-ActiveVersion $installRoot) '0.1.0-alpha.1' 'initial active version'
     $checks.Add('install first immutable release and activate it') | Out-Null
 
@@ -148,13 +148,13 @@ try {
     $checks.Add('verify active pointer and binary without launching PhotoBooth') | Out-Null
 
     $packageV2 = New-FixturePackage -Version '0.2.0-alpha.1' -Marker 2 -Destination (Join-Path $packageRoot 'v2.zip')
-    & $installScript -PackagePath $packageV2 -InstallRoot $installRoot -AllowUnsignedPreview | Out-Null
+    & $installScript -PackagePath $packageV2 -InstallRoot $installRoot -SkipAutoStart -AllowUnsignedPreview | Out-Null
     $pointer = Get-PhotoBoothActivePointer -InstallRoot $installRoot
     Assert-Equal $pointer.active_version '0.2.0-alpha.1' 'updated active version'
     Assert-Equal $pointer.previous_version '0.1.0-alpha.1' 'previous version after update'
     $checks.Add('install update and retain previous release') | Out-Null
 
-    & $rollbackScript -InstallRoot $installRoot -AllowUnsignedPreview | Out-Null
+    & $rollbackScript -InstallRoot $installRoot -SkipAutoStart -AllowUnsignedPreview | Out-Null
     $pointer = Get-PhotoBoothActivePointer -InstallRoot $installRoot
     Assert-Equal $pointer.active_version '0.1.0-alpha.1' 'active version after rollback'
     Assert-Equal $pointer.previous_version '0.2.0-alpha.1' 'previous version after rollback'

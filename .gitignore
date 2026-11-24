@@ -14,3 +14,6 @@ __pycache__/
 
 # Local Go build outputs
 *.exe
+
+# Generated release packages and installers
+artifacts/

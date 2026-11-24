@@ -89,3 +89,29 @@ Per-user NSIS template prototype is compiled but not installed:
 - The generated `wails_tools.nsh` changes from Wails' build generator were reverted; only the authored `project.nsi` changes are intended source modifications.
 
 Do not mistake this prototype for the production installer. It is a direct-binary Wails/NSIS build and does not yet integrate immutable versioned release payloads, hash verification, side-by-side update/rollback or first-install SMB default-off provisioning. Publisher signing/trust is absent. The next hardware-independent packaging step is an NSIS bootstrapper around the existing PowerShell versioned package install/uninstall scripts, with an explicit and safe design for the machine-wide SMB provisioning step. No installer runtime test or public distribution is approved.
+
+
+## Versioned Windows NSIS bootstrapper - 2026-11-24
+
+The repository's project-owned NSIS bootstrapper is now reviewed and compiled as an internal unsigned Preview:
+
+- Builder: `tools/release/windows/New-PhotoBoothWindowsInstaller.ps1`.
+- NSIS source: `tools/release/windows/PhotoBoothInstaller.nsi`.
+- It embeds the exact versioned package ZIP and `.sha256`, plus `Install-PhotoBoothWindowsPackage.ps1`, `Uninstall-PhotoBoothWindowsPackage.ps1` and `Release.Common.ps1`.
+- NSIS uses `RequestExecutionLevel user`; application install root is `%LOCALAPPDATA%\Programs\PhotoBooth` and setup/uninstaller files are kept in the per-user setup root.
+- The existing PowerShell install lifecycle remains authoritative for checksum/manifest/binary integrity, immutable releases, active pointer, rollback, HKCU Run and data preservation.
+- First install runs the packaged SMB helper with `-Action Disable -WaitForElevation`; UAC is required for the machine-wide default-off baseline. A cancellation/failure must prevent activation. Upgrades preserve operator SMB configuration. Do not bypass this in the end-user bootstrapper.
+
+Build command used successfully (NSIS 3.13):
+
+    .\tools\release\windows\New-PhotoBoothWindowsInstaller.ps1 -Version 0.1.0-nsis-preview -PackagePath .\artifacts\windows\PhotoBooth-internal-alpha-0.1.0-nsis-preview-windows-amd64.zip -OutputDirectory $env:TEMP\photobooth-nsis-bootstrapper-audit -MakensisPath "$env:LOCALAPPDATA\Tools\NSIS-3.13\nsis-3.13\makensis.exe" -AllowUnsignedPreview
+
+Build result: 5,513,522 bytes, SHA-256 `58289056F126FA094EA1A79223F664EA7ED086A6C6833AC98870EC9BFDF81496`, Authenticode `NotSigned`. Build was emitted under TEMP. Source ZIP sidecar verified and package contained the expected four files. PowerShell parser checks passed for builder, install, uninstall and Release.Common. Builder rejected unsigned package when `-AllowUnsignedPreview` was omitted.
+
+The synthetic `release-lifecycle-smoke.ps1` passed all checks. Its harness was corrected to pass `-SkipAutoStart` for first install, update and rollback. During the first run before that fix, it wrote a temporary lifecycle-test path to the real HKCU Run value; that exact value was removed immediately. The rerun passed and confirmed the real PhotoBooth Run value remained absent/unchanged. No PhotoBooth process or installed Preview was launched/created by the NSIS build.
+
+`artifacts/` is now ignored by Git; do not commit generated ZIP/EXE files.
+
+**Still pending:** actual NSIS setup install/uninstall on a disposable Windows profile, first-install UAC accept/cancel paths and SMB default-off verification, upgrade/rollback via the wrapper, logon and data-preservation acceptance. This must be planned carefully because first install deliberately changes machine-wide SMB policy. The installer is unsigned and internal-only. Genuine publisher signing/trust and low-RAM target hardware acceptance remain separate pending gates.
+
+Current Git intent: commit only source, tests and documentation; exclude all generated artifacts. Keep the Wails direct-binary NSIS Preview spike as an isolated experiment, not the distribution installer.
