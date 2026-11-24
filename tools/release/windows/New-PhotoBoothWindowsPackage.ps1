@@ -202,8 +202,10 @@ Requirements:
 - A camera/driver combination explicitly validated by the project
 
 First installation:
-- The installer requests UAC approval and applies the PhotoBooth SMB Server default-off baseline.
-- If existing SMB sessions, custom shares or service dependencies block safe application, installation stops and explains the blocker.
+- Setup asks for explicit confirmation before applying the machine-wide SMB default-off baseline, then requests UAC approval.
+- LanmanServer is stopped/disabled and inbound SMB is blocked. Existing shares, including custom shares such as `Users`, become unavailable to network clients while the service is stopped; share definitions, paths, ACLs and user data are not deleted.
+- Active SMB sessions and running dependent services remain hard blockers. Custom shares are only allowed to become unserved after the explicit first-install confirmation.
+- An SMB provisioning diagnostic log is retained in `%TEMP%` if provisioning fails.
 - Upgrades preserve the machine's existing SMB administration choice.
 
 Install:

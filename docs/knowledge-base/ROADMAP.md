@@ -624,3 +624,40 @@ Verification on ShinPc:
 A test-harness defect was found during the first smoke run: it wrote a temporary install path to the real HKCU Run key. That exact TEMP-owned value was removed immediately. The smoke script was fixed to pass `-SkipAutoStart` on initial install, update and rollback. A rerun passed and verified the real `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\PhotoBooth` value remained absent/unchanged. Generated `artifacts/` is now ignored by Git and must not be committed.
 
 **Acceptance boundary:** the NSIS setup has only been compiled, not executed. Runtime install/uninstall, first-install UAC approval/cancellation, SMB default-off verification, update/rollback through the setup wrapper, logon and user-data preservation remain pending in a disposable Windows profile. It is unsigned and not approved for distribution. Production signing/trust and target-class low-RAM acceptance remain separate pending gates.
+
+
+## 2026-11-25 - NSIS first-install SMB custom-share blocker diagnosed and safely handled
+
+The first runtime attempt with `0.1.0-nsis-preview` aborted during `Install-PhotoBoothWindowsPackage.ps1` before release activation. UAC itself was accepted. The exact elevated helper failure was `Custom SMB share(s) exist: Users. The helper will not expose or disrupt them implicitly.`
+
+Read-only elevated audit of ShinPc found:
+- Share `Users`, path `C:\\Users`, `Special=False`, currently 0 clients.
+- Share ACL: `BUILTIN\\Administrators` Full and `Everyone` Full. The installer must not change these ACLs or delete the share definition.
+- No active SMB sessions, open files or running `LanmanServer` dependent services.
+- At the time of audit, `LanmanServer` was Running/Automatic; `AutoShareWks=1`; existing allow rule still permitted `192.168.1.20` to reach `192.168.1.11` on the Private profile. No SMB setting had been changed by the failed attempt.
+
+The user explicitly authorized disconnecting the existing SMB path. The implementation was tightened before retry:
+- The NSIS wizard now asks for explicit Yes/No confirmation on first install and clearly states that SMB server will stop, all shares become unavailable to network clients, but share definitions/paths/ACLs/data remain preserved.
+- `manage-smb-remote-admin.ps1` still rejects custom shares by default. Only `-Action Disable -AllowStoppingCustomShares` allows custom shares to become unserved; `Enable` cannot use this switch. Active SMB sessions and running dependent services remain hard blockers.
+- `-SuppressConfirmation` is a dedicated switch forwarded through UAC to avoid PowerShell 5.1 binding `-Confirm:$false` as a string. It is used only on the install flow after NSIS has already obtained explicit user confirmation.
+- The helper now logs elevated action start, custom shares that will become unserved, completion and errors to a per-install `%TEMP%` result log. Failed installation surfaces the log path and contents.
+- NSIS now uses `nsExec::ExecToLog` for the PowerShell install process so script output/errors are visible in the installer Details pane rather than only a generic `Execute:` line.
+
+Safety preflight (elevated `-WhatIf`) passed using the updated source helper:
+- `IS_ADMIN=True`.
+- It identified `Users [C:\\Users]` and explicitly warned it would stop being served.
+- It passed the no-active-session and no-running-dependent-service guards.
+- `What if: Performing the operation Disable PhotoBooth SMB remote administration` completed with exit code 0.
+- Post-WhatIf read-back still showed LanmanServer Running/Automatic, `AutoShareWks=1`, Users share present and the pre-existing allow rule enabled. **No real SMB change occurred in preflight.**
+
+Updated internal package and setup:
+- Version: `0.1.1-nsis-preview`.
+- Package ZIP: `artifacts/windows/PhotoBooth-internal-alpha-0.1.1-nsis-preview-windows-amd64.zip` (generated, ignored by Git).
+- ZIP SHA-256: `1AEE383DF5B05449785EE59ACFA277955058D4230AB9731B54DCF279A3F7FEBB`.
+- Packaged SMB helper SHA-256 matches source exactly: `6120ca4d319142ab240549b3ce56b12a458d7adddfbc61b6ab8c807f6126dd35`.
+- Installer: `%TEMP%\\PhotoBoothInstallerPreview-0.1.1\\PhotoBooth-0.1.1-nsis-preview-Setup.exe`, 5,517,940 bytes.
+- Installer SHA-256: `7129B48B47B199388D82C6CCD7881C2AB77F46C23CFD32B2224CED41FBA70225`.
+- NSIS 3.13 compilation passed; Authenticode status `NotSigned` (internal Preview only).
+- PowerShell parser checks passed for helper, package installer, package builder and NSIS installer builder; `git diff --check` passed.
+
+**Runtime status:** the 0.1.1 setup has not yet been executed. SMB remains unchanged until the user accepts the explicit NSIS warning and UAC prompt. Do not mark runtime acceptance PASS until we verify LanmanServer Stopped/Disabled, AutoShareWks DWORD 0, the PhotoBooth allow rule absent, effective inbound SMB/NetBIOS block rules active, custom share definitions and ACLs preserved, active pointer/HKCU Run created, and operator data intact. After install, also validate actual reachability/denial from a second client if available.

@@ -7,11 +7,15 @@ param(
     [string]$LocalAddress,
     [string[]]$RemoteAddress = @(),
     [switch]$JsonOutput,
-    [switch]$WaitForElevation
+    [switch]$WaitForElevation,
+    [switch]$AllowStoppingCustomShares,
+    [switch]$SuppressConfirmation,
+    [string]$ResultLogPath
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ($SuppressConfirmation) { $ConfirmPreference = 'None' }
 if ($JsonOutput) { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) }
 
 $script:RuleGroup = 'PhotoBooth Remote Administration'
@@ -21,6 +25,17 @@ $script:TcpNetbiosBlockRuleName = 'PhotoBooth-SMB-NetBIOS-TCP-Block'
 $script:UdpNetbiosBlockRuleName = 'PhotoBooth-SMB-NetBIOS-UDP-Block'
 $script:RegistryPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters'
 $script:RegistryValueName = 'AutoShareWks'
+
+function Write-PhotoBoothSmbResultLog {
+    param([Parameter(Mandatory)][string]$Message)
+    if ([string]::IsNullOrWhiteSpace($ResultLogPath)) { return }
+    try {
+        $line = ('{0} {1}{2}' -f [DateTime]::UtcNow.ToString('o'), $Message, [Environment]::NewLine)
+        [IO.File]::AppendAllText($ResultLogPath, $line, [Text.UTF8Encoding]::new($false))
+    } catch {
+        Write-Warning "Could not append SMB provisioning result log: $($_.Exception.Message)"
+    }
+}
 
 function Test-IsAdministrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -59,6 +74,12 @@ function Start-ElevatedCopy {
     }
     if ($JsonOutput) { $tokens.Add('-JsonOutput') }
     if ($WaitForElevation) { $tokens.Add('-WaitForElevation') }
+    if ($AllowStoppingCustomShares) { $tokens.Add('-AllowStoppingCustomShares') }
+    if ($SuppressConfirmation) { $tokens.Add('-SuppressConfirmation') }
+    if (![string]::IsNullOrWhiteSpace($ResultLogPath)) {
+        $tokens.Add('-ResultLogPath')
+        $tokens.Add((ConvertTo-QuotedArgument $ResultLogPath))
+    }
     if ($WhatIfPreference) { $tokens.Add('-WhatIf') }
 
     if ($WaitForElevation) {
@@ -185,8 +206,13 @@ function Assert-NoCustomShares {
     if ($server.Status -eq 'Running') {
         $customShares = @(Get-SmbShare -ErrorAction Stop | Where-Object { $_.Name -notmatch $allowedSystemShares })
         if ($customShares.Count -gt 0) {
-            $names = ($customShares | ForEach-Object { $_.Name }) -join ', '
-            throw "Custom SMB share(s) exist: $names. The helper will not expose or disrupt them implicitly."
+            $details = ($customShares | ForEach-Object { '{0} [{1}]' -f $_.Name, $_.Path }) -join '; '
+            if ($Action -eq 'Disable' -and $AllowStoppingCustomShares) {
+                Write-Warning "Explicit opt-in accepted: these custom shares will stop being served when LanmanServer is disabled: $details. Share definitions, paths and permissions are preserved; no share is deleted."
+                Write-PhotoBoothSmbResultLog -Message "CUSTOM_SHARES_WILL_BE_UNSERVED=$details"
+            } else {
+                throw "Custom SMB share(s) exist: $details. The helper will not expose or disrupt them implicitly. For an explicitly approved Disable operation only, pass -AllowStoppingCustomShares; active sessions and service dependencies remain hard blockers."
+            }
         }
         return
     }
@@ -557,6 +583,14 @@ function Get-PhotoBoothPhysicalInterfaces {
 }
 
 try {
+    if ($AllowStoppingCustomShares -and $Action -ne 'Disable') {
+        throw '-AllowStoppingCustomShares is supported only with -Action Disable.'
+    }
+    if ($SuppressConfirmation -and $Action -ne 'Disable') {
+        throw '-SuppressConfirmation is supported only with -Action Disable.'
+    }
+    Write-PhotoBoothSmbResultLog -Message ("ACTION_START={0}; IS_ADMIN={1}; ALLOW_STOPPING_CUSTOM_SHARES={2}" -f $Action, (Test-IsAdministrator), [bool]$AllowStoppingCustomShares)
+
     if ($Action -eq 'ListInterfaces') {
         $interfaces = @(Get-PhotoBoothPhysicalInterfaces)
         if ($JsonOutput) {
@@ -657,7 +691,10 @@ try {
 
     if ($Action -eq 'Disable') {
         $summary = 'Block inbound TCP 445 on all profiles, remove only the PhotoBooth allow rule, set AutoShareWks=0, stop LanmanServer and disable its startup. Existing custom shares and active sessions were checked; no unrelated rules/shares will be deleted.'
-        if (!$PSCmdlet.ShouldProcess($summary, 'Disable PhotoBooth SMB remote administration')) { return }
+        if (!$PSCmdlet.ShouldProcess($summary, 'Disable PhotoBooth SMB remote administration')) {
+            Write-PhotoBoothSmbResultLog -Message 'WHATIF_PREFLIGHT_COMPLETE=True; NO_SYSTEM_CHANGES_APPLIED=True'
+            return
+        }
 
         Ensure-ManagedBlockRule
         Ensure-ManagedNetbiosBlockRules
@@ -693,12 +730,15 @@ try {
         }
 
         Write-Host 'SMB remote administration is DISABLED.' -ForegroundColor Green
+        Write-PhotoBoothSmbResultLog -Message 'SMB_DISABLE_COMPLETED=True; LANMANSERVER=Stopped/Disabled; AUTOSHAREWKS=0; SHARE_DEFINITIONS_PRESERVED=True'
         Write-Host 'LanmanServer is Stopped/Disabled; AutoShareWks=0; effective inbound Block rules verified for TCP 445 and NetBIOS TCP/UDP ports.'
         Write-Host 'IPC$ and custom share definitions are not deleted. They are not served while LanmanServer is stopped.'
         return
     }
 }
 catch {
+    Write-PhotoBoothSmbResultLog -Message ("ERROR_EXCEPTION=" + $_.Exception.ToString())
+    Write-PhotoBoothSmbResultLog -Message ("ERROR_SCRIPT_STACK=" + [string]$_.ScriptStackTrace)
     Write-Host ("ERROR_POSITION: " + $_.InvocationInfo.PositionMessage) -ForegroundColor Red
     if ($_.ScriptStackTrace) {
         Write-Host ("ERROR_SCRIPT_STACK: " + $_.ScriptStackTrace) -ForegroundColor Red

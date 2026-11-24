@@ -64,11 +64,18 @@ Section "Install PhotoBooth" SEC_INSTALL
   File /oname=Install-PhotoBoothWindowsPackage.ps1 "${PHOTOBOOTH_INSTALL_SCRIPT}"
   File /oname=Release.Common.ps1 "${PHOTOBOOTH_RELEASE_COMMON}"
 
+  IfFileExists "${APP_ROOT}\active.json" first_install_smb_warning_done
+  MessageBox MB_ICONEXCLAMATION|MB_YESNO|MB_DEFBUTTON2 "First installation will apply the machine-wide SMB default-off baseline. Windows SMB Server will be stopped and disabled, and all SMB shares on this PC (including any custom shares such as Users) will become unavailable to network clients. Existing share definitions, paths and permissions will be preserved; no share or user data will be deleted. Setup will refuse to proceed while SMB sessions or dependent services are active. Continue with this change?" IDYES first_install_smb_warning_done
+  Abort
+first_install_smb_warning_done:
+
   DetailPrint "Validating and activating the immutable PhotoBooth release..."
   !ifdef PHOTOBOOTH_ALLOW_UNSIGNED_PREVIEW
-    ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\Install-PhotoBoothWindowsPackage.ps1" -PackagePath "$PLUGINSDIR\PhotoBooth-release.zip" -InstallRoot "${APP_ROOT}" -AllowUnsignedPreview' $0
+    nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\Install-PhotoBoothWindowsPackage.ps1" -PackagePath "$PLUGINSDIR\PhotoBooth-release.zip" -InstallRoot "${APP_ROOT}" -AllowUnsignedPreview'
+    Pop $0
   !else
-    ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\Install-PhotoBoothWindowsPackage.ps1" -PackagePath "$PLUGINSDIR\PhotoBooth-release.zip" -InstallRoot "${APP_ROOT}"' $0
+    nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\Install-PhotoBoothWindowsPackage.ps1" -PackagePath "$PLUGINSDIR\PhotoBooth-release.zip" -InstallRoot "${APP_ROOT}"'
+    Pop $0
   !endif
   ${If} $0 != 0
     MessageBox MB_ICONSTOP|MB_OK "PhotoBooth installation failed (exit code $0). The application was not activated. Review the details and retry after resolving the reported blocker."

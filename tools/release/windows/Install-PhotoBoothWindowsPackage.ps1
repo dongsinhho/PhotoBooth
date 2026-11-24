@@ -173,13 +173,19 @@ try {
             throw 'A first installation requires the packaged SMB administration helper to establish the default-off Windows baseline. Legacy packages may be upgraded, but cannot be used for a fresh provisioned install.'
         }
         $powerShellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-        $provisionOutput = & $powerShellExe -NoProfile -ExecutionPolicy Bypass -File $helperPath -Action Disable -WaitForElevation 2>&1
+        $provisionLogPath = Join-Path ([IO.Path]::GetTempPath()) ('PhotoBooth-SmbProvisioning-' + [guid]::NewGuid().ToString('N') + '.log')
+        $provisionOutput = & $powerShellExe -NoProfile -ExecutionPolicy Bypass -File $helperPath -Action Disable -AllowStoppingCustomShares -SuppressConfirmation -WaitForElevation -ResultLogPath $provisionLogPath 2>&1
         $provisionExitCode = $LASTEXITCODE
         if ($provisionExitCode -ne 0) {
-            $details = ($provisionOutput | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
-            throw "PhotoBooth could not establish the SMB default-off baseline. Installation was not activated. $details"
+            $details = @($provisionOutput | ForEach-Object { [string]$_ })
+            if (Test-Path -LiteralPath $provisionLogPath -PathType Leaf) {
+                $details += Get-Content -LiteralPath $provisionLogPath -Raw -ErrorAction SilentlyContinue
+            }
+            $detailText = $details -join [Environment]::NewLine
+            throw "PhotoBooth could not establish the SMB default-off baseline. Installation was not activated. SMB diagnostic log: $provisionLogPath. $detailText"
         }
         Write-Host 'SMB_DEFAULT_OFF_PROVISIONED=True'
+        Write-Host "SMB_PROVISION_LOG=$provisionLogPath"
     } elseif ($null -eq $oldPointer -and $SkipMachineProvisioning) {
         Write-Warning 'SKIP_MACHINE_PROVISIONING was explicitly selected; this install does not establish the SMB default-off baseline.'
     }
