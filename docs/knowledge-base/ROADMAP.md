@@ -683,3 +683,25 @@ Built NSIS setup `0.1.3-nsis-preview` with the corrected uninstaller:
 ### Remaining gate in this runtime lifecycle
 
 Upgrade and rollback are PASS. The current active release remains `0.1.1-nsis-preview`. Upgrade to 0.1.3 is needed to refresh the installed NSIS uninstaller with the corrected `-SuppressConfirmation`/ExecToLog path. Then run the actual uninstaller and verify install root, HKCU Run, bootstrapper registry/setup root are removed, while `%LOCALAPPDATA%\\PhotoBooth` (frames/photos/sessions/config) and SMB's Disabled baseline/share definitions remain intact. User-data deletion is not part of uninstall. Do not call uninstall PASS until the actual NSIS uninstaller completes.
+
+
+## 2026-11-25 - Full NSIS Preview install/upgrade/rollback/uninstall lifecycle passed on ShinPc
+
+Runtime sequence completed on `SHINPC\\sinhv`:
+
+1. First install using `0.1.1-nsis-preview`: user accepted the explicit first-install SMB warning and UAC. Elevated helper log confirms `ACTION_START` with Admin=True, `CUSTOM_SHARES_WILL_BE_UNSERVED=Users [C:\\Users]`, and `SMB_DISABLE_COMPLETED=True`.
+2. Verified the application release active and current-user Run command points to its immutable executable with `--kiosk`. Customer UI first-launch screenshot showed Customer Mode with Start with webcam / Try without a webcam. The camera preview was black in this screenshot; camera acceptance is not inferred from installer smoke.
+3. Upgrade `0.1.1` -> `0.1.2` through NSIS: PASS (pointer active/previous, Run command correct, SMB configuration unchanged).
+4. Rollback `0.1.2` -> `0.1.1` through the release rollback script: PASS (both release manifests/executable hashes validated; pointer and Run switched; SMB unchanged). A wrapper emitted a stale `$LASTEXITCODE` after successful PowerShell execution; direct state and integrity checks confirm rollback passed.
+5. Found and fixed NSIS uninstaller `-Confirm:$false` Windows PowerShell 5.1 argument-binding hazard. The NSIS uninstaller now passes `-SuppressConfirmation` to the PowerShell uninstall script and uses `nsExec::ExecToLog` with exit-code handling. A `-WhatIf -SuppressConfirmation` preflight on the real install confirmed no prompting and no state change.
+6. Built and installed setup refresh `0.1.3-nsis-preview` (unsigned internal Preview). Initial silent invocation exited 2 without updating; an interactive NSIS UI run completed successfully. Verified active pointer, registry DisplayVersion and Run all at `0.1.3`. Package 0.1.3 passed isolated direct install to a TEMP root; that diagnostic root was removed.
+7. Captured a pre-uninstall snapshot of 82 files under `%LOCALAPPDATA%\\PhotoBooth` (relative path, size, SHA-256 each). Ran NSIS `uninstall.exe /S`: exit code 0.
+8. Verified `%LOCALAPPDATA%\\Programs\\PhotoBooth` absent, `%LOCALAPPDATA%\\Programs\\PhotoBooth Setup` absent, HKCU `Software\\PhotoBooth\\Bootstrapper` and Uninstall registration absent, HKCU Run value `PhotoBooth` absent, and no PhotoBooth process.
+9. Post-uninstall comparison: all 82 operator-data files remain with exact same relative paths, sizes and SHA-256 hashes. This is a byte-for-byte preservation PASS.
+10. SMB after uninstall remains `LanmanServer Stopped/Disabled`, `AutoShareWks` DWORD 0, the Users share registry definition at `C:\\Users` preserved, PhotoBooth allow rule absent and all three effective inbound block rules active.
+
+**NSIS Preview install/upgrade/rollback/uninstall lifecycle: PASS on ShinPc.** This does not close production signing, target-class low-RAM validation, native Ubuntu packaging, physical printer acceptance, or camera acceptance. The preview installer remains unsigned and non-distributable.
+
+### Remaining confirmation for uninstall lifecycle
+
+One OS-level negative startup check remains: sign out and sign back into `SHINPC\\sinhv` once after uninstall, then verify PhotoBooth does not start. The Run value and install/setup roots are already absent; this final sign-in test confirms Windows does not launch a stale entry. Cross-machine SMB reachability/denial from `192.168.1.20` was not directly tested from a second device in this session, though the service state, effective firewall filters and registry were validated.

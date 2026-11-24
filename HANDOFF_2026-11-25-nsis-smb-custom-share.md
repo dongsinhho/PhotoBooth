@@ -129,3 +129,24 @@ Tested the updated source script on the real install with `-SuppressConfirmation
 Current app install is still active at `0.1.1-nsis-preview` with `0.1.2` previous; application is closed. SMB stays Stopped/Disabled, AutoShareWks 0, all three inbound blocks active, Users share definition still at `C:\Users`, operator data remains in `%LOCALAPPDATA%\PhotoBooth`.
 
 Next: upgrade through the `0.1.3` NSIS setup (existing active install means no first-install SMB dialog/UAC should be needed), verify active pointer and SMB unchanged; then run the installed `PhotoBooth Setup\\uninstall.exe` in normal user session. If UI asks for confirmation, proceed. Verify there is no PhotoBooth process, `%LOCALAPPDATA%\\Programs\\PhotoBooth` absent, HKCU Run value absent, setup root and HKCU bootstrapper/uninstall registrations absent, while `%LOCALAPPDATA%\\PhotoBooth` four operator data items remain and SMB stays Disabled. This closes the full install → upgrade → rollback → uninstall lifecycle if all pass.
+
+
+## Actual uninstall acceptance completed (2026-11-25)
+
+Before uninstall, active package was `0.1.3-nsis-preview`; app process was closed; HKCU Run pointed to 0.1.3. The 0.1.3 NSIS uninstaller executable SHA-256 was `D78A6FF53F0E00D13E44B6077A3B4AC30962F3A48A7408C402E6566922DE4E55`. Captured `%LOCALAPPDATA%\PhotoBooth-user-data-before-uninstall.json` snapshot of 82 files under `%LOCALAPPDATA%\PhotoBooth` (relative path, length, SHA-256).
+
+Ran:
+
+    "%LOCALAPPDATA%\Programs\PhotoBooth Setup\uninstall.exe" /S
+
+Result exit code 0. Verified:
+- `%LOCALAPPDATA%\Programs\PhotoBooth` absent.
+- `%LOCALAPPDATA%\Programs\PhotoBooth Setup` absent.
+- `HKCU\Software\PhotoBooth\Bootstrapper` absent.
+- `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\PhotoBooth` absent.
+- HKCU Run value `PhotoBooth` absent.
+- No PhotoBooth.exe process.
+- Data root `%LOCALAPPDATA%\PhotoBooth` preserved, all 82 files compared to pre-uninstall snapshot: path/count/size/SHA-256 all identical.
+- SMB unchanged: LanmanServer Stopped/Disabled, AutoShareWks DWORD 0; Users share registry definition at C:\Users still present; PhotoBooth allow rule absent; 3 active inbound firewall Block rules.
+
+This closes actual NSIS uninstall and byte-for-byte operator-data preservation. Full NSIS Preview install/upgrade/rollback/uninstall lifecycle is PASS on ShinPc. Still one negative startup check after sign-out/sign-in on this newly uninstalled profile; HKCU Run is absent, so expect no application start. Direct external SMB test from Raspbian `192.168.1.20` was not performed due no second connected remote device, so do not claim a network-client test PASS.
