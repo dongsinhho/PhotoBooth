@@ -579,3 +579,30 @@ Required hardware:
 Do not create artificial memory pressure, change pagefile settings, disable services or treat WSL as native Ubuntu acceptance. On a qualifying Windows host, first build the current Wails Preview and run `ui-preview-kiosk-soak.ps1 -PreflightOnly -RequireLowRamHost`; only if preflight passes, run the full soak with `-RequireLowRamHost` and collect process-tree plus host available-memory/commit/paging telemetry. Follow with separate capture/render/local-output workflow acceptance because the preview soak alone does not cover the complete booth workflow. On native Ubuntu 24.04, benchmark the same workflow and host headroom. Set numeric memory/headroom budgets from target-class measurements before declaring PASS.
 
 If Wails misses the measured target budget or touch-interaction gate on either platform, evaluate an OS-specific native UI for that platform while retaining the shared Go core. Do not approve Wails solely from the 16 GiB ShinPc baseline.
+
+
+## 2026-11-24 - Low-RAM acceptance deferred; isolated Windows NSIS per-user prototype compiled
+
+Per the product owner's instruction, the real Windows 11 / 8 GiB and native Ubuntu 24.04 / 4 GiB target-hardware acceptance is **PENDING** until those machines are available. ShinPc remains 15.12 GiB and WSL Ubuntu 26.04.1; neither is substituted for the target machines.
+
+While that gate is pending, an independent packaging investigation produced an isolated Wails NSIS per-user Preview template under `tools/ui-spike/wails-v2/build/windows/installer/project.nsi`:
+- Defaults to `WAILS_INSTALL_SCOPE=user` and rejects any other scope at NSIS compile time.
+- Defaults/requires `REQUEST_EXECUTION_LEVEL=user` and rejects an administrator execution level.
+- Uses a dedicated Preview product identity and `%LOCALAPPDATA%\Programs\PhotoBooth NSIS Preview` install path.
+- Registers a separate HKCU Run value named `PhotoBoothNSISPreview` with `--kiosk`; it does not collide with the versioned package's `PhotoBooth` value.
+- Refuses to overwrite a non-owned or changed Preview Run value. Uninstall removes that value only if it still matches the installed executable command and deletes only this Preview installer's ownership metadata.
+- Uses the existing Wails uninstaller and does not directly target `%LOCALAPPDATA%\PhotoBooth` operator data.
+
+Verification on ShinPc:
+- Wails v2.17.0 `wails build -clean -nsis -installscope user -o PhotoBooth -platform windows/amd64`: PASS; the NSIS compiler completed the build.
+- NSIS compile with `WAILS_INSTALL_SCOPE=machine`: rejected as expected.
+- NSIS compile with `REQUEST_EXECUTION_LEVEL=admin`: rejected as expected.
+- Output: `tools/ui-spike/wails-v2/build/bin/PhotoBoothNSISPreview-amd64-installer.exe`, 7,189,122 bytes, SHA-256 `C751B5ABD63F0C8AAE6041FD03821B96090598D5B684A4F3E44B451F42FFDEC5`; Authenticode status `NotSigned`.
+- The installer was **not executed**. No NSIS Preview install path or Run value was created on the real user profile. The versioned PowerShell package lifecycle remains untouched.
+- NSIS 3.13 portable compiler was downloaded for build-only use and archive SHA-256 was verified before extraction. It resides under the user's `%LOCALAPPDATA%\Tools\NSIS-3.13`, not in the repository.
+
+This is a **direct-binary prototype only**, not the final Windows installer. It does not yet wrap the existing immutable versioned release ZIP, package integrity checks, side-by-side activation/rollback or first-install SMB default-off provisioning. Do not install or redistribute it. The production signed per-user installer gate remains OPEN.
+
+### Next packaging engineering sub-step (hardware-independent)
+
+Design an NSIS bootstrapper that embeds or stages the existing versioned release package and invokes `Install-PhotoBoothWindowsPackage.ps1` / `Uninstall-PhotoBoothWindowsPackage.ps1`, retaining hash validation, immutable releases, rollback, current-user startup ownership and operator-data preservation. Explicitly reconcile the machine-wide SMB default-off first-install requirement with an unelevated per-user application install; do not silently skip that accepted policy or silently request full-installer elevation. Keep this as an engineering Preview until the complete installer lifecycle is exercised in a disposable account/profile and the target-hardware gates are resolved.

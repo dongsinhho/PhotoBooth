@@ -72,3 +72,20 @@ Do not create artificial memory pressure, alter pagefile settings or disable ser
 ## Current next action
 
 Obtain/connect a real Windows 11 <=8 GiB target machine and a native Ubuntu 24.04 / 4 GiB target machine. The current connected ShinPc cannot satisfy either hardware target. Do not begin signing/production installer certification before the target-hardware UI/runtime gates are resolved.
+
+
+## Independent Windows packaging work - 2026-11-24
+
+Per-user NSIS template prototype is compiled but not installed:
+
+- Source: `tools/ui-spike/wails-v2/build/windows/installer/project.nsi`.
+- Wails command: `wails build -clean -nsis -installscope user -o PhotoBooth -platform windows/amd64`.
+- Verified with Wails CLI v2.17.0 and NSIS 3.13: successful compile.
+- Negative NSIS compile with `WAILS_INSTALL_SCOPE=machine`: rejected as expected.
+- Negative NSIS compile with `REQUEST_EXECUTION_LEVEL=admin`: rejected as expected.
+- Preview installer: `tools/ui-spike/wails-v2/build/bin/PhotoBoothNSISPreview-amd64-installer.exe` (7,189,122 bytes, SHA-256 `C751B5ABD63F0C8AAE6041FD03821B96090598D5B684A4F3E44B451F42FFDEC5`, Authenticode `NotSigned`).
+- The installer is isolated to `%LOCALAPPDATA%\Programs\PhotoBooth NSIS Preview` and the separate HKCU Run value `PhotoBoothNSISPreview`; machine scope and admin execution level are rejected.
+- The installer was not executed. No actual profile registry entry or install directory was created. The main versioned `PhotoBooth` lifecycle remains untouched.
+- The generated `wails_tools.nsh` changes from Wails' build generator were reverted; only the authored `project.nsi` changes are intended source modifications.
+
+Do not mistake this prototype for the production installer. It is a direct-binary Wails/NSIS build and does not yet integrate immutable versioned release payloads, hash verification, side-by-side update/rollback or first-install SMB default-off provisioning. Publisher signing/trust is absent. The next hardware-independent packaging step is an NSIS bootstrapper around the existing PowerShell versioned package install/uninstall scripts, with an explicit and safe design for the machine-wide SMB provisioning step. No installer runtime test or public distribution is approved.
