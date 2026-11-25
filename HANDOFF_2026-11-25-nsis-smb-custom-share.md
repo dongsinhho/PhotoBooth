@@ -150,3 +150,20 @@ Result exit code 0. Verified:
 - SMB unchanged: LanmanServer Stopped/Disabled, AutoShareWks DWORD 0; Users share registry definition at C:\Users still present; PhotoBooth allow rule absent; 3 active inbound firewall Block rules.
 
 This closes actual NSIS uninstall and byte-for-byte operator-data preservation. Full NSIS Preview install/upgrade/rollback/uninstall lifecycle is PASS on ShinPc. Still one negative startup check after sign-out/sign-in on this newly uninstalled profile; HKCU Run is absent, so expect no application start. Direct external SMB test from Raspbian `192.168.1.20` was not performed due no second connected remote device, so do not claim a network-client test PASS.
+
+
+## Final post-uninstall fresh boot/login verification - 2026-11-25 22:36 ICT
+
+The previously pending negative startup check is now closed by Windows event evidence:
+- TerminalServices-LocalSessionManager event 23: `SHINPC\\sinhv` session 1 logged off at 2026-11-25 00:48:09.
+- Last boot: 2026-11-25 21:17:53.
+- TerminalServices-LocalSessionManager event 21: new local session logon for `SHINPC\\sinhv`, session 1, succeeded at 2026-11-25 21:18:22.
+- At verification time 22:36: PhotoBooth process count 0; `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\PhotoBooth` absent; `%LOCALAPPDATA%\\Programs\\PhotoBooth` absent; `%LOCALAPPDATA%\\Programs\\PhotoBooth Setup` absent; per-user uninstall registration absent.
+
+The pre-uninstall data snapshot at `%TEMP%\\PhotoBooth-user-data-before-uninstall.json` lists 82 files. Post-uninstall comparison matched all 82 relative paths, lengths and SHA-256 hashes exactly (12,471,837 bytes; 0 missing; 0 mismatches). Frames, photos, sessions and store configuration are preserved byte-for-byte.
+
+SMB remains Stopped/Disabled, `AutoShareWks` DWORD 0; the `Users` share definition is preserved but not served; the SMB block rules remain effective.
+
+The NSIS Preview lifecycle (first install / UAC + explicit SMB policy consent / upgrade 0.1.1 -> 0.1.2 / rollback to 0.1.1 / refresh install 0.1.3 / uninstall / reboot + fresh logon negative startup / data preservation) is now PASS on ShinPc. Direct cross-machine denial test from `192.168.1.20` was not run; local service/registry/firewall effective state passed. The Preview remains unsigned and non-distributable. Low-RAM Windows <=8 GiB, native Ubuntu 24.04 / 4 GiB, production signing/trust and native Ubuntu packaging remain pending.
+
+At checkpoint inspection the repository was `main` at `757f65c docs: record NSIS lifecycle acceptance`, clean and in sync with `origin/main`; verify again before a new commit.

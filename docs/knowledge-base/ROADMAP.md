@@ -705,3 +705,18 @@ Runtime sequence completed on `SHINPC\\sinhv`:
 ### Remaining confirmation for uninstall lifecycle
 
 One OS-level negative startup check remains: sign out and sign back into `SHINPC\\sinhv` once after uninstall, then verify PhotoBooth does not start. The Run value and install/setup roots are already absent; this final sign-in test confirms Windows does not launch a stale entry. Cross-machine SMB reachability/denial from `192.168.1.20` was not directly tested from a second device in this session, though the service state, effective firewall filters and registry were validated.
+
+
+## 2026-11-25 - Post-uninstall fresh-boot negative startup check closed
+
+The final negative startup check after the NSIS uninstall is now verified on ShinPc:
+- Windows TerminalServices-LocalSessionManager event 23 recorded session logoff for `SHINPC\\sinhv`, session 1, at 2026-11-25 00:48:09.
+- Windows booted again at 2026-11-25 21:17:53.
+- Event 21 recorded a fresh local session logon for `SHINPC\\sinhv`, session 1, at 2026-11-25 21:18:22.
+- At 22:36 local time the profile was `SHINPC\\sinhv`, PhotoBooth process count was 0, the PhotoBooth HKCU Run value was absent, `%LOCALAPPDATA%\\Programs\\PhotoBooth` and `%LOCALAPPDATA%\\Programs\\PhotoBooth Setup` were absent, and the per-user uninstall registration was absent.
+
+The pre-uninstall snapshot created at 2026-11-25 00:45:29 listed 82 files under `%LOCALAPPDATA%\\PhotoBooth`. Current post-uninstall verification matched all 82 relative paths, lengths and SHA-256 hashes (12,471,837 bytes total); missing files 0, mismatches 0.
+
+Post-uninstall machine policy remains: LanmanServer Stopped/Disabled; `AutoShareWks` DWORD 0; SMB shares are not served; the `Users` share definition remains persisted; SMB inbound block policy remains in place. User data was not deleted or modified.
+
+**Windows NSIS Preview install -> upgrade -> rollback -> uninstall -> fresh boot/login negative-startup lifecycle: PASS on ShinPc.** The setup remains unsigned internal Preview; this is not production signing or distribution approval. The 15.12 GiB ShinPc is not a substitute for the pending <=8 GiB Windows target. Native Ubuntu 24.04 / 4 GiB, production signing/trust and native Ubuntu packaging remain separate pending gates. Direct cross-machine SMB connection denial from `192.168.1.20` was not independently exercised from that second client; service, registry and effective Windows Firewall policy were verified locally.
