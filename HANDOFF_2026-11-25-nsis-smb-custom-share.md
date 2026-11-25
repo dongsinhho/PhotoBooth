@@ -167,3 +167,15 @@ SMB remains Stopped/Disabled, `AutoShareWks` DWORD 0; the `Users` share definiti
 The NSIS Preview lifecycle (first install / UAC + explicit SMB policy consent / upgrade 0.1.1 -> 0.1.2 / rollback to 0.1.1 / refresh install 0.1.3 / uninstall / reboot + fresh logon negative startup / data preservation) is now PASS on ShinPc. Direct cross-machine denial test from `192.168.1.20` was not run; local service/registry/firewall effective state passed. The Preview remains unsigned and non-distributable. Low-RAM Windows <=8 GiB, native Ubuntu 24.04 / 4 GiB, production signing/trust and native Ubuntu packaging remain pending.
 
 At checkpoint inspection the repository was `main` at `757f65c docs: record NSIS lifecycle acceptance`, clean and in sync with `origin/main`; verify again before a new commit.
+
+
+## NetBIOS listener nuance - 2026-11-25 22:38 ICT
+
+Final endpoint audit refined the SMB result:
+- No TCP 445 listener.
+- TCP 139 is still bound by PID 4 (`System`) on `192.168.226.1`, `192.168.74.1`, `192.168.1.11`, `172.29.128.1`, `10.10.10.10`.
+- UDP 137 and 138 are also bound by PID 4 on those adapters.
+- LanmanServer remains Stopped/Disabled; LanmanWorkstation remains Running as the SMB client service.
+- ActiveStore has all three required inbound Block rules enabled, `Profile=Any`, `RemoteAddress=Any`: TCP 445, TCP 137/139, UDP 137/138. All Domain/Private/Public firewall profiles are enabled and set `DefaultInboundAction=Block`.
+
+Therefore report service disabled + no 445 listener + NetBIOS kernel listeners remain but are inbound-blocked. Do not claim that all listeners are gone. End-to-end negative connection from a separate client `192.168.1.20` has not been executed and remains pending.

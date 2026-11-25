@@ -720,3 +720,16 @@ The pre-uninstall snapshot created at 2026-11-25 00:45:29 listed 82 files under 
 Post-uninstall machine policy remains: LanmanServer Stopped/Disabled; `AutoShareWks` DWORD 0; SMB shares are not served; the `Users` share definition remains persisted; SMB inbound block policy remains in place. User data was not deleted or modified.
 
 **Windows NSIS Preview install -> upgrade -> rollback -> uninstall -> fresh boot/login negative-startup lifecycle: PASS on ShinPc.** The setup remains unsigned internal Preview; this is not production signing or distribution approval. The 15.12 GiB ShinPc is not a substitute for the pending <=8 GiB Windows target. Native Ubuntu 24.04 / 4 GiB, production signing/trust and native Ubuntu packaging remain separate pending gates. Direct cross-machine SMB connection denial from `192.168.1.20` was not independently exercised from that second client; service, registry and effective Windows Firewall policy were verified locally.
+
+
+## 2026-11-25 - Clarify post-disable NetBIOS listener state
+
+A later listener audit found that stopping `LanmanServer` does not remove every kernel NetBIOS endpoint on this ShinPc:
+- No TCP 445 listener was present.
+- TCP 139 remained bound by PID 4 (`System`) on `192.168.226.1`, `192.168.74.1`, `192.168.1.11`, `172.29.128.1` and `10.10.10.10`.
+- UDP 137 and UDP 138 likewise remained bound by PID 4 on those adapters.
+- `LanmanServer` remains Stopped/Disabled; `LanmanWorkstation` is Running (SMB client role).
+
+The effective firewall audit confirmed all three PhotoBooth inbound block rules in ActiveStore, enabled, with `RemoteAddress=Any` and `Profile=Any`: TCP 445; TCP 137/139; UDP 137/138. Domain, Private and Public profiles are all enabled with `DefaultInboundAction=Block`.
+
+Do **not** report that all SMB/NetBIOS listeners are gone. The verified result is: SMB server service is disabled, no TCP 445 listener, NetBIOS kernel endpoints remain bound on 139/137/138, and inbound firewall policy blocks those ports on every profile. Actual connection-denial verification from the second machine `192.168.1.20` remains pending.
