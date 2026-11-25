@@ -179,3 +179,20 @@ Final endpoint audit refined the SMB result:
 - ActiveStore has all three required inbound Block rules enabled, `Profile=Any`, `RemoteAddress=Any`: TCP 445, TCP 137/139, UDP 137/138. All Domain/Private/Public firewall profiles are enabled and set `DefaultInboundAction=Block`.
 
 Therefore report service disabled + no 445 listener + NetBIOS kernel listeners remain but are inbound-blocked. Do not claim that all listeners are gone. End-to-end negative connection from a separate client `192.168.1.20` has not been executed and remains pending.
+
+
+## Raspbian -> ShinPc SMB denial acceptance - 2026-11-25 23:26 ICT
+
+The previously pending test from second machine `192.168.1.20` (Raspbian) to ShinPc `192.168.1.11` is now performed.
+
+Probe outputs:
+- Raspbian source IP was verified as `192.168.1.20`.
+- TCP 139 returned `connect_ex errno=11`; Windows Firewall log has four matching `DROP TCP 192.168.1.20 -> 192.168.1.11:139` entries at 22:54:51-22:54:54.
+- UDP 137/138 sent datagrams with no response; Windows Firewall log has exact matching DROP records for destination 137 at 22:54:55 and 138 at 22:54:58.
+- TCP 445 connect timed out. The second probe reported source port 56212. PktMon capture filtered on source/destination IPs and TCP/445 shows SYN packets `192.168.1.20:56212 -> 192.168.1.11:445` reaching the ShinPc Wi-Fi receive path. Five SYN attempts/retries were captured; drop events at IP component 130 report `INET: transport endpoint was not found` (plus `Arbitration unhandled`). No successful TCP connection.
+
+Important distinction: TCP 445 had no exact `pfirewall.log` DROP record for source port 56212. PktMon confirms receipt and IP-stack discard because no TCP transport endpoint was found, consistent with `LanmanServer` Stopped/Disabled and absence of a TCP 445 listener. Do not attribute that particular DropReason to Windows Firewall. The separate active firewall rule `PhotoBooth-SMB-RemoteAdmin-DefaultBlock` was independently confirmed in ActiveStore as Enabled / Inbound / Block / Profile Any / RemoteAddress Any.
+
+PktMon cleanup: capture was stopped using elevated PktMon; ETL converted and inspected with no events lost; `pktmon filter remove PhotoBooth-SMB445` reported Removed all filters; final elevated transcript reported Packet Monitor is not running and Packet Filters None. No persistent network/security setting was changed by this diagnostic.
+
+**Cross-machine inbound SMB/NetBIOS denial from Raspbian to ShinPc: PASS** for TCP 445/139 and UDP 137/138. TCP 139 + UDP 137/138 have direct firewall DROP log correlation; TCP 445 has packet-level receive/drop evidence due to no transport endpoint. Machine baseline stays LanmanServer Stopped/Disabled, AutoShareWks=0, 3 inbound block rules enabled; shares remain preserved but unavailable over SMB.
