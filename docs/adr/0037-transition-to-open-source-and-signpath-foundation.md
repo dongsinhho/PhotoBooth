@@ -112,3 +112,6 @@ SignPath's modified-upstream rule requires, among other conditions, signed upstr
 4. Extend dependency/notice inventory for Linux runtime closure and each other release target.
 5. Continue refactoring the release trust model from local certificate-store/thumbprint assumptions to SignPath artifact/origin verification only after SignPath project configuration and eligibility are confirmed.
 6. Publish source-built release/download page, finish public code-signing policy, assign reviewer/approver roles, enable MFA and branch protection, then apply and wait for explicit SignPath acceptance.
+
+
+See **ADR 0038** for the follow-up investigation and pending SignPath clarification on the statically linked, locally patched Go source dependency `windows-camera-go`. No fork or native camera rewrite is approved until the written eligibility answer is received.

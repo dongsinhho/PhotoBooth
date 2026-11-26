@@ -879,3 +879,15 @@ No SignPath project was created, no workflow/secrets were added, and no release 
 - Extend runtime dependency/notice manifest for Linux/other targets before packaging those targets.
 
 See updated `THIRD_PARTY_NOTICES.md`, `HANDOFF_2026-11-26-license-audit.md` and `tools/release/windows/README.md`. SignPath project/application/workflow is still not created; no production signing secrets or signed releases exist.
+
+
+## 2026-11-26 - SignPath modified-upstream eligibility clarification
+
+- Rechecked the current SignPath Foundation eligibility policy and official first-contact route. The modified-upstream rule requires upstream signed builds, visible fork usage, release branches based on upstream branches that are usually signed, and code review of upstream changes. The support page explicitly lists `support@signpath.io` for first interactions/single requests.
+- Rechecked public `Kirizu-Official/windows-camera-go`: latest `main` commit and last push are 2025-08-20; releases v0.1.0/v0.2.0 both have zero binary assets; no `.github` workflow directory is present; only one closed release merge PR was found. Main tip's GitHub commit signature is verified, but that does not establish a signed upstream build.
+- Determined PhotoBooth consumes the dependency as Go source from only its Windows Media Foundation adapter and builds it into PhotoBooth.exe; no separate upstream DLL/EXE is packaged. This exact source-only/static-link distinction is the key question for SignPath; do not infer an exception.
+- Prepared `docs/licensing/SIGNPATH_ELIGIBILITY_INQUIRY.md` with a copy-ready email, precise questions and evidence. Not sent.
+- Added ADR 0038 with the decision path: ask SignPath first; if missing signed upstream builds are a hard blocker, replace the dependency with PhotoBooth-maintained Media Foundation code or use another signing provider. Do not create a cosmetic fork.
+- Native replacement is bounded by the existing `camera.Provider` adapter, but still needs COM ABI/resource ownership, source-reader streaming and locked-OS-thread lifecycle implementation; it requires Windows camera/hotplug hardware regression. Keep implementation unchanged until the policy interpretation is received.
+
+**Next action:** Product owner sends the prepared email to `support@signpath.io` (or asks to use a connected mail provider). Keep SignPath application/workflow/secrets blocked until there is written clarification and, later, formal acceptance.
