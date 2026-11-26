@@ -56,19 +56,23 @@ Do not add an OSI license file merely to qualify for a certificate. That would c
 
 ## Alternatives that preserve the controlled-core model
 
-### A. Traditional public OV Code Signing certificate (preferred candidate)
+### A. Traditional publicly trusted Authenticode Code Signing certificate (preferred candidate)
 
-Obtain a genuine OV Code Signing certificate issued by a public CA to the actual rights-holder/publisher identity (the verified individual or registered legal entity that owns and publishes PhotoBooth). Use a CA-supported HSM, hardware token or cloud/remote signing service. Do not export a private key into the repository or store an unrestricted PFX in GitHub secrets.
+Select the certificate subject class only after the actual rights-holder/publisher is identified:
+- If PhotoBooth is owned/published by a registered legal entity, obtain an organization-validated Code Signing certificate (commonly called OV) in that entity's exact legal name.
+- If PhotoBooth is genuinely owned/published by an individual, ask CAs that issue individual Code Signing certificates about their identity/address validation and publisher-name behavior. Do not call an individual certificate OV or assume every CA offers this product.
+
+Use a CA-supported HSM, hardware token or cloud/remote-signing service. Do not export a private key into the repository or store an unrestricted PFX in GitHub secrets.
 
 Advantages:
 - Preserves the current controlled-core source/licensing model.
-- The Windows publisher identity can match the real rights holder/legal entity.
+- The Windows publisher identity can match the real rights holder, whether an individual or an organization.
 - Can be integrated with GitHub Actions through the CA's approved remote-signing client/API or HSM/KSP integration, subject to provider support.
 
 Constraints:
 - The CA must validate the real publisher identity. Do not use a nominee, false address or entity that does not actually own/control the software.
 - Obtain a supported RFC 3161 timestamp service and retain the certificate chain.
-- OV signing does not guarantee a zero-warning first download. SmartScreen reputation accumulates over time; use a consistent signer and sign all production releases.
+- A publicly trusted Code Signing certificate does not guarantee a zero-warning first download. SmartScreen reputation accumulates over time; use a consistent signer and sign all production releases.
 
 ### B. Microsoft Azure Artifact Signing Public Trust
 
@@ -100,7 +104,7 @@ The existing builder currently signs from a Windows certificate store and constr
 
 - Do not use self-signed for production.
 - Do not apply for SignPath Foundation under the current controlled-core licensing intent.
-- Preferred candidate: public OV code-signing certificate in the real publisher identity, with CA-backed HSM/remote signing and GitHub Actions integration.
+- Preferred candidate: a publicly trusted Authenticode Code Signing certificate issued in the real publisher identity: organization-validated/OV for a registered entity, or an individual Code Signing certificate if the actual publisher is the individual and the CA offers it. Use CA-backed HSM/remote signing and GitHub Actions integration.
 - Before provider selection, the product owner must identify the intended publisher identity: individual legal identity or an existing registered legal entity that actually owns the project. No certificate purchase or signing workflow can be completed correctly without this.
 - After identity is confirmed, compare CA remote-signing options and integrate the selected provider into the existing release chain. Keep the production publisher thumbprint unset until the real certificate is independently verified.
 
@@ -113,3 +117,4 @@ The existing builder currently signs from a Windows certificate store and constr
 - Microsoft code signing options and availability: https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options
 - Microsoft Artifact Signing geographic prerequisites: https://learn.microsoft.com/en-us/azure/artifact-signing/quickstart
 - Microsoft SmartScreen reputation: https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation
+- CA/Browser Forum Code Signing Baseline Requirements v3.11.0 (includes organization and individual identity validation): https://cabforum.org/working-groups/code-signing/requirements/

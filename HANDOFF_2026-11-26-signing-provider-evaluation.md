@@ -38,7 +38,7 @@ Technical GitHub integration is available: current action is `SignPath/github-ac
 
 ## Alternatives
 
-1. Preferred candidate preserving product intent: a traditional public OV Code Signing certificate issued to the genuine rights-holder/publisher identity, paired with CA-supported HSM/hardware token/cloud remote-signing capability. This can integrate with GitHub Actions using the provider's supported signing client/API/KSP. Must use RFC 3161 timestamping and a consistent verified publisher identity.
+1. Preferred candidate preserving product intent: a publicly trusted Authenticode Code Signing certificate issued to the genuine rights-holder/publisher identity. Use organization-validated/OV for a registered legal entity, or investigate an individual Code Signing certificate if the individual genuinely owns/publishes the product and the CA offers one. Pair it with CA-supported HSM/hardware token/cloud remote signing and RFC 3161 timestamping; integrate via the provider's supported GitHub Actions client/API/KSP.
 2. Microsoft Azure Artifact Signing Public Trust is not currently eligible for a Vietnam-based individual or Vietnam-registered organization according to Microsoft's current country list. The list supports organizations in several regions including Singapore, but individual developers are restricted to US/Canada. Only a real qualifying legal entity should use an organization eligibility path; do not misstate location.
 3. Paid SignPath.io with a project-owned public CA certificate may be evaluated separately if its plan and integration fit; no pricing or plan is assumed here.
 4. Self-signed remains mechanics-only for local/controlled tests; never production/public release.
