@@ -817,3 +817,33 @@ Product owner explicitly changed the project from controlled-core software to ge
 9. Test signed installer install/upgrade/rollback, Authenticode signature, timestamp, provenance, publisher and Windows warning behavior.
 
 Official SignPath terms and GitHub workflow documentation were checked on 2026-11-26: https://signpath.org/terms.html and https://docs.signpath.io/trusted-build-systems/github.
+
+
+## 2026-11-26 - MIT license audit checkpoint
+
+### Active document consistency
+
+- Updated AGENTS.md: it now follows MIT for PhotoBooth-owned code and explicitly preserves third-party license obligations; the prior controlled-core instructions were stale.
+- Updated README's distribution model and license status. Removed the stale statement that root LICENSE selection was still pending; added links to the draft third-party inventory and public Code signing policy.
+- Added MIT LICENSE files to the nested Wails player and camera diagnostics Go modules so license tooling can identify their local module license scope.
+- Added THIRD_PARTY_NOTICES.md as an audit draft, explicitly not release-ready.
+
+### Audit findings (preliminary)
+
+- Root Go go-licenses report ./... exited 0 and identified the active root package dependencies as MIT/BSD-3-Clause plus the locally replaced windows-camera-go MIT dependency. The scanner could not resolve the local replacement's remote URL, so its local LICENSE was checked directly.
+- Wails is a separate Go 1.25.0 module. Its dependency graph had 112 module records; preliminary file classification found MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC and MPL-2.0 licenses, plus three texts requiring exact classification. The legacy go-licenses v1.6.0 package report failed on Go 1.25 standard-library module metadata, so the Wails runtime closure and complete notices are not yet audited.
+- npm dependency tree is Vite 7.3.7 and related build packages; package metadata indicates MIT/BSD-3-Clause/ISC, but lockfile-level notices remain to be verified.
+- Tracked release icons: tools/ui-spike/wails-v2/build/appicon.png and build/windows/icon.ico. Their source/creator/license is not documented; confirm ownership or replace before release.
+- SignPath's modified-upstream rule is a potential blocker: windows-camera-go is a locally modified vendored copy, not a visible GitHub fork; upstream signed-build status is unknown. Verify upstream signing and decide whether to create/maintain a visible fork, replace the dependency, or ask SignPath before application.
+- The current release ZIP/installer does not yet produce a complete deterministic third-party notices bundle.
+
+### Remaining audit gates
+
+1. Confirm copyright holder/authority for PhotoBooth-owned contributions and replace the generic root notice if needed; decide contribution terms (DCO/CLA or equivalent).
+2. Classify the three Wails license texts and verify the exact production/build dependency closure; resolve any module without a license/notice.
+3. Verify npm package licenses and notices against the lockfile.
+4. Confirm or replace the two tracked icons and inspect every generated/bundled asset.
+5. Implement deterministic third-party notice collection and include notices in the release ZIP and installed package.
+6. Resolve the modified windows-camera-go SignPath policy requirement before applying.
+
+No SignPath project was created, no workflow/secrets were added, and no release was signed in this checkpoint.

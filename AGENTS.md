@@ -15,10 +15,11 @@ These instructions apply to the entire repository.
 - The official app is intended to be free for commercial photobooth operation; do not add mandatory per-booth/per-session fees without explicit product approval.
 - The product does not sell hardware or bundled booth kits.
 - Operators may self-install and operate the app without buying support.
-- User customization is at the supported application layer: settings, configuration, frame/theme content, and documented content formats.
-- Do not treat application-level customization as permission to modify core source code.
-- Core source modification, modified builds, and redistribution of modified core require explicit rights under a separate written authorization/license, subject to final legal terms.
-- Do not describe the controlled-core product as OSI open source.
+- User customization is supported at the application layer: settings, configuration, frame/theme content, and documented content formats.
+- PhotoBooth-owned code is licensed under MIT as recorded in the root LICENSE and ADR 0037; users may modify and redistribute it under MIT terms.
+- MIT does not relicense third-party dependencies/assets; preserve their license and copyright notices and verify compatibility before bundling.
+- Do not add commercial dual licensing or reintroduce controlled-core restrictions while pursuing SignPath Foundation OSS signing.
+- SignPath Foundation acceptance and production signing are not yet complete; do not claim the app is signed or accepted until verified.
 - Primary target users are people building a new booth or DIY users reusing equipment; do not optimize the product plan around converting incumbent stores.
 - Formal user interviews are optional, not a project gate. Low-friction voluntary feedback is useful, but technical feasibility and real hardware testing are still required.
 - Grow gradually through useful software, self-service documentation, tested compatibility, and community participation; do not turn competitor feature parity into the primary roadmap.
@@ -48,9 +49,10 @@ These instructions apply to the entire repository.
 
 ## Licensing and contribution rules
 
-- Read docs/knowledge-base/LICENSE_STRATEGY.md and ADR 0004 before adding a LICENSE file, publishing source, accepting outside core-code contributions, or designing redistributable plugins.
-- Do not infer copying, modification, or redistribution rights from a public repository.
-- Do not add or promise a source-code license without explicit user approval and legal review.
+- Read docs/knowledge-base/LICENSE_STRATEGY.md and ADR 0037 before changing licensing, publishing releases, accepting outside core-code contributions, or designing redistributable plugins.
+- The root MIT LICENSE applies to PhotoBooth-owned code; public repository visibility alone does not grant rights to third-party code/assets.
+- Preserve upstream copyright/license notices. Track third-party components and their license obligations in THIRD_PARTY_NOTICES.md before packaging releases.
+- The product owner has selected MIT; do not revert to controlled-core terms without explicit approval and a new ADR.
 - Make supported configuration/content formats flexible enough for normal booth customization without core edits.
 - Define frame/theme creator rights separately from rights to the core application.
 - Paid support is optional; do not deliberately cripple normal supported features to pressure users into buying it.

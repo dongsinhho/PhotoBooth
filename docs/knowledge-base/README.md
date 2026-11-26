@@ -179,3 +179,11 @@ Never turn a proposal into an asserted fact.
 
 
 - [Store Configuration (schema v2)](STORE_CONFIG.md) defines safe printer defaults, queue/media/orientation/transform fields and in-memory v1-to-v2 migration; guest printing remains disconnected.
+
+
+## License and signing transition
+
+- [License strategy](LICENSE_STRATEGY.md) - MIT open-source transition and optional support model.
+- [Third-party notice audit draft](../../THIRD_PARTY_NOTICES.md) - dependency, asset and notice audit status; not release-ready.
+- [Code signing policy](../CODE_SIGNING_POLICY.md) - intended SignPath Foundation signing policy; signing is not active.
+- [Latest handoff](../../HANDOFF_2026-11-26-license-audit.md) - current audit checkpoint and next gates.

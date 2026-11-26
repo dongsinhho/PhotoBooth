@@ -164,9 +164,9 @@ This is a target proposal, not a description of implemented code.
 
 ## Distribution and business model
 
-The product does not sell hardware. The official application is intended to be free for commercial booth use. Support, setup, training, hardware integration, and authorized core modifications may be paid services.
+The product does not sell hardware. The official application is free for commercial booth use under MIT. Support, setup, training, hardware integration and custom engineering may be paid services, but MIT rights to modify and redistribute the core are not subject to a permission fee.
 
-Supported settings and theme/frame formats remain the normal user experience, but the project is transitioning to Open Source: core modification and redistribution will be permitted under the selected OSI license. The exact license and release of a root LICENSE file are pending. See `docs/knowledge-base/LICENSE_STRATEGY.md` and ADR 0037.
+PhotoBooth-owned code is licensed under MIT; users may modify and redistribute it under the license terms. The root LICENSE is present. Third-party dependencies, source assets and release payloads are undergoing a compatibility/notice audit; see `docs/knowledge-base/LICENSE_STRATEGY.md`, `THIRD_PARTY_NOTICES.md` and ADR 0037.
 
 ## Discovery and technical documents
 
@@ -188,6 +188,6 @@ The feedback/interview guide is optional and not a project gate. Next validate i
 
 ## License and code signing
 
-PhotoBooth-owned code is licensed under the MIT License; see [LICENSE](LICENSE). Third-party dependencies and assets retain their own license terms and notices. The dependency/asset audit and official release packaging are in progress.
+PhotoBooth-owned code is licensed under the MIT License; see [LICENSE](LICENSE). Third-party dependencies and assets retain their own license terms and notices. The dependency/asset audit is in progress; see the [draft third-party notice inventory](THIRD_PARTY_NOTICES.md).
 
-The project intends to use free code signing provided by SignPath.io, certificate by SignPath Foundation. Signing is not active until SignPath accepts the project and the GitHub Trusted Build configuration is completed. See [Code signing policy](docs/CODE_SIGNING_POLICY.md) and [ADR 0037](docs/adr/0037-transition-to-open-source-and-signpath-foundation.md).
+The project intends to use free code signing provided by SignPath.io, certificate by SignPath Foundation. Signing is not active until SignPath accepts the project and the GitHub Trusted Build configuration is completed. See the [Code signing policy](docs/CODE_SIGNING_POLICY.md) and [ADR 0037](docs/adr/0037-transition-to-open-source-and-signpath-foundation.md).

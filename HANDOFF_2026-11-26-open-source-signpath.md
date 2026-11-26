@@ -49,7 +49,8 @@ Official references:
 
 ## Current state
 
-- Branch: `main`; working tree has open-source transition edits not yet committed at time this handoff was drafted.
+- Branch: `main`; open-source transition commit `82000fd` is committed locally; branch was ahead of `origin/main` by 7 commits at the last check.
+- Current audit checkpoint: outdated controlled-core language was found in active `AGENTS.md` and README; both are being corrected. Wails and diagnostics nested Go modules are receiving explicit MIT LICENSE files because automated license tools otherwise treat those local modules as unlicensed.
 - No SignPath project created or accepted; no secrets configured; no signing workflow active.
-- The user requested this direction; MIT is chosen as the implementation license based on prior recommendation, but ownership and third-party audit are release gates.
-- Next immediate task: finish document consistency/license audit and commit; then refactor release signing to support SignPath.
+- MIT is selected for PhotoBooth-owned code. Copyright ownership/attribution and third-party source/assets remain release gates.
+- Next immediate task: finish dependency/source/assets license inventory and notice preservation; then commit this audit checkpoint. SignPath application/release pipeline comes after the audit.
