@@ -763,9 +763,9 @@ Added ADR 0036 and handoff `HANDOFF_2026-11-26-signing-provider-evaluation.md` a
 ### Decision
 
 - Do not use a self-signed certificate for public/customer production releases. Keep the disposable certificate in `release-signing-smoke.ps1` strictly for local mechanics tests.
-- SignPath Foundation is **not compatible with the current controlled-core product/licensing model**. The published conditions require an OSI-approved license for all components without commercial dual licensing and prohibit proprietary code. The current `LICENSE_STRATEGY.md` deliberately reserves core modification/derivative/redistribution rights and says not to market the core as Open Source. Do not add an OSI LICENSE file merely to obtain signing; that changes users' legal rights.
+- 2026-11-26 decision reversal: PhotoBooth is transitioning to Open Source under MIT for project-owned code and will apply for SignPath Foundation's free certificate. The root LICENSE and draft `docs/CODE_SIGNING_POLICY.md` were added. SignPath acceptance is not guaranteed; all dependencies/assets, release page, team roles, MFA and trusted build requirements remain gates. See ADR 0037.
 - A SignPath Foundation signature also identifies **SignPath Foundation** as the Windows certificate publisher, not PhotoBooth's rights holder. The Foundation route would additionally require a released project/download page, public Code signing policy/privacy statement, team roles, MFA, verified GitHub-hosted build provenance and per-release manual approval.
-- The live public GitHub repository (`dongsinhho/PhotoBooth`) currently reports `license=null`, has no root LICENSE/COPYING file, no GitHub Releases or tags, and no `.github/workflows` directory. Being public is not equivalent to being Open Source or eligible for the Foundation certificate.
+- Baseline before the transition: the public repository had no license and no release/workflow. The root MIT LICENSE and draft signing policy have now been added locally; GitHub will reflect the license after this commit is pushed. A public release/download page and GitHub Actions workflow are still absent.
 - Preferred candidate preserving product intent: a publicly trusted Authenticode Code Signing certificate issued to the actual rights-holder/publisher identity. Use organization-validated/OV for a registered entity, or investigate an individual Code Signing certificate if the individual genuinely owns/publishes the product and the CA offers one. Use CA-backed HSM/hardware-token/remote signing, RFC 3161 timestamping and one consistent verified signer identity. A trusted signature does not guarantee a warning-free first download; SmartScreen reputation still accumulates over time.
 - Microsoft Azure Artifact Signing Public Trust is not currently a fit for a Vietnam-based individual or Vietnam-registered organization under Microsoft's current geographic list. Do not misrepresent publisher location. Revisit only if an actual eligible legal entity owns the product and is in a supported jurisdiction.
 
@@ -773,15 +773,15 @@ Added ADR 0036 and handoff `HANDOFF_2026-11-26-signing-provider-evaluation.md` a
 
 - Existing local release chain remains certificate-store based: signed EXE/helper, signed release-manifest envelope, NSIS Setup signature, embedded hashes and pinned publisher verification. Production thumbprint allowlist remains empty.
 - SignPath GitHub integration is technically available via `SignPath/github-action-submit-signing-request@v3` and a GitHub-hosted workflow artifact; the old archived action is not to be used. No SignPath workflow was added because eligibility is not met.
-- No GitHub Actions signing workflow was added yet because the real publisher identity and certificate/remote-signing provider are not selected. Do not add dummy secrets/placeholders or an inactive production workflow.
+- No GitHub Actions signing workflow has been added yet. The next implementation gate is a complete dependency/asset audit and release-chain refactor for SignPath's certificate subject, artifact metadata and origin verification. SignPath application acceptance, reviewer/approver assignments, MFA, and a public release/download page are also required.
 - No certificate, private key, HSM account or GitHub signing secret was created or changed.
 
 ### Next dependency
 
-Product owner must identify the genuine publisher identity: an individual legal identity or an existing registered legal entity that actually owns PhotoBooth. Then compare eligible OV Code Signing CAs and their supported remote HSM/GitHub Actions integrations, adapt the current staging/signing/package order, test signatures and timestamps, independently pin the verified thumbprint, and only then enable production release signing. See ADR 0036.
+The publisher identity and certificate-provider evaluation are superseded by the product owner's 2026-11-26 decision to use SignPath Foundation under MIT. Complete the source/dependency/asset audit, establish reviewer/approver roles and MFA, publish the initial release/download page, apply for SignPath acceptance, and refactor the current release chain to validate SignPath-signed artifacts. See ADR 0037.
 
 
-## 2026-11-26 - Individual publisher identity and signing provider shortlist
+## 2026-11-26 - Individual publisher identity and signing provider shortlist (superseded by open-source decision)
 
 Product owner confirmed PhotoBooth's intended publisher identity is **Individual**. Signing research is now narrowed to individual-validated Authenticode (IV) certificates; organization OV is not the selected identity.
 
@@ -790,3 +790,30 @@ Primary candidate: SSL.com IV Code Signing + eSigner for Code cloud signing, pen
 Alternative local reseller MuaSSL.com offers IV CodeSign with hardware-token/HSM storage, but exact issuer/chain and remote cloud signing/GitHub-hosted runner support remain unverified. Sectigo Individual Code Signing has documented individual validation but hardware-key requirements mean a USB token cannot be attached to GitHub-hosted runner without a separate signer architecture. Microsoft Azure Artifact Signing Public Trust remains geographically unavailable for a Vietnam-based individual under current Microsoft guidance.
 
 Next gate: obtain written confirmation from SSL.com for Vietnam residency, exact Publisher/Subject name, IV + eSigner Tier 1 compatibility, GitHub-hosted Windows Actions authentication/MFA/TOTP security, total price and renewal, supported Authenticode file types, timestamp service, and CA chain/root. No certificate or signing workflow until these are confirmed. See ADR 0036 and `HANDOFF_2026-11-26-individual-signing-shortlist.md`.
+
+
+## 2026-11-26 - Open-source transition and SignPath Foundation decision
+
+Product owner explicitly changed the project from controlled-core software to genuine Open Source and selected free SignPath Foundation signing. MIT was selected as the permissive license for PhotoBooth-owned code and root `LICENSE` was added. The draft public policy is `docs/CODE_SIGNING_POLICY.md`; ADR 0037 is authoritative. The previous individual CA/OV/IV route is superseded.
+
+### Completed in this checkpoint
+
+- Added root MIT license (copyright line currently `PhotoBooth contributors`; confirm ownership/attribution before release).
+- Rewrote `LICENSE_STRATEGY.md` for open source, commercial use, modification, redistribution and optional paid support.
+- Updated README, PRD, Product Brief, Product Plan, Windows Quickstart, ADR 0004 (marked superseded), ADR 0036 (marked superseded/history), ADR 0037 and this roadmap.
+- Added draft Code signing policy with SignPath attribution, repository, privacy statement and explicit unassigned reviewer/approver status.
+- `go test ./...` passed on ShinPc (exit code 0). This confirms code tests only, not license compliance or SignPath eligibility.
+
+### Remaining gates before SignPath signing
+
+1. Complete tracked source/dependency/asset/font/icon/sample-frame license audit; MIT applies only to project-owned material and does not relicense third-party content.
+2. Confirm ownership/authority to license all project-owned code and the MIT copyright notice; add contribution policy/DCO or CLA if needed.
+3. Create third-party notices and exclude/replace incompatible assets/components.
+4. Establish independent reviewer and release approver; configure MFA and GitHub branch protection.
+5. Publish an initial source-built release and official download page; SignPath requires the project to already be released in the form to be signed.
+6. Apply to SignPath Foundation and wait for project acceptance; this requires the owner to use their SignPath account.
+7. Refactor the existing Windows release pipeline. Current package/installer scripts rely on local certificate-store signing and pinned publisher identity; SignPath Foundation's publisher is SignPath Foundation and artifact signing/origin verification must be integrated without bypassing payload/manifest checks.
+8. Add the GitHub-hosted trusted release workflow using `signpath/github-action-submit-signing-request@v3`, current artifact upload action, verified origin metadata and manual approval for each release. Pin all actions to reviewed full commit SHAs.
+9. Test signed installer install/upgrade/rollback, Authenticode signature, timestamp, provenance, publisher and Windows warning behavior.
+
+Official SignPath terms and GitHub workflow documentation were checked on 2026-11-26: https://signpath.org/terms.html and https://docs.signpath.io/trusted-build-systems/github.

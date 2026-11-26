@@ -1,6 +1,6 @@
 # ADR 0036: Windows Code Signing, Publisher Identity, and Trusted GitHub Builds
 
-**Status:** Proposed; production signer/provider not selected. SignPath Foundation is not compatible with the currently accepted controlled-core licensing model.
+**Status:** Superseded by ADR 0037 (2026-11-26). SignPath Foundation is now the selected free signing route, subject to eligibility review and project acceptance.
 **Date:** 2026-11-26
 **Decision owner:** Product owner
 
@@ -30,7 +30,7 @@ A public GitHub repository is not, by itself, an Open Source licensed project. A
 
 ## SignPath Foundation eligibility assessment
 
-**Result: not eligible under the current approved product/licensing intent. Do not submit an application or create a SignPath Foundation signing workflow unless the product owner explicitly changes the licensing decision.**
+**Historical result (2026-11-26):** SignPath Foundation was not compatible with the prior controlled-core license. The product owner has now reversed that decision and selected MIT. Eligibility must be re-evaluated against ADR 0037; application remains subject to full dependency/asset audit and SignPath acceptance.
 
 SignPath Foundation's published terms require, among other things:
 
@@ -42,19 +42,21 @@ SignPath Foundation's published terms require, among other things:
 6. A public **Code signing policy** on the project homepage and release/download pages, including SignPath attribution, team roles and a privacy statement.
 7. Verifiable CI provenance; every release requires manual signing approval.
 
-This project currently fails at least the license/proprietary-code criteria. It also lacks the released/download-page prerequisites. Changing only the GitHub repository visibility or adding an action does not fix these blockers.
+At the time this ADR was originally written, the project failed the license/proprietary-code criteria and lacked the released/download-page prerequisites. The product owner later reversed the licensing decision; see ADR 0037. Changing only repository visibility or adding an action still does not satisfy the remaining release, policy, team and trusted-build requirements.
 
 The Foundation certificate is issued to **SignPath Foundation**, so Windows displays SignPath Foundation as the certificate publisher, not the PhotoBooth rights holder. SignPath Foundation says it performs an initial project/reputation check and verifies each release's origin against the configured source repository. It stores the signing private key in its HSM; the key is not placed in GitHub or the repository.
 
 The current supported GitHub integration is `SignPath/github-action-submit-signing-request@v3`. Do not use the older `SignPath/_archived-github-actions` repository; it is archived. The supported action submits a GitHub workflow artifact, waits for the signing request and downloads the signed artifact. For OSS verification, SignPath requires all jobs preceding signing to run on GitHub-hosted agents and uses origin metadata supplied by GitHub. A GitHub App/Trusted Build System link is also required.
 
-### What would have to change to use SignPath Foundation
+### Historical: what would have to change to use SignPath Foundation (now superseded by ADR 0037)
 
 Only revisit this path if the product owner deliberately changes the licensing model so that the entire signed project (including source, build scripts and components) is released under an OSI-approved license, with no commercial dual-licensing or proprietary core. This grants modification and derivative-work rights and therefore conflicts with the current controlled-core model. It also requires a real public release/download page, Code signing policy, role groups, MFA, reviewer/approver process and acceptance of manual approval on every release.
 
-Do not add an OSI license file merely to qualify for a certificate. That would change users' legal rights and contradict the accepted product strategy.
+Historical guidance only: do not add an OSI license file merely to qualify for a certificate unless the product owner intentionally changes the product's legal rights. The owner has now intentionally selected MIT in ADR 0037.
 
-## Alternatives that preserve the controlled-core model
+## Historical alternatives considered before the open-source transition
+
+The following options were evaluated before the product owner selected MIT and SignPath Foundation. They are retained for history; ADR 0037 is now authoritative.
 
 ### A. Traditional publicly trusted Authenticode Code Signing certificate (preferred candidate)
 
@@ -100,12 +102,12 @@ Once a real publisher certificate/provider and remote-signing integration are se
 
 The existing builder currently signs from a Windows certificate store and constructs the package/envelope in one local pass. A remote signer integration will require a deliberate build-stage refactor so signing is performed before final hashes/envelope/NSIS packaging, or a provider artifact-configuration design that preserves the same verification contract. Do not bolt the action onto the end of the current local builder without resolving this ordering.
 
-## Decision and next dependency
+## Historical decision and next dependency (superseded by ADR 0037)
 
 - Do not use self-signed for production.
-- Do not apply for SignPath Foundation under the current controlled-core licensing intent.
-- Preferred candidate: a publicly trusted Authenticode Code Signing certificate issued in the real publisher identity: organization-validated/OV for a registered entity, or an individual Code Signing certificate if the actual publisher is the individual and the CA offers it. Use CA-backed HSM/remote signing and GitHub Actions integration.
-- Before provider selection, the product owner must identify the intended publisher identity: individual legal identity or an existing registered legal entity that actually owns the project. No certificate purchase or signing workflow can be completed correctly without this.
+- Historical: do not apply for SignPath Foundation under the prior controlled-core licensing intent. This was superseded by the 2026-11-26 MIT/open-source decision in ADR 0037.
+- Historical preferred candidate: a publicly trusted Authenticode Code Signing certificate issued in the real publisher identity. Superseded by the SignPath Foundation route selected in ADR 0037.
+- Historical next dependency: publisher identity selection was completed as Individual, then superseded by the SignPath Foundation open-source signing decision in ADR 0037.
 - After identity is confirmed, compare CA remote-signing options and integrate the selected provider into the existing release chain. Keep the production publisher thumbprint unset until the real certificate is independently verified.
 
 ## References

@@ -2,11 +2,11 @@
 
 **Version:** 0.2 â€” self-service/greenfield direction
 **Status:** Proposed requirements; hardware validation pending
-**Last updated:** 2026-10-25
+**Last updated:** 2026-11-26
 
 ## 1. Product summary
 
-PhotoBooth is planned cross-platform software for people setting up a new photobooth, particularly DIY builders who want to reuse equipment they own or source second-hand. The official app is intended to be free for commercial booth operation. Users customize supported settings and add frames/themes at the application layer; editing core code is outside the standard user grant.
+PhotoBooth is planned cross-platform software for people setting up a new photobooth, particularly DIY builders who want to reuse equipment they own or source second-hand. The official app is intended to be free for commercial booth operation. PhotoBooth-owned code is licensed under MIT; users may customize supported settings, add frames/themes, modify core code and redistribute modified versions under the MIT terms.
 
 The project does not sell hardware. Optional paid services may include setup, troubleshooting, training, camera/printer integration, migration, and authorized custom development.
 
@@ -25,7 +25,7 @@ People creating their first booth or adding a new booth, especially self-builder
 May use PhotoBooth on a new booth, spare/test rig, or eventual voluntary migration. Replacing a stable running system is not the core go-to-market strategy.
 
 ### Community participants
-Technically curious users who report tested hardware configurations and create frames/themes using supported formats. Core modification remains outside the standard user grant under the intended controlled-core model.
+Technically curious users who report tested hardware configurations, contribute code and create frames/themes using supported formats. Core modification and redistribution are permitted under the selected MIT license.
 
 ## 4. Product promise
 
@@ -79,11 +79,11 @@ Windows and Linux remain targets; decide which is production-alpha first after t
 
 - Official app commercial use is intended to be free.
 - Users may self-install and configure supported application-level settings/content.
-- Core modification and redistribution of modified core builds require separate authorization/license under final terms.
+- PhotoBooth-owned code is licensed under MIT; users may modify and redistribute it under the license terms.
 - Support is optional.
 - Final user-facing license and content terms need legal review before commercial release.
 
-See LICENSE_STRATEGY.md and ADR 0004.
+See LICENSE, LICENSE_STRATEGY.md, ADR 0037 and CODE_SIGNING_POLICY.md.
 
 ## 8. Non-functional requirements
 

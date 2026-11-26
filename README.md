@@ -137,8 +137,8 @@ Help booth operators reuse cameras, computers, and printers they already own. Th
 
 - Free-to-use commercial operation is the intended default for the official app; support is optional.
 - Normal customization happens through supported app settings and frame/theme content, not source-code editing.
-- Core modification or distribution of a modified core build requires separate permission/licensing under the intended controlled-core model; final legal terms are pending.
-- Do not label the core Open Source unless the final license permits modifications and derived works under the Open Source Definition.
+- PhotoBooth-owned code is licensed under MIT; users may modify and redistribute it under the license terms. See the root `LICENSE` and `docs/adr/0037-transition-to-open-source-and-signpath-foundation.md`.
+- Third-party dependencies, assets and release packaging remain under a documented license audit; MIT does not relicense third-party components.
 - Capture, rendering, and local output should work offline once configured and assets are installed, except where a selected payment flow requires verification.
 - Camera and printer providers are extensible, with explicit tested compatibility.
 - Photo delivery and payment are independently configurable per store.
@@ -166,7 +166,7 @@ This is a target proposal, not a description of implemented code.
 
 The product does not sell hardware. The official application is intended to be free for commercial booth use. Support, setup, training, hardware integration, and authorized core modifications may be paid services.
 
-Supported settings and theme/frame formats are the normal customization path. The standard user grant does not permit core-source modification or redistribution of modified core builds. See docs/knowledge-base/LICENSE_STRATEGY.md; final legal text is not yet published.
+Supported settings and theme/frame formats remain the normal user experience, but the project is transitioning to Open Source: core modification and redistribution will be permitted under the selected OSI license. The exact license and release of a root LICENSE file are pending. See `docs/knowledge-base/LICENSE_STRATEGY.md` and ADR 0037.
 
 ## Discovery and technical documents
 
@@ -184,3 +184,10 @@ Supported settings and theme/frame formats are the normal customization path. Th
 - Knowledge-base index: docs/knowledge-base/README.md
 
 The feedback/interview guide is optional and not a project gate. Next validate image quality with intended booth lighting and a representative subject, then run a longer UI/camera soak and evaluate physical printer output, laptop camera, and Linux behavior. Maintain the distinction between tested, planned, and untested features.
+
+
+## License and code signing
+
+PhotoBooth-owned code is licensed under the MIT License; see [LICENSE](LICENSE). Third-party dependencies and assets retain their own license terms and notices. The dependency/asset audit and official release packaging are in progress.
+
+The project intends to use free code signing provided by SignPath.io, certificate by SignPath Foundation. Signing is not active until SignPath accepts the project and the GitHub Trusted Build configuration is completed. See [Code signing policy](docs/CODE_SIGNING_POLICY.md) and [ADR 0037](docs/adr/0037-transition-to-open-source-and-signpath-foundation.md).

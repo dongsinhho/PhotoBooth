@@ -20,7 +20,7 @@ This guide gets a developer or self-builder from a repository checkout to a synt
 | LAN photo sharing, cloud upload, QR payment | Not implemented |
 | Laptop integrated camera and Linux hardware | Not validated |
 
-The official-app product direction is free commercial use with optional support. This repository checkout and Wails shell are engineering/development artifacts, not a published installer. See knowledge-base/LICENSE_STRATEGY.md; final user-facing legal terms still require review.
+PhotoBooth is transitioning to open source under MIT for project-owned code. This repository checkout and Wails shell are engineering/development artifacts, not a published installer. Third-party notices and packaged assets remain subject to the license audit. See docs/knowledge-base/LICENSE_STRATEGY.md and docs/CODE_SIGNING_POLICY.md.
 
 ## 2. Reference hardware and software
 

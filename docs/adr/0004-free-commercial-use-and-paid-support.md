@@ -1,12 +1,16 @@
 # ADR 0004: Free Commercial Use, App-Level Customization, and Paid Support
 
-- **Status:** Product model accepted; exact legal terms are not finalized
+- **Status:** Superseded by ADR 0037 (2026-11-26); retained as historical decision
 - **Date:** 2026-10-25
 - **Decision owner:** Product owner
 
 ## Context
 
 The product aims to reduce the upfront cost for photobooth operators by letting them use equipment they already own. The project will not sell cameras, computers, printers, or bundled booth kits. The official application should be free for commercial booth use, while customization should be available at the application/content layer rather than through editing core code.
+
+## Historical decision (superseded)
+
+The following controlled-core decision was accepted on 2026-10-25 and is retained for historical context only. The product owner reversed this decision on 2026-11-26; ADR 0037 and the current LICENSE_STRATEGY.md are authoritative.
 
 ## Decision
 

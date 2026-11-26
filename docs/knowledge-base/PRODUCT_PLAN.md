@@ -170,11 +170,11 @@ Success means a self-builder can discover, preview, download, install, and use a
 - Let community adoption grow organically; do not make existing-store migration a growth goal.
 - Track successful installs, repeat use, issue resolution through documentation, organic referrals, and active hardware configurations rather than vanity metrics.
 
-## Commercial model
+## Open-source licensing and commercial model
 
-Basic commercial use and self-install are intended to be free. Support, setup, training, hardware integration, and authorized core modification can be paid. Do not deliberately cripple normal settings or frame/theme customization to sell support.
+Basic commercial use and self-install are intended to be free under MIT. Support, setup, training, hardware integration and custom engineering can be paid services, but no permission fee is required to modify or redistribute MIT-licensed core code. Do not deliberately cripple normal settings or frame/theme customization to sell support.
 
-See LICENSE_STRATEGY.md and ADR 0004. Exact legal terms are pending review.
+See LICENSE, LICENSE_STRATEGY.md, ADR 0037 and CODE_SIGNING_POLICY.md. MIT is selected for PhotoBooth-owned code; third-party source/assets and final release packaging still require license audit.
 
 ## Current execution status (initial baseline: 2026-10-25; reviewed 2026-11-01)
 
