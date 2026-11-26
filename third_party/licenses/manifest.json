@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "target": "PhotoBooth Windows Wails application (GOOS=windows, GOARCH=amd64)",
+  "dependency_scope": "Non-standard-library modules in `go list -deps .` from tools/ui-spike/wails-v2",
+  "modules": [
+    {
+      "path": "github.com/Kirizu-Official/windows-camera-go",
+      "version": "v0.2.0",
+      "license": "MIT",
+      "files": [
+        "third_party/windows-camera-go/LICENSE"
+      ],
+      "notes": "Locally vendored upstream module; PhotoBooth patches are documented in third_party/windows-camera-go/README.PHOTOBOOTH-PATCH.md."
+    },
+    {
+      "path": "github.com/leaanthony/go-ansi-parser",
+      "version": "v1.6.1",
+      "license": "MIT",
+      "files": [
+        "third_party/licenses/github.com_leaanthony_go-ansi-parser-v1.6.1-LICENSE"
+      ]
+    },
+    {
+      "path": "github.com/leaanthony/slicer",
+      "version": "v1.6.0",
+      "license": "MIT",
+      "files": [
+        "third_party/licenses/github.com_leaanthony_slicer-v1.6.0-LICENSE"
+      ]
+    },
+    {
+      "path": "github.com/leaanthony/u",
+      "version": "v1.1.1",
+      "license": "MIT",
+      "files": [
+        "third_party/licenses/github.com_leaanthony_u-v1.1.1-LICENSE"
+      ]
+    },
+    {
+      "path": "github.com/pkg/errors",
+      "version": "v0.9.1",
+      "license": "BSD-2-Clause",
+      "files": [
+        "third_party/licenses/github.com_pkg_errors-v0.9.1-LICENSE"
+      ]
+    },
+    {
+      "path": "github.com/rivo/uniseg",
+      "version": "v0.4.7",
+      "license": "MIT",
+      "files": [
+        "third_party/licenses/github.com_rivo_uniseg-v0.4.7-LICENSE.txt"
+      ]
+    },
+    {
+      "path": "github.com/wailsapp/go-webview2",
+      "version": "v1.0.22",
+      "license": "MIT",
+      "files": [
+        "third_party/licenses/github.com_wailsapp_go-webview2-v1.0.22-LICENSE"
+      ]
+    },
+    {
+      "path": "github.com/wailsapp/wails/v2",
+      "version": "v2.17.0",
+      "license": "MIT",
+      "files": [
+        "third_party/licenses/github.com_wailsapp_wails_v2-v2.17.0-LICENSE"
+      ],
+      "notes": "Includes the matching v2.17.0 build appicon.png and windows/icon.ico assets; source blob hashes are recorded in THIRD_PARTY_NOTICES.md."
+    },
+    {
+      "path": "golang.org/x/crypto",
+      "version": "v0.53.0",
+      "license": "BSD-3-Clause",
+      "files": [
+        "third_party/licenses/golang.org_x_crypto-v0.53.0-LICENSE",
+        "third_party/licenses/golang.org_x_crypto-v0.53.0-PATENTS"
+      ]
+    },
+    {
+      "path": "golang.org/x/image",
+      "version": "v0.41.0",
+      "license": "BSD-3-Clause",
+      "files": [
+        "third_party/licenses/golang.org_x_image-v0.41.0-LICENSE",
+        "third_party/licenses/golang.org_x_image-v0.41.0-PATENTS"
+      ]
+    },
+    {
+      "path": "golang.org/x/sys",
+      "version": "v0.46.0",
+      "license": "BSD-3-Clause",
+      "files": [
+        "third_party/licenses/golang.org_x_sys-v0.46.0-LICENSE",
+        "third_party/licenses/golang.org_x_sys-v0.46.0-PATENTS"
+      ]
+    },
+    {
+      "path": "golang.org/x/text",
+      "version": "v0.39.0",
+      "license": "BSD-3-Clause",
+      "files": [
+        "third_party/licenses/golang.org_x_text-v0.39.0-LICENSE",
+        "third_party/licenses/golang.org_x_text-v0.39.0-PATENTS"
+      ]
+    },
+    {
+      "path": "gopkg.in/yaml.v3",
+      "version": "v3.0.1",
+      "license": "MIT and Apache-2.0 (file-specific scope; see LICENSE and NOTICE)",
+      "files": [
+        "third_party/licenses/gopkg.in_yaml.v3-v3.0.1-LICENSE",
+        "third_party/licenses/gopkg.in_yaml.v3-v3.0.1-NOTICE"
+      ],
+      "notes": "The upstream license file assigns MIT to specified files ported from libyaml and Apache-2.0 to the remaining project files. Preserve the complete LICENSE and NOTICE."
+    }
+  ]
+}

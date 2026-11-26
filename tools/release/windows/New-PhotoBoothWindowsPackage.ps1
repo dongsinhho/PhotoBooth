@@ -128,6 +128,29 @@ $stagingRoot = Join-Path ([IO.Path]::GetTempPath()) ('photobooth-release-' + [gu
 New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
 
 try {
+    $licenseCollector = Join-Path $PSScriptRoot 'Collect-PhotoBoothThirdPartyNotices.ps1'
+    if (!(Test-Path -LiteralPath $licenseCollector -PathType Leaf)) {
+        throw "Third-party license collector is missing: $licenseCollector"
+    }
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'LICENSE') -Destination (Join-Path $stagingRoot 'LICENSE.txt')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'THIRD_PARTY_NOTICES.md') -Destination (Join-Path $stagingRoot 'THIRD_PARTY_NOTICES.md')
+    $thirdPartyLicensePath = Join-Path $stagingRoot 'THIRD_PARTY_LICENSES.txt'
+    & $licenseCollector -OutputPath $thirdPartyLicensePath
+    if ($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $thirdPartyLicensePath -PathType Leaf)) {
+        throw 'Third-party license collection failed; refusing to package an incomplete notice bundle.'
+    }
+    $thirdPartyNoticeFiles = @('LICENSE.txt', 'THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_LICENSES.txt')
+    $thirdPartyNotices = @(
+        foreach ($noticeFile in $thirdPartyNoticeFiles) {
+            $noticePath = Join-Path $stagingRoot $noticeFile
+            [ordered]@{
+                file = $noticeFile
+                size = [long](Get-Item -LiteralPath $noticePath).Length
+                sha256 = Get-PhotoBoothSha256 -Path $noticePath
+            }
+        }
+    )
+
     $manifest = [ordered]@{
         schema_version = 1
         product = $script:PhotoBoothReleaseProduct
@@ -145,6 +168,7 @@ try {
             size = [long](Get-Item -LiteralPath $packageHelper).Length
             sha256 = Get-PhotoBoothSha256 -Path $packageHelper
         }
+        third_party_notices = $thirdPartyNotices
         source = [ordered]@{
             git_revision = $revision
             working_tree_dirty = $workingTreeDirty
@@ -235,9 +259,11 @@ Integrity:
   a trusted checksum source; it is not a digital signature or publisher proof.
 
 Licensing:
-- This internal alpha package does not define or replace end-user license terms.
-- Do not redistribute publicly. Product/legal terms and third-party dependency
-  redistribution review remain open.
+- PhotoBooth-owned code is licensed under MIT; see LICENSE.txt.
+- Third-party dependency licenses and notices are included in THIRD_PARTY_NOTICES.md
+  and THIRD_PARTY_LICENSES.txt. Preserve these files when redistributing the package.
+- This is a Windows Preview engineering package, not a production compatibility or
+  support promise. The MIT license terms apply; optional paid support does not restrict them.
 "@
     [IO.File]::WriteAllText(
         (Join-Path $stagingRoot 'README.txt'),

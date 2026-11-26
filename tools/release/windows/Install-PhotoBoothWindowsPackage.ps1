@@ -45,9 +45,10 @@ try {
     $archive = [IO.Compression.ZipFile]::OpenRead($PackagePath)
     $requiredNames = @('PhotoBooth.exe', 'README.txt')
     $manifestNames = @('release-manifest.json', 'release-manifest.ps1')
-    $allowedNames = @($requiredNames + $manifestNames + 'manage-smb-remote-admin.ps1')
-    if ($archive.Entries.Count -lt 3 -or $archive.Entries.Count -gt 4) {
-        throw 'Package must contain PhotoBooth.exe, README.txt, exactly one manifest and at most one managed SMB administration helper.'
+    $noticeNames = @('LICENSE.txt', 'THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_LICENSES.txt')
+    $allowedNames = @($requiredNames + $manifestNames + 'manage-smb-remote-admin.ps1' + $noticeNames)
+    if ($archive.Entries.Count -lt 3 -or $archive.Entries.Count -gt 7) {
+        throw 'Package must contain PhotoBooth.exe, README.txt, exactly one manifest, at most one managed SMB administration helper, and the three declared license notice files for current packages.'
     }
 
     $seen = @{}
@@ -76,6 +77,9 @@ try {
         if ($name -eq 'manage-smb-remote-admin.ps1' -and ($entry.Length -le 0 -or $entry.Length -gt 512KB)) {
             throw 'SMB administration helper has an invalid or excessive size.'
         }
+        if ($noticeNames -contains $name -and ($entry.Length -le 0 -or $entry.Length -gt 1MB)) {
+            throw "Third-party notice '$name' has an invalid or excessive uncompressed size."
+        }
     }
     foreach ($name in $requiredNames) {
         if (!$seen.ContainsKey($name)) {
@@ -85,6 +89,10 @@ try {
     $presentManifests = @($manifestNames | Where-Object { $seen.ContainsKey($_) })
     if ($presentManifests.Count -ne 1) {
         throw 'Package must contain exactly one release manifest, either JSON Preview or signed Authenticode envelope.'
+    }
+    $presentNotices = @($noticeNames | Where-Object { $seen.ContainsKey($_) })
+    if ($presentNotices.Count -ne 0 -and $presentNotices.Count -ne $noticeNames.Count) {
+        throw 'Package must contain either all three third-party notice files or none (legacy package).'
     }
 
     foreach ($entry in $archive.Entries) {
@@ -136,6 +144,11 @@ try {
         if ($existingHelperHash -ne $incomingHelperHash) {
             throw "Release version '$version' already exists with a different SMB helper artifact hash."
         }
+        $existingNotices = if ($existingManifest.PSObject.Properties.Name -contains 'third_party_notices') { ConvertTo-Json -InputObject @($existingManifest.third_party_notices) -Depth 6 -Compress } else { '' }
+        $incomingNotices = if ($manifest.PSObject.Properties.Name -contains 'third_party_notices') { ConvertTo-Json -InputObject @($manifest.third_party_notices) -Depth 6 -Compress } else { '' }
+        if ($existingNotices -cne $incomingNotices) {
+            throw "Release version '$version' already exists with different third-party license notices."
+        }
         Write-Host "RELEASE_ALREADY_INSTALLED=$version"
     }
     else {
@@ -150,6 +163,9 @@ try {
             $temporaryHelper = Join-Path $temporaryRoot 'manage-smb-remote-admin.ps1'
             if (Test-Path -LiteralPath $temporaryHelper -PathType Leaf) {
                 Copy-Item -LiteralPath $temporaryHelper -Destination (Join-Path $stagingRelease 'manage-smb-remote-admin.ps1')
+            }
+            foreach ($noticeName in $presentNotices) {
+                Copy-Item -LiteralPath (Join-Path $temporaryRoot $noticeName) -Destination (Join-Path $stagingRelease $noticeName)
             }
             [void](Assert-PhotoBoothReleaseDirectory -ReleaseDirectory $stagingRelease -ExpectedVersion $version -ExpectedSha256 $sha256 -AllowUnsignedPreview:$AllowUnsignedPreview)
             [IO.Directory]::Move($stagingRelease, $finalRelease)

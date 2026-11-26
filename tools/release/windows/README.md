@@ -73,3 +73,23 @@ The unsigned flag is explicit and the installer builder rejects unsigned package
 ### NSIS uninstaller confirmation handling
 
 The NSIS uninstaller calls `Uninstall-PhotoBoothWindowsPackage.ps1 -SuppressConfirmation` and streams its output through `nsExec::ExecToLog`. The script's dedicated switch sets `$ConfirmPreference = 'None'` only for the NSIS-managed uninstall path. This avoids passing `-Confirm:$false` as a string through Windows PowerShell 5.1 `-File` argument binding. Direct maintenance invocations retain normal PowerShell confirmation behavior unless the operator explicitly supplies `-SuppressConfirmation`.
+
+## Third-party license notices in versioned packages
+
+Every new Windows package produced by `New-PhotoBoothWindowsPackage.ps1` now runs `Collect-PhotoBoothThirdPartyNotices.ps1` before creating the ZIP. The collector enumerates the actual non-standard-library dependency closure of the Wails Windows player with `go list -deps`, compares exact module paths and versions against `third_party/licenses/manifest.json`, and fails closed when a dependency or notice is missing/mismatched.
+
+The resulting ZIP contains:
+
+- `LICENSE.txt` — PhotoBooth-owned MIT license.
+- `THIRD_PARTY_NOTICES.md` — current dependency/asset inventory and remaining eligibility notes.
+- `THIRD_PARTY_LICENSES.txt` — concatenated original third-party LICENSE, NOTICE and PATENTS files.
+
+The release manifest records each notice file's name, size and SHA-256. The installer verifies the declared notice set and digests before activation and copies the notice files into the immutable `releases\<version>` directory. Legacy packages without the new metadata remain accepted for upgrade/rollback; a package that includes undeclared or partially included notice files is rejected.
+
+Run the end-to-end test on a Windows build host:
+
+    .\tools\release\windows\release-third-party-notices-smoke.ps1
+
+This test builds a temporary unsigned package from the current Wails binary, installs it into an isolated TEMP root using `-SkipMachineProvisioning -SkipAutoStart`, checks the notice files in the installed release, modifies a notice fixture to confirm integrity rejection, and cleans its temporary package/install data. It does not change machine-wide SMB settings or the user's real PhotoBooth profile.
+
+The current manifest covers the Windows Wails runtime closure only. Add and verify platform-specific modules/notices before packaging Linux or other targets. The modified vendored `windows-camera-go` library remains a potential SignPath Foundation eligibility blocker despite its MIT license; see `THIRD_PARTY_NOTICES.md`.

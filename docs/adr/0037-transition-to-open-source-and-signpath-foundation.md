@@ -86,3 +86,29 @@ SignPath Foundation describes its certificate as providing a clear link between 
 - SignPath GitHub action v3: https://github.com/SignPath/github-action-submit-signing-request
 - SignPath project and approval setup: https://docs.signpath.io/projects
 - Open Source Definition: https://opensource.org/osd
+
+
+## Current implementation audit update - 2026-11-26
+
+### Windows runtime dependency closure and notice collection
+
+The Windows Wails application runtime dependency closure was enumerated from `go list -deps` (non-standard-library modules only) and pinned to 13 third-party modules in `third_party/licenses/manifest.json`. The original upstream LICENSE/NOTICE/PATENTS files are preserved under `third_party/licenses/` and the vendored camera module. The Wails npm lockfile has 64 packages (62 MIT, 1 ISC, 1 BSD-3-Clause; no unknown metadata). The tracked appicon.png and windows/icon.ico were byte-for-byte matched to Wails v2.17.0 MIT build assets.
+
+The release pipeline now runs `Collect-PhotoBoothThirdPartyNotices.ps1` before ZIP creation. It checks exact runtime module paths/versions against the manifest and generates the consolidated `THIRD_PARTY_LICENSES.txt`. The ZIP includes root MIT LICENSE, THIRD_PARTY_NOTICES.md and THIRD_PARTY_LICENSES.txt; manifest records each notice's size and SHA-256. Installer verifies exact files/size/hash and preserves them in the immutable release directory. Legacy package formats remain accepted only when no new notice metadata/files are present.
+
+End-to-end `release-third-party-notices-smoke.ps1` verifies ZIP entries, isolated install, retained release notices and rejection of tampered notice bytes. It uses a temporary unsigned package, `-SkipMachineProvisioning`, `-SkipAutoStart`, and cleans TEMP state. The root Go tests, Wails module tests, existing release lifecycle smoke and PowerShell AST parses passed on ShinPc on 2026-11-26.
+
+### Modified upstream remains a SignPath eligibility blocker
+
+The actual runtime closure includes the locally modified vendored `github.com/Kirizu-Official/windows-camera-go v0.2.0`. The upstream repo has releases v0.1.0 and v0.2.0 but no release binary assets. Its current main commit is GitHub-verified as signed; inspected dev branch tip is unsigned. A signed source commit is not a signed build artifact.
+
+SignPath's modified-upstream rule requires, among other conditions, signed upstream builds, a visible fork, release branches based on upstream branches normally signed, and code review of upstream changes. PhotoBooth currently vendors a local patched copy, not a visible fork; the upstream signed-build condition is not met by the observed releases. A cosmetic fork is insufficient. This is an unresolved and potentially decisive eligibility blocker. Before applying, obtain a written SignPath determination for this statically included dependency or remove/reimplement it without modified upstream source. Do not create a workflow or claim eligibility while this remains open.
+
+### Remaining gates
+
+1. Confirm copyright holder and authority for the generic MIT `PhotoBooth contributors` line; define DCO/CLA or equivalent before accepting external contributions.
+2. Resolve the modified `windows-camera-go` SignPath condition via written ruling or replacement/reimplementation.
+3. Replace default Wails icons with original PhotoBooth branding before production if desired.
+4. Extend dependency/notice inventory for Linux runtime closure and each other release target.
+5. Continue refactoring the release trust model from local certificate-store/thumbprint assumptions to SignPath artifact/origin verification only after SignPath project configuration and eligibility are confirmed.
+6. Publish source-built release/download page, finish public code-signing policy, assign reviewer/approver roles, enable MFA and branch protection, then apply and wait for explicit SignPath acceptance.

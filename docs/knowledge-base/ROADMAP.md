@@ -847,3 +847,35 @@ Official SignPath terms and GitHub workflow documentation were checked on 2026-1
 6. Resolve the modified windows-camera-go SignPath policy requirement before applying.
 
 No SignPath project was created, no workflow/secrets were added, and no release was signed in this checkpoint.
+
+
+## 2026-11-26 - Windows third-party notice collection and installer verification
+
+### Completed
+
+- Enumerated the actual non-standard-library runtime dependency closure of the Windows Wails app via `go list -deps`: 13 modules (MIT, BSD-2-Clause, BSD-3-Clause and yaml.v3's file-specific MIT/Apache-2.0 scope). The exact module paths/versions/licenses/notice files are pinned in `third_party/licenses/manifest.json`; original LICENSE/NOTICE/PATENTS files are preserved under `third_party/licenses/` or the vendored camera module.
+- The Wails npm lockfile has 64 packages: 62 MIT, 1 ISC, 1 BSD-3-Clause; no unknown license metadata. Vite is a build-only devDependency.
+- Verified the tracked Wails appicon.png and windows/icon.ico match the Wails v2.17.0 MIT source-tree assets by Git blob SHA. They are default Wails branding, not PhotoBooth artwork.
+- Added a fail-closed collector that checks the actual Windows Wails runtime module closure and exact versions against the manifest, then concatenates required notices into `third_party/licenses/THIRD_PARTY_LICENSES.txt`.
+- Windows package builder now collects root MIT LICENSE, THIRD_PARTY_NOTICES.md and THIRD_PARTY_LICENSES.txt; records each file's size and SHA-256 in manifest; includes all notices in the package ZIP.
+- Installer validates notice declarations, exact file set, file sizes and SHA-256 before activating; copies the notice files into immutable version-specific release directories. Legacy packages without notices remain supported; partial/undeclared notices or same-version notice metadata collisions are rejected.
+- Added `release-third-party-notices-smoke.ps1` and documented its use in the Windows release README.
+
+### Verification
+
+- Root `go test -count=1 ./...`: PASS.
+- Wails module `go test -count=1 ./...`: PASS.
+- Existing release lifecycle smoke: PASS.
+- Temporary signing mechanics smoke: PASS; test certificate and TEMP folder were verified removed afterward. This is not production signing.
+- End-to-end third-party notices smoke: PASS (temporary package build, 7 ZIP entries, isolated install, 3 notice files in immutable release, tampered notice rejected, TEMP files cleaned).
+- AST parse for all affected PowerShell scripts: PASS.
+- `git diff --check`: PASS (only normal line-ending conversion warnings).
+
+### Remaining SignPath/legal blockers
+
+- SignPath's modified-upstream policy is not satisfied yet: locally modified vendored `windows-camera-go v0.2.0` is not a visible fork, and upstream v0.1.0/v0.2.0 releases have no binary assets. GitHub-verified main commit signature does not prove upstream signed builds. Resolve by obtaining a written SignPath ruling or replacing/reimplementing the modified upstream dependency; do not create a cosmetic fork and claim it satisfies terms.
+- Root MIT copyright attribution/ownership needs maintainer confirmation; define contribution process before outside contributions.
+- Default Wails icons need replacement with original PhotoBooth branding before production if desired.
+- Extend runtime dependency/notice manifest for Linux/other targets before packaging those targets.
+
+See updated `THIRD_PARTY_NOTICES.md`, `HANDOFF_2026-11-26-license-audit.md` and `tools/release/windows/README.md`. SignPath project/application/workflow is still not created; no production signing secrets or signed releases exist.

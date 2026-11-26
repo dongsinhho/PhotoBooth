@@ -258,6 +258,47 @@ function Assert-PhotoBoothReleaseDirectory {
         throw 'Release contains an unmanaged SMB administration helper that is not declared in its manifest.'
     }
 
+    $noticeNames = @('LICENSE.txt', 'THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_LICENSES.txt')
+    $declaresThirdPartyNotices = $manifest.PSObject.Properties.Name -contains 'third_party_notices'
+    if ($declaresThirdPartyNotices) {
+        $noticeEntries = @($manifest.third_party_notices)
+        if ($noticeEntries.Count -ne $noticeNames.Count) {
+            throw 'Release manifest must declare exactly three third-party notice files.'
+        }
+        $declaredNames = @($noticeEntries | ForEach-Object { [string]$_.file } | Sort-Object)
+        $expectedNames = @($noticeNames | Sort-Object)
+        if (($declaredNames -join '|') -cne ($expectedNames -join '|')) {
+            throw 'Release manifest third-party notice file list does not match the required notice bundle.'
+        }
+        foreach ($notice in $noticeEntries) {
+            $name = [string]$notice.file
+            if ($notice.size -isnot [ValueType] -or [long]$notice.size -le 0 -or [long]$notice.size -gt 1MB) {
+                throw "Release third-party notice '$name' has an invalid or excessive declared size."
+            }
+            if ([string]$notice.sha256 -notmatch '^[0-9a-fA-F]{64}$') {
+                throw "Release third-party notice '$name' has an invalid SHA-256 value."
+            }
+            $noticePath = Join-Path $ReleaseDirectory $name
+            if (!(Test-Path -LiteralPath $noticePath -PathType Leaf)) {
+                throw "Release third-party notice is missing: $name"
+            }
+            $noticeFile = Get-Item -LiteralPath $noticePath
+            if ([long]$noticeFile.Length -ne [long]$notice.size) {
+                throw "Release third-party notice size does not match its manifest: $name"
+            }
+            if ((Get-PhotoBoothSha256 -Path $noticePath) -ne ([string]$notice.sha256).ToLowerInvariant()) {
+                throw "Release third-party notice SHA-256 does not match its manifest: $name"
+            }
+        }
+    }
+    else {
+        foreach ($name in $noticeNames) {
+            if (Test-Path -LiteralPath (Join-Path $ReleaseDirectory $name) -PathType Leaf) {
+                throw "Release contains an undeclared third-party notice file: $name"
+            }
+        }
+    }
+
     return [pscustomobject]@{
         Manifest = $manifest
         Executable = $exePath
