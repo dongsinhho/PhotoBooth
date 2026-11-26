@@ -754,3 +754,28 @@ The TCP 445 PktMon capture was run with a temporary filter `PhotoBooth-SMB445`, 
 SMB server baseline at test time remains `LanmanServer Stopped/Disabled`, `AutoShareWks=0`; three ActiveStore inbound Block rules remain enabled on all profiles. NetBIOS kernel listeners remain bound locally on TCP 139 / UDP 137,138 but incoming probes were discarded. SMB client role remains available (`LanmanWorkstation` Running).
 
 No SMB service, firewall, share or registry settings were changed during this test. Raspbian was used only to send probes. PktMon capture and its temporary filter were cleaned up after analysis.
+
+
+## 2026-11-26 - Production code-signing provider evaluation
+
+Added ADR 0036 and handoff `HANDOFF_2026-11-26-signing-provider-evaluation.md` after checking the live public GitHub repository metadata, source licensing strategy, release pipeline, SignPath Foundation conditions, SignPath GitHub integration and Microsoft's current code-signing guidance.
+
+### Decision
+
+- Do not use a self-signed certificate for public/customer production releases. Keep the disposable certificate in `release-signing-smoke.ps1` strictly for local mechanics tests.
+- SignPath Foundation is **not compatible with the current controlled-core product/licensing model**. The published conditions require an OSI-approved license for all components without commercial dual licensing and prohibit proprietary code. The current `LICENSE_STRATEGY.md` deliberately reserves core modification/derivative/redistribution rights and says not to market the core as Open Source. Do not add an OSI LICENSE file merely to obtain signing; that changes users' legal rights.
+- A SignPath Foundation signature also identifies **SignPath Foundation** as the Windows certificate publisher, not PhotoBooth's rights holder. The Foundation route would additionally require a released project/download page, public Code signing policy/privacy statement, team roles, MFA, verified GitHub-hosted build provenance and per-release manual approval.
+- The live public GitHub repository (`dongsinhho/PhotoBooth`) currently reports `license=null`, has no root LICENSE/COPYING file, no GitHub Releases or tags, and no `.github/workflows` directory. Being public is not equivalent to being Open Source or eligible for the Foundation certificate.
+- Preferred candidate preserving product intent: a genuine public OV Code Signing certificate issued to the actual rights-holder/publisher identity, with CA-backed HSM/hardware-token/remote signing and GitHub Actions integration. Use RFC 3161 timestamping and maintain one consistent verified signer identity. OV/EV signatures do not guarantee a warning-free first download; SmartScreen reputation still accumulates over time.
+- Microsoft Azure Artifact Signing Public Trust is not currently a fit for a Vietnam-based individual or Vietnam-registered organization under Microsoft's current geographic list. Do not misrepresent publisher location. Revisit only if an actual eligible legal entity owns the product and is in a supported jurisdiction.
+
+### Implementation status
+
+- Existing local release chain remains certificate-store based: signed EXE/helper, signed release-manifest envelope, NSIS Setup signature, embedded hashes and pinned publisher verification. Production thumbprint allowlist remains empty.
+- SignPath GitHub integration is technically available via `SignPath/github-action-submit-signing-request@v3` and a GitHub-hosted workflow artifact; the old archived action is not to be used. No SignPath workflow was added because eligibility is not met.
+- No GitHub Actions signing workflow was added yet because the real publisher identity and certificate/remote-signing provider are not selected. Do not add dummy secrets/placeholders or an inactive production workflow.
+- No certificate, private key, HSM account or GitHub signing secret was created or changed.
+
+### Next dependency
+
+Product owner must identify the genuine publisher identity: an individual legal identity or an existing registered legal entity that actually owns PhotoBooth. Then compare eligible OV Code Signing CAs and their supported remote HSM/GitHub Actions integrations, adapt the current staging/signing/package order, test signatures and timestamps, independently pin the verified thumbprint, and only then enable production release signing. See ADR 0036.
