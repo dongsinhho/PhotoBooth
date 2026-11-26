@@ -779,3 +779,14 @@ Added ADR 0036 and handoff `HANDOFF_2026-11-26-signing-provider-evaluation.md` a
 ### Next dependency
 
 Product owner must identify the genuine publisher identity: an individual legal identity or an existing registered legal entity that actually owns PhotoBooth. Then compare eligible OV Code Signing CAs and their supported remote HSM/GitHub Actions integrations, adapt the current staging/signing/package order, test signatures and timestamps, independently pin the verified thumbprint, and only then enable production release signing. See ADR 0036.
+
+
+## 2026-11-26 - Individual publisher identity and signing provider shortlist
+
+Product owner confirmed PhotoBooth's intended publisher identity is **Individual**. Signing research is now narrowed to individual-validated Authenticode (IV) certificates; organization OV is not the selected identity.
+
+Primary candidate: SSL.com IV Code Signing + eSigner for Code cloud signing, pending written confirmation of Vietnam individual eligibility and security details. Public list pricing shows IV certificate $129/year and eSigner Tier 1 $15/month ($180/year annual subscription), 240 signing operations/year and one credential; approximate combined annual list cost $309 USD before tax/fees. SSL.com advertises IV enrollment in eSigner, cloud HSM private-key custody, eSigner CKA + SignTool GitHub Actions integration and a 30-day trial. These are list prices and technical claims, not a purchase or final quote. Certificate issuance validity is capped at about 459 days under current industry rules; multi-year terms involve reissue/renewal.
+
+Alternative local reseller MuaSSL.com offers IV CodeSign with hardware-token/HSM storage, but exact issuer/chain and remote cloud signing/GitHub-hosted runner support remain unverified. Sectigo Individual Code Signing has documented individual validation but hardware-key requirements mean a USB token cannot be attached to GitHub-hosted runner without a separate signer architecture. Microsoft Azure Artifact Signing Public Trust remains geographically unavailable for a Vietnam-based individual under current Microsoft guidance.
+
+Next gate: obtain written confirmation from SSL.com for Vietnam residency, exact Publisher/Subject name, IV + eSigner Tier 1 compatibility, GitHub-hosted Windows Actions authentication/MFA/TOTP security, total price and renewal, supported Authenticode file types, timestamp service, and CA chain/root. No certificate or signing workflow until these are confirmed. See ADR 0036 and `HANDOFF_2026-11-26-individual-signing-shortlist.md`.

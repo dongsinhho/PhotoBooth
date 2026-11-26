@@ -118,3 +118,70 @@ The existing builder currently signs from a Windows certificate store and constr
 - Microsoft Artifact Signing geographic prerequisites: https://learn.microsoft.com/en-us/azure/artifact-signing/quickstart
 - Microsoft SmartScreen reputation: https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation
 - CA/Browser Forum Code Signing Baseline Requirements v3.11.0 (includes organization and individual identity validation): https://cabforum.org/working-groups/code-signing/requirements/
+
+
+## Individual publisher follow-up - 2026-11-26
+
+The product owner selected **Individual** as the intended PhotoBooth publisher identity. The next provider-selection task is therefore individual-validated Authenticode Code Signing (IV), not organization OV.
+
+### Research outcome
+
+**Primary candidate to contact: SSL.com IV Code Signing + eSigner for Code.** This is a candidate, not an approved purchase; country acceptance and account-level details must be confirmed in writing first.
+
+Official SSL.com product information states:
+- IV Code Signing verifies the individual's personal name and does not require a business entity.
+- The published base certificate price is USD $129/year.
+- eSigner for Code cloud signing is a separate subscription; published Tier 1 is $15/month with 240 signings/year and one credential (annual subscription shown as $180/year). SSL.com advertises a 30-day eSigner trial.
+- IV Code Signing is compatible with eSigner cloud signing; the private key remains in SSL.com's cloud HSM rather than being exported to GitHub.
+- SSL.com publishes GitHub Actions integration for eSigner CKA + `signtool.exe`; the Windows CKA registers the cloud certificate in the Windows certificate store so the existing Authenticode signing calls can potentially use it.
+- SSL.com's individual validation asks for government-issued photo ID, address evidence and a face/ID comparison photo; the validation guide describes individual applicants and the IV process.
+- Public Code Signing certificates are now short-lived (maximum approximately 459 days under current CA/B requirements); multi-year purchase is a subscription/reissue term, not one long-lived certificate. Timestamp each signature.
+
+Reference pages:
+- SSL.com IV Code Signing: https://www.ssl.com/products/software-integrity/code-signing/iv/
+- SSL.com eSigner for Code / pricing: https://www.ssl.com/products/software-integrity/signing-service/
+- SSL.com validation process: https://www.ssl.com/how-to/validation-process-for-document-signing-code-signing-and-ev-code-signing-certificates/
+- SSL.com eSigner GitHub Actions/CI guide: https://www.ssl.com/how-to/integrating-esigner-with-ci-cd-pipelines-a-complete-setup-and-configuration-guide/
+- Microsoft code-signing geographic guidance: https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options
+
+Estimated first-year list price if annual Tier 1 is selected: $129 certificate + $180 eSigner = **about $309 USD before taxes/fees**, subject to quote, eligible country, billing and any required add-ons. Tier 1 is 240 signing operations/year; expected PhotoBooth release volume should fit comfortably if each final release signs a small number of files. Confirm whether all internal Authenticode signatures count separately and how a package/retry consumes credits.
+
+### Geographic/identity caveat
+
+Microsoft confirms individual Azure Artifact Signing is currently limited to US/Canada, so Azure Public Trust is not the route for a Vietnam-based individual.
+
+SSL.com publishes an IV product and worldwide/cloud-signing claims, but the reviewed public pages do **not explicitly confirm issuance to an individual resident in Vietnam**. Do not assume acceptance based only on the product page. Obtain written confirmation from SSL.com before purchase, including the exact Certificate Subject/Publisher name for a Vietnamese ID and address.
+
+### Required pre-purchase confirmation
+
+Contact SSL.com sales/support and obtain answers to:
+1. Can SSL.com issue IV Code Signing to an individual resident in Vietnam, using a Vietnamese passport/ID and Vietnam residential address?
+2. What exact Subject/Publisher name will appear in Windows UAC and `Get-AuthenticodeSignature`? Will it be the full legal name as transliterated/entered on the accepted identity documents?
+3. Can this exact IV certificate be enrolled in eSigner for Code Tier 1 and used with GitHub-hosted Windows Actions via eSigner CKA + `signtool.exe`?
+4. What are the full first-year and renewal costs, including certificate, eSigner subscription, tax, validation, and any credential/token fee? Confirm 30-day trial and cancellation/renewal behavior.
+5. What is the supported workflow for MFA/TOTP on unattended GitHub Actions, and how are eSigner credentials/TOTP secrets protected, rotated and revoked? Confirm whether the service requires a long-lived TOTP seed in Actions Secrets and whether an approval/authorization policy can constrain signing to protected release workflows.
+6. Does the subscription support Authenticode signing for `.exe`, `.dll`, `.ps1` and the final NSIS Setup EXE, with RFC 3161 timestamping? Confirm timestamp service URL and recommended digest.
+7. What is the maximum certificate validity per issuance and how are reissues handled during the purchased term?
+8. Provide the CA chain/root name and confirm it is in the Microsoft Trusted Root Program for standard Windows Authenticode verification.
+
+### GitHub Actions architecture candidate
+
+If SSL.com confirms eligibility and security controls:
+- Use GitHub-hosted `windows-latest` for build and package stages; no physical USB token is needed.
+- Protect the signing job with a GitHub Environment (required reviewer), restrict it to protected release tags/main, and never expose signing credentials to PR/fork workflows.
+- Store only provider credentials/config in GitHub Environment Secrets; never store a private key/PFX. Use ephemeral runner files and clean them after signing.
+- Configure eSigner CKA, load the cloud certificate into the runner's Windows certificate store, obtain the verified certificate thumbprint, then call the existing release scripts using that thumbprint and timestamp URL.
+- Keep provider authentication separate from ordinary build permissions; audit signing requests and retain CI logs.
+- The existing builder must be refactored into ordered stages if needed: sign inner EXE/helper, compute hashes, create signed release manifest, assemble NSIS package, sign final Setup.exe, then verify every signature/timestamp and enforce the pinned publisher identity.
+- Do not commit a workflow until provider account, supported auth method, certificate subject and exact signing API behavior are confirmed.
+
+### Alternatives / comparison
+
+- **MuaSSL.com IV CodeSign**: local reseller advertises IV personal Code Signing and hardware token/HSM. Current public listing shows a lower multi-year price, but issuer/chain and cloud remote signing/GitHub-hosted runner support are not sufficiently clear. Consider only if they provide the exact issuing CA, chain, and a supported remote cloud-signing method in writing. A USB token alone cannot be attached to a GitHub-hosted runner.
+- **Sectigo Individual Code Signing**: Sectigo's CP/CPS documents individual validation; local reseller lists a Sectigo IV product. It appears to require hardware-protected keys. A physical token would require a carefully isolated self-hosted signer or a separate supported cloud signing service; not the preferred GitHub-hosted CI path unless remote signing is confirmed.
+- **SSL.com IV + eSigner**: currently the strongest match to the requirement for personal publisher identity plus hosted GitHub Actions signing, subject to Vietnam eligibility and security/pricing confirmation.
+
+### Current gate
+
+Status: **Provider shortlist complete; SSL.com written eligibility/technical confirmation pending.**
+No certificate has been purchased. No GitHub secrets or production workflow have been created. Production publisher thumbprint remains unset.
